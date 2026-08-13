@@ -3,7 +3,7 @@
 # A single obvious entry point for routine work — a command people have to
 # remember is a command they get wrong.
 
-.PHONY: help setup db-up db-down db-reset migrate migration seed check test test-py test-ts fmt
+.PHONY: help setup db-up db-down db-reset migrate migration seed schema check test test-py test-ts fmt
 
 help:
 	@echo "setup      Install all dependencies"
@@ -13,6 +13,7 @@ help:
 	@echo "migrate    Apply migrations"
 	@echo "migration  Generate a migration:  make migration m='add widgets'"
 	@echo "seed       Populate development data"
+	@echo "schema     Regenerate ActivityEvent JSON Schema and TypeScript types"
 	@echo "check      Lint, format and typecheck everything"
 	@echo "test       Run all tests"
 	@echo "fmt        Format everything"
@@ -50,6 +51,12 @@ migration:
 
 seed:
 	uv run python -m cairn_api.db.seed
+
+# The Python model is the source of truth; both artefacts are generated from it
+# and committed, so a schema change is visible in review.
+schema:
+	uv run python -m cairn_api.events.export_schema
+	pnpm --filter @cairn/types generate
 
 check:
 	pnpm check

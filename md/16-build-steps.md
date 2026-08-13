@@ -151,4 +151,20 @@ Design decisions this forced:
 
 Also fixed: the test harness built its schema with `create_all`, which has no representation of RLS policies, so the test database had no isolation at all. Tests are now built by running migrations, meaning the schema under test is the schema that ships — and the migration itself is exercised on every run.
 
-**→ Step 5: Background-job tenant wrapper.** Job envelope requiring `tenantid`, a single wrapper setting context, fail-closed behaviour, and cross-tenant leakage tests for the background path specifically.
+**✅ Step 5 — Background-job tenant wrapper. Complete.** (commit `3b7598b`)
+
+Delivered: a validated `JobEnvelope` with mandatory `tenant_id`, a handler registry, and a runner that establishes tenant context before any handler code executes. 14 job tests, 56 Python tests total.
+
+**The design rule: a handler never opens its own session.** It receives one, already scoped, from the runner. There is no code path by which a handler reaches the database unscoped, because it is never given the means to. That is a structural guarantee rather than a convention — conventions are followed until someone is in a hurry.
+
+Failure is closed at three points:
+
+- **Parsing** — an envelope without a tenant fails validation, so an untenanted job is _unrepresentable_ rather than merely discouraged. The nil UUID is rejected too: it parses cleanly and looks valid, which makes it exactly what an uninitialised variable produces.
+- **Dispatch** — an unknown job type raises rather than being logged and skipped. A dropped job leaves no trace and looks identical to one that completed, which is how work silently disappears from a queue for weeks.
+- **Execution** — a handler that raises rolls back. A partially applied job is worse than a failed one.
+
+The key test runs three jobs for alternating tenants in sequence, very likely reusing one pooled connection, and asserts each sees only its own scope — the leak that `SET` instead of `SET LOCAL` would produce, invisible until traffic is real.
+
+Also fixed: the test harness left application settings pointing at the _development_ database, so code under test connected somewhere the fixtures had never written. An isolation test could then pass by finding nothing at all — the most misleading possible outcome for a test whose purpose is proving data is hidden correctly.
+
+**→ Step 6: `ActivityEvent` schema.** CloudEvents envelope, CAIRN payload, JSON Schema validation, and types generated for both languages from one source.

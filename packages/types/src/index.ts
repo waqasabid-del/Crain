@@ -64,3 +64,11 @@ export function asTenantId(value: string): TenantId {
   }
   return value as TenantId;
 }
+
+/**
+ * Event schema types, generated from the Python model.
+ *
+ * @see apps/api/src/cairn_api/events/schema.py — the source of truth
+ * @see `make schema` — regenerate after changing it
+ */
+export type * from "./generated/activity-event.js";

@@ -2,7 +2,7 @@
   "name": "@cairn/types",
   "version": "0.0.0",
   "private": true,
-  "description": "Shared types — generated from the API OpenAPI schema, plus hand-written domain types",
+  "description": "Shared types \u2014 generated from the API OpenAPI schema, plus hand-written domain types",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -14,7 +14,8 @@
     "lint:fix": "eslint src --fix",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "generate": "node scripts/generate-types.mjs"
   },
   "devDependencies": {
     "@cairn/config": "workspace:*",
@@ -22,6 +23,7 @@
     "@vitest/coverage-v8": "catalog:",
     "eslint": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "json-schema-to-typescript": "catalog:"
   }
 }

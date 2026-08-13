@@ -1,0 +1,308 @@
+{
+  "$defs": {
+    "Activity": {
+      "additionalProperties": false,
+      "description": "What happened.",
+      "properties": {
+        "action": {
+          "description": "Source-specific verb: merged, sent, decided.",
+          "minLength": 1,
+          "title": "Action",
+          "type": "string"
+        },
+        "category": {
+          "$ref": "#/$defs/ActivityCategory"
+        },
+        "project_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Ref"
+        },
+        "summary": {
+          "description": "One-line human-readable description. Embedded for retrieval rather than the raw content \u2014 summarising before embedding cuts retrieval failures substantially (md/09 \u00a74.4).",
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": ["category", "action", "summary"],
+      "title": "Activity",
+      "type": "object"
+    },
+    "ActivityCategory": {
+      "description": "The four capture pillars every source normalizes into.",
+      "enum": ["code", "conversation", "meeting", "document"],
+      "title": "ActivityCategory",
+      "type": "string"
+    },
+    "ActivityPayload": {
+      "additionalProperties": false,
+      "description": "The CAIRN-defined ``data`` section of the CloudEvent.",
+      "properties": {
+        "activity": {
+          "$ref": "#/$defs/Activity"
+        },
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "content": {
+          "$ref": "#/$defs/Content"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": ["actor", "activity", "provenance"],
+      "title": "ActivityPayload",
+      "type": "object"
+    },
+    "Actor": {
+      "additionalProperties": false,
+      "description": "Who did the thing.",
+      "properties": {
+        "co_actors": {
+          "description": "Additional contributors, first-class rather than an afterthought. Squash merges collapse a branch into one commit, so pair and mob work is systematically erased unless co-authorship is modelled explicitly (md/01 \u00a75.1).",
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Co Actors",
+          "type": "array"
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
+        "is_bot": {
+          "default": false,
+          "description": "Bot activity is retained as project context but excluded from human attribution. Dependabot can out-commit every human on a team, so filtering at the schema level means the rule cannot be forgotten by one consumer downstream.",
+          "title": "Is Bot",
+          "type": "boolean"
+        },
+        "raw_identity": {
+          "description": "Identity as the source reported it \u2014 an email, handle or user ID.",
+          "minLength": 1,
+          "title": "Raw Identity",
+          "type": "string"
+        },
+        "resolved_person_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CAIRN person this resolves to. Null before identity resolution runs. One human may appear under several raw identities \u2014 a work email, a personal email, a GitHub handle \u2014 and treating those as different people would fragment their contribution record.",
+          "title": "Resolved Person Id"
+        }
+      },
+      "required": ["raw_identity"],
+      "title": "Actor",
+      "type": "object"
+    },
+    "Certainty": {
+      "description": "How much CAIRN trusts a claim.\n\nCategorical, never numeric. A \"73% confident\" badge looks rigorous, means\nnothing to a non-technical reader, and invites false precision. Internal\nnumeric confidence exists for thresholds and evaluation, but it never\nreaches this field or the interface (md/05 \u00a7A.2.1).",
+      "enum": ["verified", "observed", "suggested"],
+      "title": "Certainty",
+      "type": "string"
+    },
+    "Content": {
+      "additionalProperties": false,
+      "description": "Optional payload detail.\n\nFrequently absent by design. Raw diffs stay out of the pipeline by default\n(md/01 \u00a76.3) and non-work-relevant chat is excluded entirely (md/02 \u00a77.1),\nso **missing content is the normal case, not a degraded one.**",
+      "properties": {
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        }
+      },
+      "title": "Content",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "description": "Where the claim came from, and how much to trust it.",
+      "properties": {
+        "certainty": {
+          "$ref": "#/$defs/Certainty"
+        },
+        "source_timestamp_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Transcript offset for meeting-derived events, enabling one-click verification (md/03 \u00a76). Null for other sources.",
+          "title": "Source Timestamp Ref"
+        },
+        "source_url": {
+          "anyOf": [
+            {
+              "format": "uri",
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Something a human can open. Provenance is a product feature, not a debug aid.",
+          "title": "Source Url"
+        }
+      },
+      "required": ["certainty"],
+      "title": "Provenance",
+      "type": "object"
+    }
+  },
+  "$id": "https://cairn.ai/schemas/activity-event/v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A CloudEvents 1.0 envelope carrying a CAIRN activity payload. Generated from apps/api/src/cairn_api/events/schema.py \u2014 edit that, not this.",
+  "properties": {
+    "actorid": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Resolved person, mirrored onto the envelope for cheap filtering.",
+      "title": "Actorid"
+    },
+    "data": {
+      "$ref": "#/$defs/ActivityPayload"
+    },
+    "datacontenttype": {
+      "const": "application/json",
+      "default": "application/json",
+      "title": "Datacontenttype",
+      "type": "string"
+    },
+    "dataschema": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dataschema"
+    },
+    "id": {
+      "description": "Unique per event. Combined with `source`, this is the idempotency key \u2014 webhook redelivery is normal, so duplicates must upsert rather than create a second record (md/01 \u00a74.1).",
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "ingestedat": {
+      "description": "When CAIRN received the event. Diverges from `time` routinely \u2014 backfill imports 90 days in minutes. Operational views order by this; user-facing views never do.",
+      "format": "date-time",
+      "title": "Ingestedat",
+      "type": "string"
+    },
+    "source": {
+      "description": "Producer URI-reference, e.g. /github/12345 or /slack/T0001.",
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    },
+    "specversion": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Specversion",
+      "type": "string"
+    },
+    "subject": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Entity acted upon \u2014 repository, channel or meeting identifier.",
+      "title": "Subject"
+    },
+    "tenantid": {
+      "description": "Owning workspace. Mandatory on every event, no exceptions. This lives on the envelope rather than inside the payload so that a background job cannot lose tenant context \u2014 the context is structurally inseparable from the event (md/06 \u00a74.3).",
+      "format": "uuid",
+      "title": "Tenantid",
+      "type": "string"
+    },
+    "time": {
+      "description": "When the activity **happened**, not when CAIRN received it. Every user-facing view orders by this. Conflating it with ingestion time produces a brief claiming today's work that actually happened in March (md/12 \u00a73.2).",
+      "format": "date-time",
+      "title": "Time",
+      "type": "string"
+    },
+    "traceparent": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "W3C trace context, correlating this event with its cause (md/10 \u00a77).",
+      "title": "Traceparent"
+    },
+    "type": {
+      "description": "Reverse-DNS with a version suffix, per the CloudEvents convention: ai.cairn.github.pull_request.merged.v1. The version lives in the type so a breaking change produces a new type rather than silently altering the meaning of an existing one (md/12 \u00a74).",
+      "minLength": 1,
+      "pattern": "^ai\\.cairn\\.[a-z0-9_]+\\.[a-z0-9_.]+\\.v\\d+$",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": ["id", "source", "type", "time", "data", "tenantid"],
+  "title": "ActivityEvent",
+  "type": "object"
+}

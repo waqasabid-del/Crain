@@ -18,6 +18,11 @@ export default tseslint.config(
       "**/.open-next/**",
       "**/node_modules/**",
       "**/coverage/**",
+      // Generated code is not hand-editable — a fix would be overwritten on the
+      // next regeneration, leaving a permanently failing lint nobody can clear.
+      // Style is the generator's responsibility; correctness is still enforced
+      // because these files are type-checked like any other.
+      "**/src/generated/**",
     ],
   },
   js.configs.recommended,
