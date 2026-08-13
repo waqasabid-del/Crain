@@ -28,3 +28,15 @@ catalog:
   # Testing
   vitest: ^3.2.4
   "@vitest/coverage-v8": ^3.2.4
+
+  # UI / design system
+  react: ^19.1.1
+  react-dom: ^19.1.1
+  "@types/react": ^19.1.10
+  "@types/react-dom": ^19.1.7
+  clsx: ^2.1.1
+  jsdom: ^26.1.0
+  "@testing-library/react": ^16.3.0
+  "@testing-library/jest-dom": ^6.8.0
+  "@testing-library/user-event": ^14.6.1
+  "vitest-axe": ^0.1.0

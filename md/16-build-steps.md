@@ -96,4 +96,16 @@ _Everything expensive to reverse. No user-visible features yet — this is the l
 
 ## Current position
 
-**→ Step 1: Monorepo scaffolding.** Nothing built yet.
+**✅ Step 1 — Monorepo scaffolding. Complete.** (commit `b155522`)
+
+Delivered: pnpm workspaces with catalogs, Turborepo, uv workspace, Ruff + mypy strict, ESLint strict-type-checked with jsx-a11y as errors, Prettier, commitlint, lefthook git hooks, GitHub Actions CI with a single required status, and shared domain vocabulary mirrored across TypeScript and Python with a drift test.
+
+Verified: `pnpm check` clean, 6 TS tests and 11 Python tests passing, all five pre-commit hooks passing, and the secret scanner proven to catch a planted key.
+
+Three fixes made during the step, each because a hook caught a real problem:
+
+- Root ESLint config was missing, so the pre-commit hook could not lint staged files. Resolved by exporting a root-ready config from `@cairn/config` rather than duplicating dependencies at the root.
+- `vitest.config.ts` sat outside every tsconfig project, so type-aware linting failed on it. Config files are now included in each package's project.
+- The secret scanner matched its own pattern definitions, blocking every commit that touched it. Moved into `scripts/check-secrets.sh` with patterns assembled from fragments so it cannot self-match, and with the script excluded from its own scan.
+
+**→ Step 2: Design system foundation.** Black/white token set, typography scale, spacing, WCAG AA contrast verification, base components.

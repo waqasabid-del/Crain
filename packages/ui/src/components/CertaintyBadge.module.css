@@ -1,0 +1,41 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+
+  padding: 0 var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  white-space: nowrap;
+
+  border-width: var(--border-thin);
+  border-radius: var(--radius-sm);
+}
+
+/*
+ * Tiers differ by weight and border treatment, never by hue.
+ * A less certain claim reads quieter, not more alarming.
+ */
+
+.verified {
+  color: var(--fg-default);
+  border-style: solid;
+  border-color: var(--border-strong);
+  font-weight: var(--weight-medium);
+}
+
+.observed {
+  color: var(--fg-default);
+  border-style: solid;
+  border-color: var(--border-default);
+  font-weight: var(--weight-normal);
+}
+
+.suggested {
+  color: var(--fg-muted);
+  /* Dashed reads as provisional without needing colour to say so. */
+  border-style: dashed;
+  border-color: var(--border-default);
+  font-weight: var(--weight-normal);
+  font-style: italic;
+}

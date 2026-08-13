@@ -1,0 +1,80 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+
+  /* WCAG 2.5.8 — minimum target size. See tokens/layout.ts. */
+  min-height: var(--min-target);
+  min-width: var(--min-target);
+
+  font-family: var(--font-sans);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+
+  border: var(--border-thin) solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+
+  transition:
+    background-color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+
+.button:disabled {
+  /* Opacity alone would drop contrast below AA, so the disabled state uses
+     explicit low-contrast tokens and `not-allowed` rather than fading out. */
+  color: var(--fg-subtle);
+  cursor: not-allowed;
+}
+
+/* Sizes ------------------------------------------------------------------- */
+
+.sm {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.md {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+}
+
+/* Variants ---------------------------------------------------------------- */
+
+.primary {
+  background: var(--fg-default);
+  color: var(--fg-inverse);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--fg-muted);
+}
+
+.primary:disabled {
+  background: var(--bg-muted);
+  color: var(--fg-subtle);
+}
+
+.secondary {
+  background: var(--bg-default);
+  color: var(--fg-default);
+  border-color: var(--border-interactive);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+
+.secondary:disabled {
+  border-color: var(--border-strong);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--fg-default);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--bg-muted);
+}

@@ -1,0 +1,189 @@
+/**
+ * Design tokens as CSS custom properties.
+ *
+ * Mirrors src/tokens/*.ts. The TypeScript tokens are the source of truth for
+ * anything that needs to be reasoned about in code (contrast tests, generated
+ * documentation); these are what components actually consume at runtime.
+ *
+ * Theme switching is a single attribute on the root element, so it costs one
+ * repaint rather than a re-render.
+ */
+
+:root {
+  /* Typography */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  --prose-max-width: 68ch;
+
+  /* Spacing — 4px base */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Shape */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-full: 9999px;
+
+  --border-thin: 1px;
+  --border-thick: 2px;
+
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 8px -2px rgb(0 0 0 / 0.08);
+
+  /* Interaction */
+  --min-target: 44px;
+  --focus-width: 2px;
+  --focus-offset: 2px;
+
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Light theme — the default */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-default: #ffffff;
+  --bg-subtle: #fafafa;
+  --bg-muted: #f5f5f5;
+  --bg-inverse: #0a0a0a;
+
+  --fg-default: #0a0a0a;
+  --fg-muted: #525252;
+  --fg-subtle: #737373;
+  --fg-inverse: #ffffff;
+  --fg-on-accent: #ffffff;
+
+  --border-default: #e5e5e5;
+  --border-strong: #d4d4d4;
+  --border-interactive: #737373;
+  --border-focus: #1d4ed8;
+
+  --accent-default: #1d4ed8;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-default: #0a0a0a;
+  --bg-subtle: #171717;
+  --bg-muted: #262626;
+  --bg-inverse: #ffffff;
+
+  --fg-default: #fafafa;
+  --fg-muted: #a3a3a3;
+  --fg-subtle: #737373;
+  --fg-inverse: #0a0a0a;
+  --fg-on-accent: #0a0a0a;
+
+  --border-default: #262626;
+  --border-strong: #404040;
+  --border-interactive: #737373;
+  --border-focus: #60a5fa;
+
+  --accent-default: #60a5fa;
+}
+
+/* Respect the OS preference when no explicit theme is set */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --bg-default: #0a0a0a;
+    --bg-subtle: #171717;
+    --bg-muted: #262626;
+    --bg-inverse: #ffffff;
+
+    --fg-default: #fafafa;
+    --fg-muted: #a3a3a3;
+    --fg-subtle: #737373;
+    --fg-inverse: #0a0a0a;
+    --fg-on-accent: #0a0a0a;
+
+    --border-default: #262626;
+    --border-strong: #404040;
+    --border-interactive: #737373;
+    --border-focus: #60a5fa;
+
+    --accent-default: #60a5fa;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Base                                                                       */
+/* ------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-default);
+  color: var(--fg-default);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+/**
+ * A single, consistent focus indicator.
+ *
+ * `:focus-visible` rather than `:focus` so a mouse click does not leave a ring
+ * behind, while keyboard navigation always shows one. Removing focus outlines
+ * without replacement is the most common WCAG 2.4.7 failure in production
+ * interfaces.
+ */
+:focus-visible {
+  outline: var(--focus-width) solid var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+/**
+ * WCAG 2.3.3 — honour a user's reduced-motion preference.
+ *
+ * Animation is not decoration for people with vestibular disorders; it can
+ * cause genuine physical discomfort.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
