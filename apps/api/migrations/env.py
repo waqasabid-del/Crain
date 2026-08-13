@@ -11,6 +11,12 @@ from logging.config import fileConfig
 
 from alembic import context
 from cairn_api.config import get_settings
+from cairn_api.db.auth_models import (  # noqa: F401  (register metadata)
+    Invitation,
+    OAuthIdentity,
+    PasswordCredential,
+    Session,
+)
 from cairn_api.db.base import Base
 from cairn_api.db.models import Membership, Tenant, User  # noqa: F401  (register metadata)
 from sqlalchemy import engine_from_config, pool

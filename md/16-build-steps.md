@@ -167,4 +167,18 @@ The key test runs three jobs for alternating tenants in sequence, very likely re
 
 Also fixed: the test harness left application settings pointing at the _development_ database, so code under test connected somewhere the fixtures had never written. An isolation test could then pass by finding nothing at all — the most misleading possible outcome for a test whose purpose is proving data is hidden correctly.
 
-**→ Step 6: `ActivityEvent` schema.** CloudEvents envelope, CAIRN payload, JSON Schema validation, and types generated for both languages from one source.
+**✅ Step 6 — `ActivityEvent` schema. Complete.** (commit `e25cce0`)
+
+Delivered: a CloudEvents 1.0 envelope with the CAIRN payload, JSON Schema generated from the Python model, TypeScript generated from that schema, and `make schema` to regenerate both. 21 event tests, 77 Python tests total.
+
+**One source of truth, enforced.** The Python model generates the JSON Schema; the schema generates the TypeScript. Both artefacts are committed, and tests regenerate and compare — so a model change that is not propagated fails CI rather than surfacing later as a frontend that quietly disagrees with the backend about what an event looks like. Committing generated files also puts a schema change in the review diff, which is exactly where a breaking change should be noticed. Verified by deliberately introducing drift and watching the test fail.
+
+Three constraints enforced at the boundary rather than trusted to callers:
+
+- **`tenantid` on the envelope, not in the payload** — a background job cannot lose tenant context when the context is structurally inseparable from the event.
+- **Timestamps must be timezone-aware** — a wall-clock reading with no offset silently misorders activity across regions and daylight-saving boundaries.
+- **Uncertain claims must carry a verifiable source.** A "suggested" claim with nothing to open asks the reader to accept an unreliable statement on faith. Certainty tiers only earn trust if verification is one click away, so the schema refuses to represent an unverifiable hedge.
+
+Also: generated files are excluded from linting. A generated file that fails lint cannot be fixed by hand — the fix is overwritten on the next regeneration — leaving a permanently red check nobody can clear. They remain type-checked.
+
+**→ Step 7: Auth.** Signup, login via email and OAuth, sessions, workspace creation, and invitations that join the _existing_ tenant.
