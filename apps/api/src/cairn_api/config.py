@@ -33,15 +33,29 @@ class Settings(BaseSettings):
     environment: Environment = "local"
 
     database_url: PostgresDsn = Field(
+        default=PostgresDsn("postgresql+asyncpg://cairn_app:cairn_local_dev@localhost:5432/cairn"),
+        description=(
+            "Application connection. Uses a NOSUPERUSER, NOBYPASSRLS role so that "
+            "row-level security actually applies — RLS is silently inert for "
+            "superusers regardless of FORCE."
+        ),
+    )
+
+    platform_database_url: PostgresDsn = Field(
         default=PostgresDsn("postgresql+asyncpg://cairn:cairn_local_dev@localhost:5432/cairn"),
-        description="Async SQLAlchemy connection URL.",
+        description=(
+            "Privileged connection for operations that legitimately precede any "
+            "tenant context: signup, workspace creation, migrations. Deliberately "
+            "separate so that reaching for it is a visible, greppable decision "
+            "rather than something that happens by default."
+        ),
     )
 
     #: Echo SQL to the log. Useful locally, unacceptable in production, where it
     #: would write customer data into log storage.
     database_echo: bool = False
 
-    @field_validator("database_url")
+    @field_validator("database_url", "platform_database_url")
     @classmethod
     def require_async_driver(cls, value: PostgresDsn) -> PostgresDsn:
         """Reject a synchronous driver.
@@ -64,11 +78,11 @@ class Settings(BaseSettings):
     def sync_database_url(self) -> str:
         """Synchronous URL, for Alembic only.
 
-        Migrations run outside the request path, where async brings no benefit
-        and considerable complexity. psycopg 3 is used here rather than the
-        legacy psycopg2, which is in maintenance mode.
+        Derived from the *platform* URL: migrations need DDL privileges the
+        application role deliberately does not hold. psycopg 3 is used rather
+        than the legacy psycopg2, which is in maintenance mode.
         """
-        return str(self.database_url).replace("+asyncpg", "+psycopg")
+        return str(self.platform_database_url).replace("+asyncpg", "+psycopg")
 
 
 @lru_cache

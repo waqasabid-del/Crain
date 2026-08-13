@@ -1,4 +1,19 @@
-"""Async engine and session management."""
+"""Engines and session management.
+
+Two connections exist, deliberately:
+
+- **Application** (``get_engine``) — connects as a NOSUPERUSER, NOBYPASSRLS role,
+  so row-level security genuinely applies. Everything that touches customer data
+  goes through here, via ``tenancy.tenant_session``.
+
+- **Platform** (``get_platform_engine``) — connects as the owner and therefore
+  bypasses RLS. Reserved for the handful of operations that legitimately precede
+  any tenant context: signup, workspace creation, and administrative tooling.
+
+Keeping them apart means using elevated privileges is an explicit, greppable act
+rather than the default. ``grep platform_session`` should return a short list,
+and every entry should be justifiable.
+"""
 
 from __future__ import annotations
 
@@ -16,33 +31,57 @@ from sqlalchemy.ext.asyncio import (
 from cairn_api.config import get_settings
 
 
-@lru_cache
-def get_engine() -> AsyncEngine:
-    """Return the process-wide engine.
+def _build_engine(url: str, *, echo: bool) -> AsyncEngine:
+    """Create an engine with conservative pooling.
 
-    Pool sizing is deliberately conservative. Cloud Run scales instances
-    aggressively under webhook bursts, and every instance holds its own pool —
-    so a generous per-instance pool multiplied by an autoscaling instance count
-    is precisely how a database connection limit gets exhausted (md/06 §3.1).
-    Connections are pooled per instance and capped; PgBouncer sits in front in
-    production.
+    Pool sizing matters more than it looks. Cloud Run scales instances
+    aggressively under webhook bursts and every instance holds its own pool, so
+    a generous per-instance pool multiplied by an autoscaling instance count is
+    exactly how a database connection limit gets exhausted (md/06 §3.1).
+    PgBouncer sits in front in production.
     """
-    settings = get_settings()
     return create_async_engine(
-        str(settings.database_url),
-        echo=settings.database_echo,
+        url,
+        echo=echo,
         pool_size=5,
         max_overflow=5,
         # Recycle before typical proxy idle timeouts, so a pooled connection is
-        # never handed out already closed at the other end.
+        # never handed out already closed at the far end.
         pool_recycle=1800,
         pool_pre_ping=True,
     )
 
 
 @lru_cache
+def get_engine() -> AsyncEngine:
+    """The application engine. Subject to row-level security."""
+    settings = get_settings()
+    return _build_engine(str(settings.database_url), echo=settings.database_echo)
+
+
+@lru_cache
+def get_platform_engine() -> AsyncEngine:
+    """The privileged engine. Bypasses row-level security.
+
+    A smaller pool than the application engine: platform operations are rare,
+    and a large pool of privileged connections is both wasteful and a broader
+    blast radius than necessary.
+    """
+    settings = get_settings()
+    engine = create_async_engine(
+        str(settings.platform_database_url),
+        echo=settings.database_echo,
+        pool_size=2,
+        max_overflow=2,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+    )
+    return engine
+
+
+@lru_cache
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
-    """Return the process-wide session factory."""
+    """Session factory for the application engine."""
     return async_sessionmaker(
         bind=get_engine(),
         class_=AsyncSession,
@@ -51,16 +90,33 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     )
 
 
-@asynccontextmanager
-async def session_scope() -> AsyncIterator[AsyncSession]:
-    """Provide a transactional session, committing on success.
+@lru_cache
+def get_platform_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Session factory for the privileged engine."""
+    return async_sessionmaker(
+        bind=get_platform_engine(),
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
 
-    Note this is the *unscoped* entry point and does not set tenant context.
-    Step 4 introduces the tenant-scoped variant, which is what application code
-    will use. Anything reaching customer data through this function directly
-    will be prohibited by review once that exists.
+
+@asynccontextmanager
+async def platform_session() -> AsyncIterator[AsyncSession]:
+    """Open a privileged session that bypasses tenant isolation.
+
+    **Use this only for operations that cannot have a tenant context**, because
+    the tenant does not exist yet or the operation spans tenants by design:
+
+    - creating a workspace during signup
+    - creating a user account before any membership exists
+    - platform administration and support tooling (file 15 §5)
+
+    Anything reading or writing customer data within a known workspace must use
+    ``tenancy.tenant_session`` instead. Reviewers should treat a new call to this
+    function as requiring justification in the pull request.
     """
-    factory = get_session_factory()
+    factory = get_platform_session_factory()
     async with factory() as session:
         try:
             yield session
@@ -70,7 +126,7 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
             raise
 
 
-async def dispose_engine() -> None:
+async def dispose_engines() -> None:
     """Close all pooled connections. Called on shutdown and after tests."""
-    engine = get_engine()
-    await engine.dispose()
+    await get_engine().dispose()
+    await get_platform_engine().dispose()

@@ -32,7 +32,10 @@ MIGRATION_DB_URL = os.environ.get(
 
 def _alembic(*args: str) -> subprocess.CompletedProcess[str]:
     """Run an Alembic command against the migration test database."""
-    env = {**os.environ, "CAIRN_DATABASE_URL": MIGRATION_DB_URL.replace("+psycopg", "+asyncpg")}
+    env = {
+        **os.environ,
+        "CAIRN_PLATFORM_DATABASE_URL": MIGRATION_DB_URL.replace("+psycopg", "+asyncpg"),
+    }
     return subprocess.run(  # noqa: S603
         ["uv", "run", "alembic", *args],  # noqa: S607
         cwd=API_DIR,

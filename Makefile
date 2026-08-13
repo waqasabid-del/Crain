@@ -26,6 +26,7 @@ db-up:
 	@echo "Waiting for PostgreSQL..."
 	@until docker exec cairn-postgres pg_isready -U cairn -d cairn >/dev/null 2>&1; do sleep 1; done
 	@docker exec cairn-postgres psql -U cairn -d postgres -c "CREATE DATABASE cairn_test" >/dev/null 2>&1 || true
+	@docker exec cairn-postgres psql -U cairn -d postgres -c "CREATE DATABASE cairn_migrations" >/dev/null 2>&1 || true
 	@echo "PostgreSQL ready."
 
 db-down:

@@ -22,12 +22,16 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from cairn_api.db.models import Membership, Region, Tenant, TenantRole, User
-from cairn_api.db.session import dispose_engine, session_scope
+from cairn_api.db.session import dispose_engines, platform_session
 
 
 async def seed() -> None:
-    """Populate a development database. Idempotent."""
-    async with session_scope() as session:
+    """Populate a development database. Idempotent.
+
+    Uses a platform session because creating workspaces and user accounts
+    precedes any tenant context — the same path signup takes.
+    """
+    async with platform_session() as session:
         existing = await session.scalar(select(Tenant).where(Tenant.slug == "acme"))
         if existing is not None:
             print("Seed data already present — nothing to do.")
@@ -74,7 +78,7 @@ async def main() -> None:
     try:
         await seed()
     finally:
-        await dispose_engine()
+        await dispose_engines()
 
 
 if __name__ == "__main__":

@@ -119,4 +119,18 @@ Two design decisions made during the step:
 - **Certainty tiers use weight, opacity and border style rather than colour.** Traffic-light styling would be the only colour in a monochrome system, drawing attention to uncertainty rather than content — and amber/red reads as a judgement about the person a claim concerns rather than about the evidence. The chosen treatment also survives greyscale and colour blindness without extra work.
 - **Borders split into decorative and interactive.** The contrast tests caught a genuine failure: `border.strong` sat at 1.48:1 against white, below the 3:1 that WCAG 1.4.11 requires. The fix was not to darken every border — that would satisfy a naive reading while making the interface heavy — but to separate dividers (decorative, no requirement) from control outlines (`border.interactive`, meets 3:1 in both themes). A test now asserts that decorative borders stay below the threshold, so a future "accessibility fix" cannot quietly undo the distinction.
 
-**→ Step 3: Database foundation.** Postgres via Docker, migration tooling, base schema for tenants, users, memberships and roles.
+**✅ Step 3 — Database foundation. Complete.** (commit `0e720f2`)
+
+Delivered: PostgreSQL 16 with pgvector via Docker, Alembic migrations, the core schema (tenants, users, memberships), async SQLAlchemy session management, a seed script, and a `Makefile` for routine commands. Also added the design system preview app from Step 2 review.
+
+Verified: 29 Python tests passing, migration round-trip proven, schema confirmed against the live database.
+
+**The modelling decision that matters:** users are global, memberships are tenant-scoped. Contractors and agency staff routinely work across several companies, and a user row per tenant would make one person appear as several unrelated contributors — fragmenting identity at the schema level, which is exactly the failure the product exists to prevent.
+
+Three bugs found and fixed:
+
+- **Timestamps were timezone-naive** despite the docstring claiming UTC. SQLAlchemy maps a bare `DateTime` to `TIMESTAMP WITHOUT TIME ZONE`, which stores a wall-clock reading with no offset. Everything works until two regions write rows or a daylight-saving boundary passes — surfacing as a brief reporting the wrong day's work, and very hard to trace back to a column type.
+- **Downgrade left enum types behind.** `op.drop_table` does not drop the enum type it referenced, so `downgrade` then `upgrade` failed with "type already exists" — the exact sequence a production rollback performs. `test_migrations.py` now covers the full round trip.
+- **pgvector enabled in the first migration** rather than later, because `CREATE EXTENSION` requires privileges the application role will not hold in production, which would mean a privileged out-of-band step mid-deploy.
+
+**→ Step 4: Tenant isolation.** RLS policies on every table, session context helper, fail-closed behaviour, and cross-tenant tests that must fail correctly.
