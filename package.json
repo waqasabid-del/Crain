@@ -1,0 +1,41 @@
+{
+  "name": "cairn",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CAIRN — an AI-native team operating system",
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
+    "py:lint": "uv run ruff check .",
+    "py:lint:fix": "uv run ruff check --fix .",
+    "py:format": "uv run ruff format .",
+    "py:format:check": "uv run ruff format --check .",
+    "py:typecheck": "uv run mypy .",
+    "py:test": "uv run pytest",
+    "check": "pnpm lint && pnpm typecheck && pnpm format:check && pnpm py:lint && pnpm py:format:check",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "@cairn/config": "workspace:*",
+    "@commitlint/cli": "catalog:",
+    "@commitlint/config-conventional": "catalog:",
+    "eslint": "catalog:",
+    "lefthook": "catalog:",
+    "prettier": "catalog:",
+    "turbo": "catalog:",
+    "typescript": "catalog:"
+  }
+}

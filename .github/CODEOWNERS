@@ -1,0 +1,13 @@
+# Code ownership is explicit — see md/17-engineering-standards.md §11
+#
+# While the team is one person this is a placeholder that documents intent.
+# Replace the handle below and split ownership as engineers join.
+
+* @founder
+
+# Areas that require review regardless of team size (standards §3.2):
+# authentication, tenant isolation, and anything touching customer data.
+/apps/api/       @founder
+/services/       @founder
+/infra/          @founder
+/md/             @founder

@@ -1,0 +1,18 @@
+# Normalise line endings so the repo is identical across Windows, macOS and
+# Linux. Without this, Windows checkouts introduce CRLF diffs that make every
+# file look modified.
+* text=auto eol=lf
+
+# Binary files — never normalise
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+
+# Lockfiles are generated — collapse them in diffs and exclude from language stats
+pnpm-lock.yaml linguist-generated=true -diff
+uv.lock linguist-generated=true -diff

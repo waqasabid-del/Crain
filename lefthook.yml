@@ -1,0 +1,48 @@
+# Git hooks — standards enforced by tooling, not by remembering.
+# See md/17-engineering-standards.md §11
+#
+# Lefthook is used over Husky: single binary, no Node dependency in the hook
+# path, and parallel execution keeps the pre-commit hook fast enough that
+# nobody is tempted to use --no-verify.
+
+pre-commit:
+  parallel: true
+  commands:
+    format-ts:
+      glob: "*.{ts,tsx,js,jsx,json,md,yml,yaml}"
+      run: pnpm exec prettier --write {staged_files}
+      stage_fixed: true
+
+    lint-ts:
+      glob: "*.{ts,tsx}"
+      run: pnpm exec eslint --fix {staged_files}
+      stage_fixed: true
+
+    format-py:
+      glob: "*.py"
+      run: uv run ruff format {staged_files}
+      stage_fixed: true
+
+    lint-py:
+      glob: "*.py"
+      run: uv run ruff check --fix {staged_files}
+      stage_fixed: true
+
+    # Secrets must never reach a commit (standards §9).
+    # Logic lives in the script so it is readable and testable; see the file
+    # header for why it is not written inline here.
+    secret-scan:
+      run: sh scripts/check-secrets.sh
+
+commit-msg:
+  commands:
+    commitlint:
+      run: pnpm exec commitlint --edit {1}
+
+pre-push:
+  parallel: true
+  commands:
+    typecheck:
+      run: pnpm typecheck
+    test:
+      run: pnpm test

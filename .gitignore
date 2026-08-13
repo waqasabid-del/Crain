@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Build output
+dist/
+build/
+.next/
+.open-next/
+.turbo/
+*.tsbuildinfo
+
+# Environment — never commit secrets (see md/17-engineering-standards.md §9)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+service-account*.json
+
+# Test & coverage
+coverage/
+.coverage
+.pytest_cache/
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+playwright-report/
+test-results/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Infrastructure — state files contain secrets
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Local databases
+*.sqlite
+*.db
+pgdata/

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+.next/
+.open-next/
+.turbo/
+coverage/
+pnpm-lock.yaml
+*.min.js
+.venv/
+__pycache__/
