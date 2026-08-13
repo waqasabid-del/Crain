@@ -1,5 +1,13 @@
 """Authentication — credentials, sessions, invitations."""
 
+from cairn_api.auth.permissions import (
+    Permission,
+    PermissionDeniedError,
+    can_view_person_record,
+    has_permission,
+    permissions_for,
+    require,
+)
 from cairn_api.auth.service import (
     AuthError,
     EmailAlreadyRegisteredError,
@@ -21,12 +29,18 @@ __all__ = [
     "EmailAlreadyRegisteredError",
     "InvalidCredentialsError",
     "InvitationError",
+    "Permission",
+    "PermissionDeniedError",
     "SignupResult",
     "WeakPasswordError",
     "accept_invitation",
     "authenticate",
+    "can_view_person_record",
     "create_session",
+    "has_permission",
     "invite_to_workspace",
+    "permissions_for",
+    "require",
     "resolve_session",
     "revoke_session",
     "sign_up",

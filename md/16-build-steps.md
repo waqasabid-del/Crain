@@ -181,4 +181,20 @@ Three constraints enforced at the boundary rather than trusted to callers:
 
 Also: generated files are excluded from linting. A generated file that fails lint cannot be fixed by hand — the fix is overwritten on the next regeneration — leaving a permanently red check nobody can clear. They remain type-checked.
 
-**→ Step 7: Auth.** Signup, login via email and OAuth, sessions, workspace creation, and invitations that join the _existing_ tenant.
+**✅ Step 7 — Auth. Complete.** (commit `ca0f437`)
+
+Delivered: password credentials, OAuth identity linking, sessions, and workspace invitations — domain services with schema and RLS. HTTP endpoints arrive with the API layer in Step 9; building the logic first means it is tested without a transport in the way. 33 auth tests, 110 Python tests total.
+
+**The function that matters is `accept_invitation`.** An invited person joins the **existing** workspace rather than getting one of their own. Getting that wrong produces a failure that _looks like success_ — everyone can log in — while quietly splitting a team into isolated single-person workspaces, each showing an empty brief and no colleagues. Two tests guard it: one asserts the workspace count does not change on acceptance, the other that a contractor already in another workspace keeps one identity rather than acquiring a second.
+
+Security decisions worth recording:
+
+- **Argon2id for passwords, plain SHA-256 for tokens.** Deliberate, and easy to get backwards. Passwords are human-chosen and guessable, so they need a slow, memory-hard hash. Session tokens are 256 bits of entropy we generated — nothing to brute-force, and no reason to pay a slow-hash cost on every authenticated request.
+- **Only hashes are stored.** A leaked database yields no usable sessions or invitation links.
+- **Login fails identically** for an unknown address and a wrong password — and hashes anyway on the unknown-address path so both take comparable time. Without that, the login form is an account-existence oracle through response timing alone.
+- **An invitation is addressed to a person, not a bearer token.** A forwarded link cannot be redeemed by someone else.
+- **Invitations expire in seven days.** A link left in an inbox for months is a standing grant of workspace access.
+
+Two modelling decisions: credentials live apart from users, so an OAuth-only account simply has no password row rather than a nullable hash every query must remember to treat as "not really set". And sessions are deliberately _not_ tenant-scoped — a session identifies a person and must be resolvable before the tenant is known, which is the order requests actually arrive in.
+
+**→ Step 8: Roles & permissions.** The permission matrix, and the "admins see settings, not people" constraint that inverts standard SaaS assumptions.
