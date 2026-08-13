@@ -1,0 +1,146 @@
+/* Preview-page chrome only. Components bring their own styles. */
+
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: var(--space-12) var(--space-6) var(--space-16);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding-bottom: var(--space-8);
+  border-bottom: var(--border-thin) solid var(--border-default);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  margin: var(--space-2) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  max-width: 52ch;
+}
+
+.section {
+  padding: var(--space-10) 0;
+  border-bottom: var(--border-thin) solid var(--border-default);
+}
+
+.sectionTitle {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+
+.note {
+  margin: 0 0 var(--space-5);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  max-width: 68ch;
+}
+
+.prose {
+  max-width: var(--prose-max-width);
+  line-height: var(--leading-relaxed);
+  margin: 0 0 var(--space-3);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ramp {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-3);
+}
+
+.rampItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.swatch {
+  height: 56px;
+  border-radius: var(--radius-md);
+  border: var(--border-thin) solid var(--border-default);
+}
+
+.rampLabel {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.rampHex {
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-thin) solid var(--border-default);
+}
+
+.table th {
+  font-weight: var(--weight-medium);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.typeRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+}
+
+.typeName {
+  flex: 0 0 110px;
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+
+code {
+  font-family: var(--font-mono);
+}
+
+.briefDemo {
+  margin-top: var(--space-6);
+  padding: var(--space-5);
+  background: var(--bg-subtle);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.footer {
+  padding-top: var(--space-8);
+}

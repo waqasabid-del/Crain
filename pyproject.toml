@@ -21,6 +21,7 @@ dev = [
     "pytest>=8.4.1",
     "pytest-cov>=6.2.1",
     "pytest-asyncio>=1.1.0",
+    "greenlet>=3.2.4",
 ]
 
 # ---------------------------------------------------------------------------
@@ -87,6 +88,11 @@ disallow_untyped_defs = false
 testpaths = ["apps/api", "services"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
+# The engine fixture is session-scoped and holds a connection pool bound to the
+# loop that created it. Without matching loop scopes, each test gets a fresh
+# loop and asyncpg raises "attached to a different loop".
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 addopts = [
     "--strict-markers",
     "--strict-config",
@@ -95,6 +101,7 @@ addopts = [
 markers = [
     "integration: tests that require a database or external service",
     "isolation: tenant-isolation tests — these must never be skipped",
+    "slow: tests that spawn subprocesses or rebuild schema",
 ]
 
 [tool.coverage.run]

@@ -15,7 +15,9 @@
     "lint:fix": "eslint src --fix",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "dev": "vite",
+    "preview:build": "vite build"
   },
   "devDependencies": {
     "@cairn/config": "workspace:*",
@@ -31,7 +33,9 @@
     "@types/react-dom": "catalog:",
     "jsdom": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "vite": "catalog:",
+    "@vitejs/plugin-react": "catalog:"
   },
   "peerDependencies": {
     "react": ">=19",

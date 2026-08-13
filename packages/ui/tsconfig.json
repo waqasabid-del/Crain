@@ -6,5 +6,5 @@
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/**/*", "*.config.ts", "vitest.setup.ts"]
+  "include": ["src/**/*", "preview/**/*", "*.config.ts", "vitest.setup.ts"]
 }

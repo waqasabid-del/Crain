@@ -1,0 +1,41 @@
+# Local development services.
+#
+# Mirrors production choices (md/06-infrastructure.md §4) so that behaviour
+# differences surface locally rather than in staging:
+#   - PostgreSQL 16 with pgvector, matching Cloud SQL
+#   - Row-Level Security, which is CAIRN's tenant isolation mechanism
+#
+# Never used for anything but development. Production data never reaches a
+# local environment (md/17-engineering-standards.md §9.1).
+
+services:
+  postgres:
+    # pgvector is required for the temporal graph's entry-point search
+    # (md/09-understanding-layer.md §3.3). Installing it now avoids a migration
+    # later that would need a database restart.
+    image: pgvector/pgvector:pg16
+    container_name: cairn-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cairn
+      POSTGRES_PASSWORD: cairn_local_dev
+      POSTGRES_DB: cairn
+      # Deterministic collation so ordering matches production regardless of
+      # the host machine's locale.
+      LANG: C
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Migrations and tests wait on this rather than sleeping an arbitrary
+      # number of seconds.
+      test: ["CMD-SHELL", "pg_isready -U cairn -d cairn"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  postgres_data:
+    name: cairn_postgres_data

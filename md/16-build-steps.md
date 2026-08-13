@@ -108,4 +108,15 @@ Three fixes made during the step, each because a hook caught a real problem:
 - `vitest.config.ts` sat outside every tsconfig project, so type-aware linting failed on it. Config files are now included in each package's project.
 - The secret scanner matched its own pattern definitions, blocking every commit that touched it. Moved into `scripts/check-secrets.sh` with patterns assembled from fragments so it cannot self-match, and with the script excluded from its own scan.
 
-**→ Step 2: Design system foundation.** Black/white token set, typography scale, spacing, WCAG AA contrast verification, base components.
+**✅ Step 2 — Design system foundation. Complete.** (commit `35a7dbf`)
+
+Delivered: black/white token set with light and dark themes, typography scale sized in rem, 4px spacing rhythm, CSS custom properties with `prefers-color-scheme` and `prefers-reduced-motion` support, a WCAG contrast implementation, and the first two components (`Button`, `CertaintyBadge`).
+
+Verified: 59 UI tests passing, including 39 that assert every colour pair in use meets WCAG AA in both themes. Accessibility is now proven by CI rather than claimed.
+
+Two design decisions made during the step:
+
+- **Certainty tiers use weight, opacity and border style rather than colour.** Traffic-light styling would be the only colour in a monochrome system, drawing attention to uncertainty rather than content — and amber/red reads as a judgement about the person a claim concerns rather than about the evidence. The chosen treatment also survives greyscale and colour blindness without extra work.
+- **Borders split into decorative and interactive.** The contrast tests caught a genuine failure: `border.strong` sat at 1.48:1 against white, below the 3:1 that WCAG 1.4.11 requires. The fix was not to darken every border — that would satisfy a naive reading while making the interface heavy — but to separate dividers (decorative, no requirement) from control outlines (`border.interactive`, meets 3:1 in both themes). A test now asserts that decorative borders stay below the threshold, so a future "accessibility fix" cannot quietly undo the distinction.
+
+**→ Step 3: Database foundation.** Postgres via Docker, migration tooling, base schema for tenants, users, memberships and roles.
