@@ -133,4 +133,22 @@ Three bugs found and fixed:
 - **Downgrade left enum types behind.** `op.drop_table` does not drop the enum type it referenced, so `downgrade` then `upgrade` failed with "type already exists" — the exact sequence a production rollback performs. `test_migrations.py` now covers the full round trip.
 - **pgvector enabled in the first migration** rather than later, because `CREATE EXTENSION` requires privileges the application role will not hold in production, which would mean a privileged out-of-band step mid-deploy.
 
-**→ Step 4: Tenant isolation.** RLS policies on every table, session context helper, fail-closed behaviour, and cross-tenant tests that must fail correctly.
+**✅ Step 4 — Tenant isolation. Complete.** (commit `f8f51b8`)
+
+Delivered: RLS policies on all three tables, a dedicated non-superuser application role, separate application and platform connections, `tenant_session()` with fail-loud behaviour, and 13 isolation tests written as attacks.
+
+Verified: 42 Python tests passing. A scoped session sees only its own rows; an unscoped session sees nothing; writes across the boundary are refused; raw SQL is filtered too.
+
+**The critical discovery: row-level security does not apply to superusers.** Not with `ENABLE`, not with `FORCE`, not with any policy. The application was connecting as the database owner, so every policy was inert — while every visible signal said otherwise (`pg_policies` populated, `relforcerowsecurity` true). This is a uniquely dangerous class of bug because inspection confirms the control is working, and it would very plausibly have reached production.
+
+It was found by writing an isolation test as an _attack_, watching it successfully read another tenant's rows, and not assuming green tests meant anything.
+
+Design decisions this forced:
+
+- **A dedicated `cairn_app` role** — `NOSUPERUSER`, `NOBYPASSRLS`, DML only. An application that cannot alter its own schema cannot corrupt it.
+- **Separate application and platform connections.** Signup and workspace creation genuinely precede tenant context, so they need privilege. Keeping the privileged path separate makes using it a greppable decision rather than the default — `grep platform_session` should return a short, justifiable list.
+- **`SET LOCAL`, never `SET`.** Session-scoped context would leak one tenant's scope to the next request borrowing that pooled connection — a cross-tenant leak from a single missing keyword, visible only under concurrency.
+
+Also fixed: the test harness built its schema with `create_all`, which has no representation of RLS policies, so the test database had no isolation at all. Tests are now built by running migrations, meaning the schema under test is the schema that ships — and the migration itself is exercised on every run.
+
+**→ Step 5: Background-job tenant wrapper.** Job envelope requiring `tenantid`, a single wrapper setting context, fail-closed behaviour, and cross-tenant leakage tests for the background path specifically.

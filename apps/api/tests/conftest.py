@@ -54,6 +54,15 @@ TEST_DATABASE_URL = os.environ.get(
 )
 
 
+# Point application settings at the test database *before* anything imports
+# them. `get_settings`, `get_engine` and the session factories are all cached,
+# so a late override would be ignored and code under test would quietly connect
+# to the development database — which is how a test suite ends up asserting
+# against data it never created.
+os.environ["CAIRN_DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["CAIRN_PLATFORM_DATABASE_URL"] = MIGRATION_DATABASE_URL
+
+
 def _database_available() -> bool:
     """Whether a test database can be reached.
 
