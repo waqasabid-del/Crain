@@ -111,7 +111,10 @@ class TestRowLevelSecurity:
         assert emails == {"ali@acme.test"}
 
     async def test_unscoped_session_sees_nothing(
-        self, session: AsyncSession, two_tenants: tuple[Tenant, Tenant]
+        self,
+        session: AsyncSession,
+        platform: AsyncSession,
+        two_tenants: tuple[Tenant, Tenant],
     ) -> None:
         """A query with no tenant context returns no rows rather than everything.
 
@@ -121,6 +124,13 @@ class TestRowLevelSecurity:
         prevent.
         """
         _ = two_tenants
+
+        # Positive control first. Without it, this test passes when RLS works
+        # AND when the fixture wrote nothing at all — and "sees no rows" is
+        # exactly what a broken fixture and working isolation look like from
+        # here. Proving the data exists is what makes the zero below meaningful.
+        assert await platform.scalar(select(func.count()).select_from(Membership)) == 2
+        assert await platform.scalar(select(func.count()).select_from(Tenant)) == 2
 
         assert await session.scalar(select(func.count()).select_from(Membership)) == 0
         assert await session.scalar(select(func.count()).select_from(Tenant)) == 0
@@ -189,26 +199,78 @@ class TestRowLevelSecurity:
 
         assert count == 1
 
-    async def test_force_row_level_security_is_enabled(self, session: AsyncSession) -> None:
-        """The misconfiguration that silently disables everything above.
+    async def test_every_tenant_scoped_table_has_forced_rls(self, platform: AsyncSession) -> None:
+        """Derived, not hardcoded — so a future table cannot slip through.
 
-        ``ENABLE ROW LEVEL SECURITY`` does not apply to a table's owner, and the
-        application connects as the owner. Without ``FORCE``, every policy is
-        inert while still appearing correct in psql output.
+        An earlier version listed three table names. It therefore could not see
+        ``invitations``, which was added later carrying a ``tenant_id`` and no
+        policy for a while. Any table with a ``tenant_id`` column holds
+        tenant-scoped data by definition, so the set is discovered rather than
+        maintained by hand.
+
+        ``FORCE`` matters as much as ``ENABLE``: without it, policies do not
+        apply to the table's owner while still appearing correct in psql output.
         """
         rows = (
-            await session.execute(
-                text(
-                    "SELECT relname, relrowsecurity, relforcerowsecurity "
-                    "FROM pg_class WHERE relname IN ('tenants','users','memberships')"
-                )
+            await platform.execute(
+                text("""
+                    SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+                    FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    JOIN information_schema.columns col
+                      ON col.table_name = c.relname AND col.table_schema = n.nspname
+                    WHERE n.nspname = 'public'
+                      AND c.relkind = 'r'
+                      AND col.column_name = 'tenant_id'
+                """)
             )
         ).all()
 
-        assert len(rows) == 3
+        assert rows, "Found no tenant-scoped tables — the discovery query is wrong"
         for name, enabled, forced in rows:
-            assert enabled, f"RLS not enabled on {name}"
-            assert forced, f"RLS not FORCED on {name} — policies are inert for the table owner"
+            assert enabled, f"RLS not enabled on tenant-scoped table {name}"
+            assert forced, f"RLS not FORCED on {name} — policies are inert for the owner"
+
+    async def test_auth_tables_are_unreachable_from_the_application_role(
+        self, session: AsyncSession
+    ) -> None:
+        """Authentication material must be platform-only.
+
+        These tables cannot be tenant-scoped — a session must be resolvable
+        before the tenant is known — so the application role gets no access at
+        all rather than unfiltered access. Reproduced before the fix: the
+        application role could insert a session row for an arbitrary user with
+        no tenant context, which is account takeover from any injection.
+        """
+        for table in ("sessions", "password_credentials", "oauth_identities"):
+            with pytest.raises(DBAPIError):
+                await session.execute(text(f"SELECT count(*) FROM {table}"))  # noqa: S608
+            await session.rollback()
+
+    async def test_cannot_plant_an_invitation_into_another_tenant(
+        self, session: AsyncSession, two_tenants: tuple[Tenant, Tenant]
+    ) -> None:
+        """The confirmed tenant-takeover path.
+
+        A permissive ``WITH CHECK (true)`` INSERT policy on ``invitations`` ORed
+        with the isolation policy, making the effective check ``true``. A session
+        scoped to Tenant A could insert an ``owner`` invitation for Tenant B,
+        choose the token, and redeem it through the ordinary public flow.
+        """
+        acme, globex = two_tenants
+        await set_tenant_context(session, acme.id)
+
+        with pytest.raises(DBAPIError, match="row-level security"):
+            await session.execute(
+                text("""
+                    INSERT INTO invitations
+                        (tenant_id, email, role, token_hash, expires_at)
+                    VALUES
+                        (:other, 'attacker@evil.test', 'owner', 'chosen-hash',
+                         now() + interval '7 days')
+                """),
+                {"other": str(globex.id)},
+            )
 
 
 class TestApplicationLayer:

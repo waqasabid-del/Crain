@@ -11,6 +11,7 @@ generated TypeScript has not drifted from the Python definition.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import uuid
@@ -204,6 +205,10 @@ class TestGeneratedArtefacts:
         # for the sake of convenience.
         pnpm = shutil.which("pnpm")
         if pnpm is None:
+            # Skipping locally is a convenience. In CI it would mean nothing
+            # detects Python-to-TypeScript drift, while the run stays green.
+            if os.environ.get("CI"):
+                pytest.fail("pnpm is not on PATH in CI — the drift check cannot run")
             pytest.skip("pnpm not on PATH")
 
         result = subprocess.run(  # noqa: S603
@@ -215,6 +220,9 @@ class TestGeneratedArtefacts:
         )
         assert result.returncode == 0, f"Type generation failed:\n{result.stderr}"
 
-        assert generated.read_text(encoding="utf-8") == before, (
-            "Generated TypeScript types are out of date. Run `make schema`."
-        )
+        after = generated.read_text(encoding="utf-8")
+        if after != before:
+            # Put the file back before failing. A test that leaves the working
+            # tree modified turns one clear failure into a confusing second one.
+            generated.write_text(before, encoding="utf-8")
+            pytest.fail("Generated TypeScript types are out of date. Run `make schema`.")

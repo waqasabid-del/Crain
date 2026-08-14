@@ -15,13 +15,13 @@ seeing an empty brief and no colleagues. It is a documented and easy mistake
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cairn_api.auth.permissions import Permission, require
 from cairn_api.auth.tokens import (
     generate_token,
     hash_password,
@@ -41,6 +41,17 @@ SESSION_LIFETIME = timedelta(days=30)
 INVITATION_LIFETIME = timedelta(days=7)
 
 MIN_PASSWORD_LENGTH = 12
+
+#: Role seniority, used only to stop an invitation granting more than the
+#: inviter holds. Deliberately not used for permission checks — those are
+#: explicit per-role sets, because a hierarchy silently grants future
+#: permissions (see auth/permissions.py).
+_RANK: dict[TenantRole, int] = {
+    TenantRole.VIEWER: 0,
+    TenantRole.MEMBER: 1,
+    TenantRole.ADMIN: 2,
+    TenantRole.OWNER: 3,
+}
 
 
 class AuthError(Exception):
@@ -161,7 +172,11 @@ async def authenticate(session: AsyncSession, *, email: str, password: str) -> U
         select(PasswordCredential).where(PasswordCredential.user_id == user.id)
     )
     if credential is None:
-        # OAuth-only account. Same opaque failure.
+        # OAuth-only account. Hash anyway: returning here without the ~50-100ms
+        # Argon2 cost makes response time distinguish "exists, uses OAuth" from
+        # "does not exist" — reintroducing the enumeration oracle the branch
+        # above works to close.
+        hash_password(password)
         raise InvalidCredentialsError
 
     if not verify_password(password, credential.password_hash):
@@ -233,18 +248,48 @@ class IssuedInvitation:
 async def invite_to_workspace(
     session: AsyncSession,
     *,
-    tenant_id: uuid.UUID,
+    inviter: Membership,
     email: str,
     role: TenantRole = TenantRole.MEMBER,
-    invited_by: uuid.UUID | None = None,
 ) -> IssuedInvitation:
-    """Create an invitation to an existing workspace.
+    """Create an invitation to the inviter's workspace.
+
+    Takes the inviter's ``Membership`` rather than a bare user ID and tenant ID.
+    That is deliberate: a membership *is* the proof that this person belongs to
+    this workspace in this role, so the three facts cannot disagree. An earlier
+    signature accepted ``tenant_id`` and ``invited_by`` separately and checked
+    neither, which meant any caller could invite themselves into any workspace
+    at any role.
+
+    Two escalation paths are closed here:
+
+    - **Member to Owner.** Nothing previously required ``MEMBERS_INVITE``, so a
+      Member could invite an address they controlled as ``OWNER`` and redeem it.
+    - **Admin to Owner.** An Admin legitimately holds ``MEMBERS_INVITE``, so a
+      permission check alone is not enough: without the rank rule below, an
+      Admin could still mint an Owner invitation and acquire the billing,
+      deletion and transfer rights the Owner/Admin split exists to withhold
+      (md/15 §2.2).
 
     Raises:
-        InvitationError: If the address is already a member. Re-inviting an
-            existing member is almost always a mistake, and silently succeeding
-            would suggest something happened when nothing did.
+        PermissionDeniedError: The inviter may not invite.
+        InvitationError: The role outranks the inviter, or the address is
+            already a member. Re-inviting an existing member is almost always a
+            mistake, and silently succeeding would suggest something happened
+            when nothing did.
     """
+    require(inviter.role, Permission.MEMBERS_INVITE)
+
+    # Nobody may grant a role above their own. Ownership moves through an
+    # explicit transfer, which is a separate, deliberate act.
+    if _RANK[role] > _RANK[inviter.role]:
+        msg = (
+            f"A {inviter.role} cannot invite someone as {role}. "
+            "Ownership is transferred explicitly, not granted by invitation."
+        )
+        raise InvitationError(msg)
+
+    tenant_id = inviter.tenant_id
     normalized = _normalize_email(email)
 
     existing_user = await _find_user_by_email(session, normalized)
@@ -266,7 +311,7 @@ async def invite_to_workspace(
         role=role,
         token_hash=hash_token(token),
         expires_at=datetime.now(UTC) + INVITATION_LIFETIME,
-        invited_by_user_id=invited_by,
+        invited_by_user_id=inviter.user_id,
     )
     session.add(invitation)
     await session.flush()

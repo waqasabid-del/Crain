@@ -66,9 +66,10 @@ os.environ["CAIRN_PLATFORM_DATABASE_URL"] = MIGRATION_DATABASE_URL
 def _database_available() -> bool:
     """Whether a test database can be reached.
 
-    Integration tests skip rather than fail when PostgreSQL is absent, so a
-    contributor without Docker running still gets signal from the rest of the
-    suite. CI always has a database, so coverage is never silently lost.
+    Locally, integration tests skip rather than fail when PostgreSQL is absent,
+    so a contributor without Docker running still gets signal from the rest of
+    the suite. In CI they must never skip — see
+    :func:`pytest_collection_modifyitems`.
     """
     import socket
 
@@ -85,7 +86,19 @@ def pytest_collection_modifyitems(
     config: pytest.Config,
     items: list[pytest.Item],
 ) -> None:
-    """Skip integration tests when no database is reachable.
+    """Skip integration tests locally when no database is reachable — never in CI.
+
+    Skipping is a convenience for a contributor without Docker running, so the
+    rest of the suite still gives signal. In CI the same behaviour is a
+    disaster: an unreachable database silently skips every isolation, schema and
+    migration test while the run reports green.
+
+    That is not hypothetical — this project shipped exactly that state. CI had no
+    PostgreSQL service, so 59 of 150 tests never executed, including all 13
+    tenant-isolation tests. Every run was green and the most important safety net
+    in the system was not running at all.
+
+    So when ``CI`` is set, an unreachable database is a hard failure.
 
     A hook rather than an importable marker, so test modules need only declare
     ``pytest.mark.integration`` — no cross-module import, and no ``__init__.py``
@@ -94,10 +107,21 @@ def pytest_collection_modifyitems(
     if _database_available():
         return
 
+    integration_items = [item for item in items if "integration" in item.keywords]
+
+    if os.environ.get("CI") and integration_items:
+        target = TEST_DATABASE_URL.split("@")[-1]
+        pytest.exit(
+            f"PostgreSQL unreachable at {target}. CI must never skip integration "
+            f"tests — {len(integration_items)} would have been skipped silently, "
+            "including the tenant-isolation suite. Check the `services:` block in "
+            ".github/workflows/ci.yml.",
+            returncode=1,
+        )
+
     skip = pytest.mark.skip(reason="PostgreSQL not reachable — run `make db-up`")
-    for item in items:
-        if "integration" in item.keywords:
-            item.add_marker(skip)
+    for item in integration_items:
+        item.add_marker(skip)
 
 
 def _run_migrations() -> None:

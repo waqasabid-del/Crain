@@ -18,6 +18,7 @@ from cairn_api.auth import (
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
     InvitationError,
+    PermissionDeniedError,
     WeakPasswordError,
     accept_invitation,
     authenticate,
@@ -253,7 +254,7 @@ class TestSessions:
 class TestInvitations:
     """The tests that matter most in this module."""
 
-    async def _workspace(self, platform: AsyncSession) -> tuple[User, Tenant]:
+    async def _workspace(self, platform: AsyncSession) -> tuple[Membership, Tenant]:
         result = await sign_up(
             platform,
             email="owner@acme.test",
@@ -261,7 +262,7 @@ class TestInvitations:
             workspace_name="Acme",
             workspace_slug="acme",
         )
-        return result.user, result.tenant
+        return result.membership, result.tenant
 
     async def test_invited_user_joins_the_existing_workspace(self, platform: AsyncSession) -> None:
         """The core guarantee.
@@ -270,11 +271,11 @@ class TestInvitations:
         still log in — and the team would be silently split into isolated
         single-person workspaces, each showing an empty brief.
         """
-        owner, tenant = await self._workspace(platform)
+        owner_membership, tenant = await self._workspace(platform)
         tenants_before = await platform.scalar(select(func.count()).select_from(Tenant))
 
         issued = await invite_to_workspace(
-            platform, tenant_id=tenant.id, email="sara@acme.test", invited_by=owner.id
+            platform, inviter=owner_membership, email="sara@acme.test"
         )
         membership = await accept_invitation(
             platform,
@@ -295,7 +296,7 @@ class TestInvitations:
         Creating a second user row would fragment their contribution record
         across workspaces — the failure the whole data model exists to prevent.
         """
-        _, first_tenant = await self._workspace(platform)
+        owner_membership, first_tenant = await self._workspace(platform)
 
         contractor = await sign_up(
             platform,
@@ -307,7 +308,7 @@ class TestInvitations:
         users_before = await platform.scalar(select(func.count()).select_from(User))
 
         issued = await invite_to_workspace(
-            platform, tenant_id=first_tenant.id, email="sam@freelance.test"
+            platform, inviter=owner_membership, email="sam@freelance.test"
         )
         membership = await accept_invitation(
             platform, token=issued.token, email="sam@freelance.test"
@@ -331,8 +332,10 @@ class TestInvitations:
 
     async def test_invitation_is_addressed_to_a_person(self, platform: AsyncSession) -> None:
         """A forwarded link must not let a stranger into the workspace."""
-        _, tenant = await self._workspace(platform)
-        issued = await invite_to_workspace(platform, tenant_id=tenant.id, email="sara@acme.test")
+        owner_membership, _tenant = await self._workspace(platform)
+        issued = await invite_to_workspace(
+            platform, inviter=owner_membership, email="sara@acme.test"
+        )
 
         with pytest.raises(InvitationError, match="different email"):
             await accept_invitation(
@@ -343,8 +346,10 @@ class TestInvitations:
             )
 
     async def test_invitation_cannot_be_reused(self, platform: AsyncSession) -> None:
-        _, tenant = await self._workspace(platform)
-        issued = await invite_to_workspace(platform, tenant_id=tenant.id, email="sara@acme.test")
+        owner_membership, _tenant = await self._workspace(platform)
+        issued = await invite_to_workspace(
+            platform, inviter=owner_membership, email="sara@acme.test"
+        )
         await accept_invitation(
             platform, token=issued.token, email="sara@acme.test", password=VALID_PASSWORD
         )
@@ -357,8 +362,10 @@ class TestInvitations:
     async def test_expired_invitation_is_refused(self, platform: AsyncSession) -> None:
         # An invitation left in an inbox for months is a standing grant of
         # access to a workspace.
-        _, tenant = await self._workspace(platform)
-        issued = await invite_to_workspace(platform, tenant_id=tenant.id, email="sara@acme.test")
+        owner_membership, _tenant = await self._workspace(platform)
+        issued = await invite_to_workspace(
+            platform, inviter=owner_membership, email="sara@acme.test"
+        )
         issued.invitation.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         await platform.flush()
 
@@ -375,32 +382,97 @@ class TestInvitations:
 
     async def test_cannot_invite_an_existing_member(self, platform: AsyncSession) -> None:
         # Silently succeeding would suggest something happened when nothing did.
-        owner, tenant = await self._workspace(platform)
+        owner_membership, _tenant = await self._workspace(platform)
         with pytest.raises(InvitationError, match="already a member"):
-            await invite_to_workspace(
-                platform, tenant_id=tenant.id, email=owner.email, invited_by=owner.id
-            )
+            await invite_to_workspace(platform, inviter=owner_membership, email="owner@acme.test")
 
     async def test_invited_member_is_not_pre_notified(self, platform: AsyncSession) -> None:
         """No capture before notification (md/05 §B.3.5)."""
-        _, tenant = await self._workspace(platform)
-        issued = await invite_to_workspace(platform, tenant_id=tenant.id, email="sara@acme.test")
+        owner_membership, _tenant = await self._workspace(platform)
+        issued = await invite_to_workspace(
+            platform, inviter=owner_membership, email="sara@acme.test"
+        )
         membership = await accept_invitation(
             platform, token=issued.token, email="sara@acme.test", password=VALID_PASSWORD
         )
         assert membership.notified_at is None
 
     async def test_invitation_role_is_honoured(self, platform: AsyncSession) -> None:
-        _, tenant = await self._workspace(platform)
+        owner_membership, _tenant = await self._workspace(platform)
         issued = await invite_to_workspace(
-            platform, tenant_id=tenant.id, email="viewer@acme.test", role=TenantRole.VIEWER
+            platform, inviter=owner_membership, email="viewer@acme.test", role=TenantRole.VIEWER
         )
         membership = await accept_invitation(
             platform, token=issued.token, email="viewer@acme.test", password=VALID_PASSWORD
         )
         assert membership.role is TenantRole.VIEWER
 
+    async def test_a_member_cannot_invite_anyone(self, platform: AsyncSession) -> None:
+        """Closes a privilege-escalation path that had no check at all.
+
+        `invite_to_workspace` previously took a bare tenant ID and never
+        consulted the permission model, so any caller could invite an address
+        they controlled — at any role — into any workspace.
+        """
+        _owner_membership, tenant = await self._workspace(platform)
+        sara = User(email="sara@acme.test")
+        platform.add(sara)
+        await platform.flush()
+        member = Membership(tenant_id=tenant.id, user_id=sara.id, role=TenantRole.MEMBER)
+        platform.add(member)
+        await platform.flush()
+
+        with pytest.raises(PermissionDeniedError, match=r"members\.invite"):
+            await invite_to_workspace(platform, inviter=member, email="friend@acme.test")
+
+    async def test_an_admin_cannot_mint_an_owner(self, platform: AsyncSession) -> None:
+        """A permission check alone would not have closed this.
+
+        An Admin legitimately holds MEMBERS_INVITE. Without the rank rule they
+        could invite an accomplice — or a second address of their own — as
+        Owner, acquiring the billing, deletion and transfer rights the
+        Owner/Admin split exists to withhold (md/15 §2.2).
+        """
+        _owner_membership, tenant = await self._workspace(platform)
+        jo = User(email="jo@acme.test")
+        platform.add(jo)
+        await platform.flush()
+        admin = Membership(tenant_id=tenant.id, user_id=jo.id, role=TenantRole.ADMIN)
+        platform.add(admin)
+        await platform.flush()
+
+        with pytest.raises(InvitationError, match="cannot invite someone as"):
+            await invite_to_workspace(
+                platform, inviter=admin, email="accomplice@acme.test", role=TenantRole.OWNER
+            )
+
+    async def test_an_admin_may_invite_a_member(self, platform: AsyncSession) -> None:
+        # The rank rule must not block legitimate use.
+        _owner_membership, tenant = await self._workspace(platform)
+        jo = User(email="jo@acme.test")
+        platform.add(jo)
+        await platform.flush()
+        admin = Membership(tenant_id=tenant.id, user_id=jo.id, role=TenantRole.ADMIN)
+        platform.add(admin)
+        await platform.flush()
+
+        issued = await invite_to_workspace(platform, inviter=admin, email="new@acme.test")
+        assert issued.invitation.role is TenantRole.MEMBER
+
+    async def test_invitation_is_scoped_to_the_inviters_workspace(
+        self, platform: AsyncSession
+    ) -> None:
+        """The inviter's membership determines the tenant, so they cannot disagree."""
+        owner_membership, tenant = await self._workspace(platform)
+        issued = await invite_to_workspace(
+            platform, inviter=owner_membership, email="sara@acme.test"
+        )
+        assert issued.invitation.tenant_id == tenant.id
+
     async def test_only_the_hash_is_stored(self, platform: AsyncSession) -> None:
-        _, tenant = await self._workspace(platform)
-        issued = await invite_to_workspace(platform, tenant_id=tenant.id, email="sara@acme.test")
-        assert issued.invitation.token_hash != issued.token
+        owner_membership, _tenant = await self._workspace(platform)
+        issued = await invite_to_workspace(
+            platform, inviter=owner_membership, email="sara@acme.test"
+        )
+        # Asserting inequality alone would accept token[::-1] or a truncation.
+        assert issued.invitation.token_hash == hash_token(issued.token)

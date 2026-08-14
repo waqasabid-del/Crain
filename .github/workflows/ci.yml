@@ -11,6 +11,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default. Without this, every job — including ones that
+# run `pnpm install` and `uv sync`, executing arbitrary dependency lifecycle
+# scripts — receives whatever the repository default is, which in many orgs is
+# read/write. A compromised transitive dependency could then push to the repo.
+permissions:
+  contents: read
+
 env:
   NODE_VERSION: "22"
   PYTHON_VERSION: "3.12"
@@ -103,6 +110,27 @@ jobs:
     name: Python — tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    # Integration tests need a real PostgreSQL. Without this, every test
+    # marked `integration` silently skips and CI reports green while the
+    # tenant-isolation suite — the most important safety net in the system —
+    # never runs. conftest.py refuses to skip when CI=true, so a missing
+    # service now fails loudly instead.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: cairn
+          POSTGRES_PASSWORD: cairn_local_dev
+          POSTGRES_DB: cairn
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cairn"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -114,10 +142,31 @@ jobs:
       - name: Set up Python
         run: uv python install ${{ env.PYTHON_VERSION }}
 
+      # The generated-types drift test shells out to pnpm. Without it on PATH
+      # the test skips itself and nothing in CI detects Python-model to
+      # TypeScript drift.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Install dependencies
         run: uv sync --all-extras --dev
 
+      - name: Create test databases
+        run: |
+          export PGPASSWORD=cairn_local_dev
+          psql -h localhost -U cairn -d postgres -c "CREATE DATABASE cairn_test"
+          psql -h localhost -U cairn -d postgres -c "CREATE DATABASE cairn_migrations"
+
       - name: Test
+        # CI=true makes conftest fail rather than skip when the database is
+        # unreachable, so a broken service block cannot hide behind a green run.
         run: uv run pytest
 
   # -------------------------------------------------------------------------
@@ -149,14 +198,21 @@ jobs:
     needs: [quality-ts, quality-py, test-ts, test-py, security]
     if: always()
     steps:
-      - name: Verify all jobs succeeded
+      - name: Verify every job succeeded
+        # Checks for success rather than absence-of-failure. A skipped job
+        # reports `"result": "skipped"` and would have passed the previous
+        # check — so a `paths` filter, a disabled action, or an `if` condition
+        # added later could turn the secret scan off while branch protection
+        # still reported green.
         run: |
-          if echo '${{ toJSON(needs) }}' | grep -q '"result": *"failure"'; then
-            echo "One or more CI jobs failed."
+          results='${{ toJSON(needs) }}'
+          echo "$results"
+          if echo "$results" | grep -q '"result": *"[^s]'; then
+            echo "::error::A required job did not succeed."
             exit 1
           fi
-          if echo '${{ toJSON(needs) }}' | grep -q '"result": *"cancelled"'; then
-            echo "One or more CI jobs were cancelled."
+          if echo "$results" | grep -q '"result": *"skipped"'; then
+            echo "::error::A required job was skipped. Skipped is not passed."
             exit 1
           fi
-          echo "All CI jobs passed."
+          echo "All required jobs succeeded."

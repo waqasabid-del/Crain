@@ -197,4 +197,20 @@ Security decisions worth recording:
 
 Two modelling decisions: credentials live apart from users, so an OAuth-only account simply has no password row rather than a nullable hash every query must remember to treat as "not really set". And sessions are deliberately _not_ tenant-scoped — a session identifies a person and must be resolvable before the tenant is known, which is the order requests actually arrive in.
 
-**→ Step 8: Roles & permissions.** The permission matrix, and the "admins see settings, not people" constraint that inverts standard SaaS assumptions.
+**✅ Step 8 — Roles & permissions. Complete.** (commit `1e33c11`)
+
+Delivered: the four-role permission model, `require()` enforcement, and the symmetry invariants. 40 permission tests, 150 Python tests total.
+
+**Roles govern configuration; they do not govern how much is visible about a person.** Conventional SaaS assumes seniority implies visibility. CAIRN inverts that, and the inversion is load-bearing in three separate ways at once — it is the product commitment that makes this coordination rather than monitoring, it is regulatory architecture keeping the product outside AI Act "monitoring and evaluating workers", and it is an adoption requirement because developers are the most likely internal blocker.
+
+An engineer will reach for a `members.view_details` permission eventually, because that is how every other product works. Three tests fail when they do: one rejects any permission name suggesting visibility into a person, one asserts Owner/Admin/Member hold identical read capability, and one asserts everything an Owner has beyond a Member is a configuration power. **Verified by adding such a permission and watching the guard fire.**
+
+Two smaller decisions: permission sets are written explicitly rather than derived from a hierarchy, because a hierarchy invites "Owner inherits everything Admin has" — true today, and silently granting Owners any future Admin permission. And `require()` raises rather than returning a boolean, because an ignored return value is a silent authorisation bypass while an ignored exception is impossible.
+
+---
+
+## ✅ Stage A gate — PASSED
+
+Two tenants exist and are provably isolated. Users can authenticate with correct roles. Events validate. 150 Python tests and 65 TypeScript tests passing, with WCAG contrast, tenant isolation, migration round-trips, and cross-language schema drift all verified in CI.
+
+**→ Step 9: API layer.** FastAPI application, OpenAPI generation, and TypeScript client codegen wired into CI so a breaking backend change fails the frontend build.
