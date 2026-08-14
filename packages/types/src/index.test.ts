@@ -33,8 +33,10 @@ describe("asTenantId", () => {
     expect(asTenantId("tnt_abc123")).toBe("tnt_abc123");
   });
 
-  it("rejects an empty identifier rather than producing an unusable brand", () => {
-    // Fail loudly — a silently empty tenant ID is the start of a cross-tenant read.
-    expect(() => asTenantId("")).toThrow("Tenant ID cannot be empty");
+  it.each(["", "   ", "\t\n"])("rejects %o rather than producing an unusable brand", (value) => {
+    // Fail loudly — a silently empty tenant ID is the start of a cross-tenant
+    // read. Whitespace is included because Python rejects it too, and a value
+    // that is a bug in one language and valid in the other is worse than either.
+    expect(() => asTenantId(value)).toThrow("Tenant ID cannot be empty");
   });
 });

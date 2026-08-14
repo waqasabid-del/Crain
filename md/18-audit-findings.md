@@ -87,6 +87,57 @@ The conftest comment asserting _"CI always has a database, so coverage is never 
 
 ---
 
+## Round two — the first fixes were incomplete
+
+A second pass audited **the fixes themselves**, plus the frontend and tooling, which the first round had not covered. It found real problems in my own work.
+
+### 10. Three more isolation gaps (CRITICAL)
+
+Closing the `invitations` hole left the identical pattern on `tenants` and `users`, and left a third path open through `memberships`. All reproduced:
+
+- **Membership grafting.** A scoped session could insert a membership for any `user_id`, including one it could not see — foreign-key checks run as the constraint owner and are exempt from RLS. A session scoped to Tenant A grafted a Tenant B user in, then read their email. The victim also silently became a member of the attacker's workspace.
+- **Rogue tenants and users**, which also handed back the account-enumeration oracle `authenticate` works to deny.
+
+**Fixed** in `f1c93a70b5d2`: creating an identity, workspace or membership is platform-only, so the `WITH CHECK (true)` escape hatches are gone entirely.
+
+### 11. Destruction was still open (HIGH)
+
+The fix above applied the principle to `INSERT` and stopped. Reproduced: a scoped session ran `DELETE FROM tenants` and destroyed its own workspace — **no role check anywhere**, so a Viewer could do it. Deleting a shared user also cascaded into their other workspaces' memberships, sessions and credentials.
+
+**Fixed** in `a9d24e60c3f1`.
+
+### 12. My environment guard was bypassable (CRITICAL)
+
+The password fix read `os.environ` directly, but `config.py` declares `env_file=".env"` — the documented way this project supplies configuration. A deployment setting `CAIRN_ENVIRONMENT=production` there leaves `os.environ` empty, so the guard would not fire and the published development password would be used anyway. **The fix for finding 3 did not actually close finding 3.**
+
+**Fixed:** migrations now read the environment through `get_settings()`, so they cannot disagree with the application about which environment they are in.
+
+### 13. The password fix did not repair an existing role (HIGH)
+
+`CREATE ROLE ... IF NOT EXISTS` short-circuits. Roles are cluster-level and survive `DROP DATABASE`, so any cluster that ran the earlier migration kept the published password **forever** — changing where the password comes from does not help if the role already exists. The migration's own docstring named this property and the code preserved it.
+
+**Fixed:** the migration now `ALTER`s an existing role rather than skipping it.
+
+### 14. preflight.py was never called or tested (HIGH)
+
+I wrote a startup safety check, described it in this document as protection that "refuses to boot", and wired it to nothing. Worse, the tests I added for it asserted on `pg_roles` columns **without ever calling the functions** — deleting the entire body of `check_application_role` would have left them green.
+
+That is precisely the false-confidence pattern this audit exists to catch, reproduced inside the fix for it.
+
+**Fixed:** the checks accept an engine, and the failure tests now create a real `NOSUPERUSER BYPASSRLS` role, connect as it, and assert the check raises. It is still not called at startup — there is no application to call it from until Step 9 — and this document no longer claims otherwise.
+
+### 15. Frontend and tooling (MEDIUM)
+
+- **`asTenantId` had drifted between languages.** Python rejected whitespace; TypeScript accepted `"   "` as a valid tenant ID.
+- **`disabled ?? loading` was a real bug.** Nullish coalescing only falls through on null/undefined, so `<Button loading disabled={false}>` rendered a fully clickable button that announced itself as busy.
+- **`aria-label` on a bare `<span>`** is prohibited by ARIA on `role="generic"` and dropped by several screen readers — so `CertaintyBadge`'s whole accessibility story could silently evaporate. Now `role="img"`.
+- **No `.env.example`** existed, despite `.gitignore` anticipating one and two new required variables depending on it.
+- **`pnpm check` claimed both languages and skipped mypy**, so a contributor could get a green local check and a red CI.
+- **README setup was broken for a fresh clone** — Docker and Make absent from requirements, no step creating the database the tests need.
+- **`make db-up` could hang forever** if port 5432 was already in use.
+
+---
+
 ## Open — recorded deliberately, not overlooked
 
 These are real findings not fixed in this pass. Each is scheduled rather than forgotten.
@@ -105,6 +156,11 @@ These are real findings not fixed in this pass. Each is scheduled rather than fo
 | O10 | **Tenant context is lost if a handler commits mid-block.** `SET LOCAL` dies with the transaction; subsequent statements run unscoped.                                                                                                                       | 🟡 MED   | Re-apply context via an `after_begin` session event listener.                                                                                                             |
 | O11 | **Fixture teardown truncates whole tables** rather than deleting what it created. Safe today only because other fixtures never commit.                                                                                                                      | 🟢 LOW   | Scope deletes to created IDs.                                                                                                                                             |
 | O12 | **Coverage thresholds configured in three places, enforced in none.** No `--cov` in `addopts`; CI never runs `test:coverage`.                                                                                                                               | 🟢 LOW   | Wire into CI.                                                                                                                                                             |
+| O14 | **Design tokens vs `theme.css` have drifted** — eight tokens exist in TypeScript with no CSS custom property, and `certaintyTreatment` specifies opacity the component never implements while three places tell readers opacity is how tiers differ.        | MED      | Generate `theme.css` from tokens, or add a parity test.                                                                                                                   |
+| O15 | **Tooltips are keyboard-inaccessible.** `CertaintyBadge` explains itself via `title`, which is pointer-only (WCAG 1.4.13).                                                                                                                                  | MED      | A real focusable disclosure, with the API layer's UI work.                                                                                                                |
+| O16 | **`turbo run build` executes nothing** — the task is defined, four tasks depend on it, no package has a build script.                                                                                                                                       | LOW      | Add build scripts or delete the config.                                                                                                                                   |
+| O17 | **CSS Modules are stubbed in tests**, so any class name resolves and lookups can never fail.                                                                                                                                                                | LOW      | Set `css.modules.classNameStrategy`.                                                                                                                                      |
+| O18 | **Half the TypeScript is unlinted** — package lint scripts cover `src` only.                                                                                                                                                                                | LOW      | Widen the globs.                                                                                                                                                          |
 | O13 | Assorted: `attempt` never incremented, `certaintyTreatment` dead and would fail AA if used, `spaceToPx` never called, duplicate `Certainty` exports shadowing generated types, stale seed comment.                                                          | 🟢 LOW   | Housekeeping pass.                                                                                                                                                        |
 
 ---

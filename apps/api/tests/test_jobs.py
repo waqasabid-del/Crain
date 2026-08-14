@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 import pytest
 from cairn_api.db.models import Membership, Tenant, TenantRole, User
 from cairn_api.db.tenancy import get_tenant_context
 from cairn_api.jobs import JobEnvelope, JobRegistry, UnknownJobTypeError, run_job
 from pydantic import ValidationError
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -211,18 +212,64 @@ class TestRunnerIsolation:
 
         assert seen == [acme.id, globex.id, acme.id]
 
-    async def test_a_failing_handler_rolls_back(self, two_tenants: tuple[Tenant, Tenant]) -> None:
+    async def test_a_successful_handler_commits(
+        self, two_tenants: tuple[Tenant, Tenant], platform: AsyncSession
+    ) -> None:
+        """The happy path, which had no coverage at all.
+
+        `tenant_session` commits on success. Nothing verified that — deleting
+        the commit would have left every background write in the product a
+        silent no-op with the whole suite still green.
+        """
+        acme, _ = two_tenants
+        registry = JobRegistry()
+        marked = datetime(2026, 8, 14, 9, 0, tzinfo=UTC)
+
+        @registry.register("test.notify")
+        async def handler(session: AsyncSession, envelope: JobEnvelope) -> None:
+            # A legitimate tenant-scoped write: recording that a member has been
+            # told their activity may be captured (md/05 §B.3.5). Creating a
+            # membership is a platform operation and correctly refused here.
+            await session.execute(
+                update(Membership)
+                .where(Membership.tenant_id == envelope.tenant_id)
+                .values(notified_at=marked)
+            )
+
+        await run_job(
+            JobEnvelope(job_type="test.notify", tenant_id=acme.id),
+            job_registry=registry,
+        )
+
+        # Read back on a *different* connection, so this proves a commit rather
+        # than uncommitted state visible to the same transaction.
+        persisted = await platform.scalar(
+            select(Membership.notified_at).where(Membership.tenant_id == acme.id)
+        )
+        assert persisted == marked, "A successful job did not commit its work"
+
+    async def test_a_failing_handler_rolls_back(
+        self, two_tenants: tuple[Tenant, Tenant], platform: AsyncSession
+    ) -> None:
         """A partially applied job would be worse than a failed one."""
         acme, _ = two_tenants
         registry = JobRegistry()
 
         @registry.register("test.explode")
         async def handler(session: AsyncSession, envelope: JobEnvelope) -> None:
-            # A legitimate tenant-scoped write: adding an existing person to
-            # this workspace. Creating the user itself would be a platform
-            # operation and is correctly refused by RLS.
-            session.add(Membership(tenant_id=envelope.tenant_id, user_id=self._unassigned_id))
-            await session.flush()
+            await session.execute(
+                update(Membership)
+                .where(Membership.tenant_id == envelope.tenant_id)
+                .values(notified_at=datetime(2026, 1, 1, tzinfo=UTC))
+            )
+            # Prove the write actually happened before the failure. Without
+            # this, the assertion below passes whether the rollback worked or
+            # the write never occurred at all.
+            written = await session.scalar(
+                select(Membership.notified_at).where(Membership.tenant_id == envelope.tenant_id)
+            )
+            assert written is not None
+
             msg = "handler failed after writing"
             raise RuntimeError(msg)
 
@@ -232,25 +279,10 @@ class TestRunnerIsolation:
                 job_registry=registry,
             )
 
-        # The runner must not swallow the error, and the write must not survive.
-        registry2 = JobRegistry()
-        found: list[int] = []
-
-        @registry2.register("test.check")
-        async def check(session: AsyncSession, envelope: JobEnvelope) -> None:
-            result = await session.scalar(
-                select(func.count())
-                .select_from(Membership)
-                .where(Membership.user_id == self._unassigned_id)
-            )
-            found.append(result or 0)
-
-        await run_job(
-            JobEnvelope(job_type="test.check", tenant_id=acme.id),
-            job_registry=registry2,
+        survived = await platform.scalar(
+            select(Membership.notified_at).where(Membership.tenant_id == acme.id)
         )
-
-        assert found == [0], "A failed job left data behind"
+        assert survived is None, "A failed job left data behind"
 
     async def test_unknown_job_type_raises_rather_than_silently_dropping(
         self, two_tenants: tuple[Tenant, Tenant]

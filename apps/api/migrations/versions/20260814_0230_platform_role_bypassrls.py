@@ -64,16 +64,20 @@ def _platform_role() -> str:
     if explicit:
         return explicit
 
-    environment = os.environ.get("CAIRN_ENVIRONMENT", "local")
-    if environment != "local":
-        msg = (
-            "CAIRN_PLATFORM_ROLE must be set when CAIRN_ENVIRONMENT is "
-            f"'{environment}'. Refusing to guess which role should receive "
-            "BYPASSRLS."
-        )
-        raise RuntimeError(msg)
+    # Derived from the platform connection URL rather than requiring a second
+    # variable to be kept in sync with it. The username in that URL *is* the
+    # role the application logs in as, so asking for it separately invites the
+    # two to disagree — and grants BYPASSRLS to the wrong role when they do.
+    from cairn_api.config import get_settings
 
-    return "cairn"
+    # PostgresDsn exposes the username through `hosts()` rather than a
+    # top-level attribute in pydantic v2.
+    hosts = get_settings().platform_database_url.hosts()
+    username = hosts[0].get("username") if hosts else None
+    if not username:
+        msg = "platform_database_url has no username; cannot determine the platform role"
+        raise RuntimeError(msg)
+    return str(username)
 
 
 def upgrade() -> None:

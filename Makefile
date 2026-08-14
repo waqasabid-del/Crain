@@ -3,10 +3,11 @@
 # A single obvious entry point for routine work — a command people have to
 # remember is a command they get wrong.
 
-.PHONY: help setup db-up db-down db-reset migrate migration seed schema check test test-py test-ts fmt
+.PHONY: help setup dev db-up db-down db-reset migrate migration seed schema check test test-py test-ts fmt
 
 help:
 	@echo "setup      Install all dependencies"
+	@echo "dev        Design system preview on :6006"
 	@echo "db-up      Start PostgreSQL"
 	@echo "db-down    Stop PostgreSQL"
 	@echo "db-reset   Destroy and recreate the database (local only)"
@@ -19,13 +20,19 @@ help:
 	@echo "fmt        Format everything"
 
 setup:
+	cp -n .env.example .env || true
 	pnpm install
 	uv sync --dev
+
+# The design system, in isolation. Components are reviewed here before any
+# screen exists.
+dev:
+	pnpm --filter @cairn/ui dev
 
 db-up:
 	docker compose up -d
 	@echo "Waiting for PostgreSQL..."
-	@until docker exec cairn-postgres pg_isready -U cairn -d cairn >/dev/null 2>&1; do sleep 1; done
+	@i=0; until docker exec cairn-postgres pg_isready -U cairn -d cairn >/dev/null 2>&1; do \n		i=$$((i+1)); \n		if [ $$i -gt 60 ]; then echo "PostgreSQL did not become ready. Is port 5432 already in use?"; exit 1; fi; \n		sleep 1; \n	done
 	@docker exec cairn-postgres psql -U cairn -d postgres -c "CREATE DATABASE cairn_test" >/dev/null 2>&1 || true
 	@docker exec cairn-postgres psql -U cairn -d postgres -c "CREATE DATABASE cairn_migrations" >/dev/null 2>&1 || true
 	@echo "PostgreSQL ready."
@@ -61,7 +68,7 @@ schema:
 check:
 	pnpm check
 
-test: test-ts test-py
+test: db-up test-ts test-py
 
 test-ts:
 	pnpm test

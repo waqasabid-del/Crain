@@ -40,13 +40,20 @@ export function Button({
   type = "button",
   ...rest
 }: ButtonProps): React.JSX.Element {
+  // Written as an explicit boolean rather than `disabled ?? loading`. Nullish
+  // coalescing only falls through on null or undefined, so
+  // `<Button loading disabled={false}>` rendered a fully clickable button that
+  // announced itself as busy. Spelling out "either of these makes it disabled"
+  // is unambiguous and does not read as a lint suppression.
+  const isDisabled = disabled === true || loading;
+
   return (
     <button
       // Defaulting to "button" prevents the classic bug where a button inside a
       // form submits it unintentionally.
       type={type}
       className={clsx(styles.button, styles[variant], styles[size], className)}
-      disabled={disabled ?? loading}
+      disabled={isDisabled}
       aria-busy={loading || undefined}
       {...rest}
     >

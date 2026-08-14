@@ -27,14 +27,21 @@ Specifications are the source of truth. **If code and `md/` disagree, one of the
 ## Setup
 
 ```bash
-pnpm install     # JS dependencies + git hooks
-uv sync --dev    # Python dependencies
+cp .env.example .env   # local defaults, safe to use as-is
+pnpm install           # JS dependencies + git hooks
+uv sync --dev          # Python dependencies
+make db-up             # PostgreSQL + test databases
+make migrate           # apply schema
+make seed              # development data
 ```
+
+The test suite is database-backed, so `make db-up` is required before `uv run pytest`.
 
 ## Commands
 
 ```bash
-pnpm check       # Everything: lint, types, format (both languages)
+make dev         # Design system preview → http://localhost:6006
+pnpm check       # Lint, types, format (both languages)
 pnpm test        # TypeScript tests
 uv run pytest    # Python tests
 
@@ -50,15 +57,15 @@ uv run mypy .          # Typecheck Python
 
 ```
 apps/
-  web/        Next.js frontend (Cloudflare Workers + OpenNext)
+  web/        Next.js frontend (Cloudflare Workers + OpenNext) — planned
   api/        FastAPI backend
 packages/
   ui/         Design system — black/white tokens, WCAG 2.1 AA
-  types/      Shared types, mostly generated from OpenAPI
+  types/      Shared types, generated from the Python event model
   config/     Shared lint and TypeScript configuration
-services/     Ingestion and pipeline workers — deployed separately
-              because they scale independently of the API
-infra/        Terraform
+services/     Ingestion and pipeline workers — planned. Separate from the
+              API because they scale independently of it
+infra/        Terraform — planned
 md/           Specifications
 ```
 

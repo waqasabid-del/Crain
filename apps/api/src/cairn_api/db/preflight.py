@@ -52,14 +52,19 @@ async def _describe_current_role(engine: AsyncEngine) -> RoleAttributes:
     return RoleAttributes(name=row[0], is_superuser=row[1], bypasses_rls=row[2])
 
 
-async def check_application_role() -> RoleAttributes:
+async def check_application_role(engine: AsyncEngine | None = None) -> RoleAttributes:
     """The application connection must be subject to row-level security.
+
+    Args:
+        engine: Override, so the failure path can be exercised against a role
+            deliberately created with the wrong attributes. A check whose
+            failure branch is never executed is decoration.
 
     Raises:
         PreflightError: If the role is a superuser or holds BYPASSRLS, either of
             which silently disables tenant isolation entirely.
     """
-    role = await _describe_current_role(get_engine())
+    role = await _describe_current_role(engine if engine is not None else get_engine())
 
     if role.is_superuser or role.bypasses_rls:
         detail = "superuser" if role.is_superuser else "BYPASSRLS"
@@ -75,7 +80,7 @@ async def check_application_role() -> RoleAttributes:
     return role
 
 
-async def check_platform_role() -> RoleAttributes:
+async def check_platform_role(engine: AsyncEngine | None = None) -> RoleAttributes:
     """The platform connection must be able to bypass row-level security.
 
     Signup, login and invitation acceptance all run before a tenant is known, so
@@ -86,7 +91,7 @@ async def check_platform_role() -> RoleAttributes:
     Raises:
         PreflightError: If the role can neither bypass RLS nor act as superuser.
     """
-    role = await _describe_current_role(get_platform_engine())
+    role = await _describe_current_role(engine if engine is not None else get_platform_engine())
 
     if not (role.is_superuser or role.bypasses_rls):
         msg = (

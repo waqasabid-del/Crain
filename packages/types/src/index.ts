@@ -59,7 +59,10 @@ export type ActivityCategory = (typeof ACTIVITY_CATEGORIES)[number];
 export type TenantId = string & { readonly __brand: "TenantId" };
 
 export function asTenantId(value: string): TenantId {
-  if (value.length === 0) {
+  // Trimmed, to match the Python side exactly. These had drifted: Python
+  // rejected "   " and TypeScript accepted it, so the same input was a bug on
+  // one side of the boundary and a valid tenant on the other.
+  if (value.trim().length === 0) {
     throw new Error("Tenant ID cannot be empty");
   }
   return value as TenantId;

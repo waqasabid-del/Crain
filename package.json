@@ -25,7 +25,7 @@
     "py:format:check": "uv run ruff format --check .",
     "py:typecheck": "uv run mypy .",
     "py:test": "uv run pytest",
-    "check": "pnpm lint && pnpm typecheck && pnpm format:check && pnpm py:lint && pnpm py:format:check",
+    "check": "pnpm lint && pnpm typecheck && pnpm format:check && pnpm py:lint && pnpm py:format:check && pnpm py:typecheck",
     "prepare": "lefthook install"
   },
   "devDependencies": {

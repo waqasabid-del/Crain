@@ -14,6 +14,10 @@ import base from "./eslint.config.js";
  * Lives here so that every ESLint dependency stays in one package.
  */
 export default tseslint.config(...base, {
-  files: ["*.js", "*.mjs", "*.cjs"],
+  // `**/` matters: a bare `*.js` pattern only matches files at the config's own
+  // directory level, so nested tooling files — packages/*/eslint.config.js,
+  // scripts/*.mjs — were still being type-checked and failing for want of a
+  // tsconfig project they were never meant to be in.
+  files: ["**/*.js", "**/*.mjs", "**/*.cjs"],
   extends: [tseslint.configs.disableTypeChecked],
 });

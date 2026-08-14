@@ -9,3 +9,6 @@ pnpm-lock.yaml
 *.min.js
 .venv/
 __pycache__/
+
+# Editor and tooling state, not project source.
+.claude/

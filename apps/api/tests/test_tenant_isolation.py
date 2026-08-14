@@ -159,16 +159,24 @@ class TestRowLevelSecurity:
     async def test_cannot_write_into_another_tenant(
         self, session: AsyncSession, two_tenants: tuple[Tenant, Tenant]
     ) -> None:
-        """WITH CHECK must block a scoped session from writing across the boundary."""
+        """Membership creation is refused outright from a scoped session.
+
+        This originally asserted an RLS rejection. Membership INSERT is now
+        revoked from the application role entirely — creating a membership is a
+        platform operation, and allowing it from a scoped session enabled a
+        confirmed cross-tenant leak (see the grafting test below).
+
+        The assertion changed because the protection got *stronger*: permission
+        denial happens before policies are even consulted.
+        """
         acme, globex = two_tenants
         await set_tenant_context(session, acme.id)
 
-        # A membership row aimed at another tenant must be refused, even though
-        # this session is legitimately authenticated for its own.
-        session.add(Membership(tenant_id=globex.id, user_id=uuid.uuid4()))
-
-        with pytest.raises(DBAPIError, match="row-level security"):
-            await session.flush()
+        with pytest.raises(DBAPIError, match="permission denied"):
+            await session.execute(
+                text("INSERT INTO memberships (tenant_id, user_id) VALUES (:t, :u)"),
+                {"t": str(globex.id), "u": str(uuid.uuid4())},
+            )
 
     async def test_cannot_move_a_row_across_the_boundary(
         self, session: AsyncSession, two_tenants: tuple[Tenant, Tenant]
@@ -231,6 +239,56 @@ class TestRowLevelSecurity:
             assert enabled, f"RLS not enabled on tenant-scoped table {name}"
             assert forced, f"RLS not FORCED on {name} — policies are inert for the owner"
 
+    async def test_application_role_grants_are_an_explicit_allow_list(
+        self, platform: AsyncSession
+    ) -> None:
+        """Every grant is deliberate, and new tables start with none.
+
+        The default-privileges rule once granted the application role full DML
+        on every table created afterwards. That made "readable by every tenant"
+        the default posture for anything new, while RLS remained opt-in — which
+        is exactly how the auth tables ended up exposed, and how the migration
+        state table quietly became writable.
+
+        Pinning the expected grants means a new table, or a new privilege on an
+        existing one, fails this test until someone states why it should exist.
+        """
+        rows = (
+            await platform.execute(
+                text("""
+                    SELECT table_name, privilege_type
+                    FROM information_schema.role_table_grants
+                    WHERE grantee = 'cairn_app' AND table_schema = 'public'
+                """)
+            )
+        ).all()
+
+        actual: dict[str, set[str]] = {}
+        for table, privilege in rows:
+            actual.setdefault(table, set()).add(privilege)
+
+        expected = {
+            # Read and update its own row. Creation is a platform operation, and
+            # so is deletion — a scoped session could otherwise destroy the whole
+            # workspace with no permission check anywhere.
+            "tenants": {"SELECT", "UPDATE"},
+            # Same. Deletion is excluded because foreign keys cascade: deleting a
+            # contractor shared with another workspace would take their
+            # membership, sessions and credentials there with them.
+            "users": {"SELECT", "UPDATE"},
+            # Role changes and removals are in-tenant; creation is not, because
+            # inserting a membership for an unseen user leaks that user.
+            "memberships": {"SELECT", "UPDATE", "DELETE"},
+            # Issued from a scoped session; accepted platform-side.
+            "invitations": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+        }
+
+        assert actual == expected, (
+            "Application-role grants changed. Every entry here is a deliberate "
+            "decision — a new table must not be granted access by default, and "
+            "authentication tables must have none at all."
+        )
+
     async def test_auth_tables_are_unreachable_from_the_application_role(
         self, session: AsyncSession
     ) -> None:
@@ -246,6 +304,55 @@ class TestRowLevelSecurity:
             with pytest.raises(DBAPIError):
                 await session.execute(text(f"SELECT count(*) FROM {table}"))  # noqa: S608
             await session.rollback()
+
+    async def test_cannot_graft_a_foreign_user_into_this_tenant(
+        self, session: AsyncSession, two_tenants: tuple[Tenant, Tenant]
+    ) -> None:
+        """A confirmed cross-tenant data leak, closed by revoking INSERT.
+
+        The ``users`` policy makes a person visible when they share a workspace
+        with the current tenant. A scoped session could insert a membership for
+        any ``user_id`` — including one it could not see, because foreign-key
+        checks run as the constraint owner and are exempt from RLS.
+
+        Reproduced: a session scoped to Tenant A grafted a Tenant B user into
+        its own workspace and then read that user's email. The victim also
+        silently became a member of the attacker's workspace.
+        """
+        acme, _ = two_tenants
+        await set_tenant_context(session, acme.id)
+
+        # A user that exists but belongs only to the other tenant.
+        stranger_id = uuid.uuid4()
+
+        with pytest.raises(DBAPIError, match="permission denied"):
+            await session.execute(
+                text("INSERT INTO memberships (tenant_id, user_id) VALUES (:t, :u)"),
+                {"t": str(acme.id), "u": str(stranger_id)},
+            )
+
+    async def test_cannot_create_identities_from_a_scoped_session(
+        self, session: AsyncSession, two_tenants: tuple[Tenant, Tenant]
+    ) -> None:
+        """Creating a tenant or a user is a platform operation.
+
+        Both previously carried a ``WITH CHECK (true)`` INSERT policy, which
+        allowed a scoped session to create rogue rows — and handed back the
+        account-enumeration oracle that ``authenticate`` works to deny: a unique
+        violation proves an address exists, success proves it does not.
+        """
+        acme, _ = two_tenants
+        await set_tenant_context(session, acme.id)
+
+        with pytest.raises(DBAPIError, match="permission denied"):
+            await session.execute(
+                text("INSERT INTO tenants (name, slug) VALUES ('Rogue', 'rogue-probe')")
+            )
+        await session.rollback()
+
+        await set_tenant_context(session, acme.id)
+        with pytest.raises(DBAPIError, match="permission denied"):
+            await session.execute(text("INSERT INTO users (email) VALUES ('probe@target.test')"))
 
     async def test_cannot_plant_an_invitation_into_another_tenant(
         self, session: AsyncSession, two_tenants: tuple[Tenant, Tenant]

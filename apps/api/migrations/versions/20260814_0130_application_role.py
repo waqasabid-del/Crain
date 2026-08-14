@@ -52,6 +52,25 @@ APP_ROLE = "cairn_app"
 LOCAL_DEV_PASSWORD = "cairn_local_dev"  # noqa: S105
 
 
+def _environment() -> str:
+    """The deployment environment, read the same way the application reads it.
+
+    Critically **not** ``os.environ`` alone. ``config.py`` declares
+    ``env_file=".env"``, which is the documented way this project supplies
+    configuration — so a deployment that sets ``CAIRN_ENVIRONMENT=production``
+    there leaves ``os.environ`` empty. Reading the raw environment would then
+    silently take the local-development branch below and create the production
+    role with the password published in this repository.
+
+    That is the very finding this function was written to fix, re-entering
+    through the gap between how the migration and the application each decide
+    what environment they are in. Sharing one source removes the gap.
+    """
+    from cairn_api.config import get_settings
+
+    return get_settings().environment
+
+
 def _role_password() -> str:
     """The password to create the application role with.
 
@@ -77,7 +96,7 @@ def _role_password() -> str:
     if supplied:
         return supplied
 
-    environment = os.environ.get("CAIRN_ENVIRONMENT", "local")
+    environment = _environment()
     if environment != "local":
         msg = (
             "CAIRN_APP_ROLE_PASSWORD must be set when CAIRN_ENVIRONMENT is "
@@ -112,6 +131,19 @@ def upgrade() -> None:
                 IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'cairn_app') THEN
                     EXECUTE format(
                         'CREATE ROLE %I LOGIN PASSWORD %L '
+                        'NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT',
+                        'cairn_app',
+                        current_setting('cairn.role_password')
+                    );
+                ELSE
+                    -- Repair, do not skip. Roles are cluster-level and survive
+                    -- DROP DATABASE, so any cluster that ran an earlier version
+                    -- of this migration still holds the published development
+                    -- password. IF NOT EXISTS alone would leave it there
+                    -- forever — changing where the password comes from does not
+                    -- help if the role was already created with the old one.
+                    EXECUTE format(
+                        'ALTER ROLE %I LOGIN PASSWORD %L '
                         'NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT',
                         'cairn_app',
                         current_setting('cairn.role_password')

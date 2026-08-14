@@ -62,8 +62,11 @@ export function CertaintyBadge({ certainty, className }: CertaintyBadgeProps): R
   return (
     <span
       className={clsx(styles.badge, styles[certainty], className)}
-      // `title` for pointer users, `aria-label` for assistive technology —
-      // the visible label alone does not explain what the tier means.
+      // `role="img"` is required for the name to be exposed at all. A bare
+      // <span> maps to role="generic", where ARIA prohibits naming — several
+      // screen readers drop `aria-label` there entirely, silently discarding
+      // the explanation this component depends on.
+      role="img"
       title={DESCRIPTION[certainty]}
       aria-label={`${LABEL[certainty]}: ${DESCRIPTION[certainty]}`}
     >
