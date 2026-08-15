@@ -224,6 +224,32 @@ Deploying them together would force one scaling policy onto two very different w
 5. **Errors carry context.** An error that does not say which tenant, which event, and which stage is a wasted hour.
 6. **Delete freely.** Dead code is a liability; version control remembers.
 
+### 8.1 Comment budget
+
+Comments explain **why**, and only where the reason is not recoverable from the
+code. Restating what a line does, arguing a decision at length, or describing a
+rejected alternative in full belongs in a commit message or in `md/`, not beside
+the code someone is trying to read.
+
+| Scope              | Budget                                                  |
+| ------------------ | ------------------------------------------------------- |
+| Module docstring   | ≤ 10 lines — what this file is for, and its one rule    |
+| Function docstring | ≤ 5 lines — behaviour, arguments that are not obvious   |
+| Inline comment     | ≤ 2 lines — the reason a reader would otherwise ask for |
+| Whole file         | **≤ 15%** of non-blank lines                            |
+
+Measured, not asserted: `pnpm comments` reports the ratio per file.
+
+**Why a budget.** An audit in August 2026 measured a 37% median across the
+Stage D files. Volume that high has a specific cost beyond taste — the reasoning
+that genuinely matters becomes indistinguishable from the reasoning that does
+not, so reviewers skim all of it, and comments drift out of date because nobody
+reads them closely enough to notice.
+
+The exceptions, deliberately narrow: a security or privacy invariant that a
+future change could silently break, and a decision whose obvious alternative is
+wrong in a way that is expensive to discover. Both stay short.
+
 ---
 
 ## 9. Security practices

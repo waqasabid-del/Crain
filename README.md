@@ -30,17 +30,37 @@ Specifications are the source of truth. **If code and `md/` disagree, one of the
 cp .env.example .env   # local defaults, safe to use as-is
 pnpm install           # JS dependencies + git hooks
 uv sync --dev          # Python dependencies
-make db-up             # PostgreSQL + test databases
-make migrate           # apply schema
-make seed              # development data
+pnpm setup             # database, schema, and development data
 ```
 
-The test suite is database-backed, so `make db-up` is required before `uv run pytest`.
+The test suite is database-backed, so `pnpm db:up` is required before `uv run pytest`.
+
+`make` targets exist for the same commands and are equivalent. The `pnpm` scripts
+above are the portable path — `make` is not installed by default on Windows.
+
+## Running it
+
+Two terminals:
+
+```bash
+pnpm dev:api    # API  → http://localhost:8000
+pnpm dev:web    # App  → http://localhost:3000
+```
+
+Sign in at <http://localhost:3000> with any seeded account — `ali@acme.example.com`,
+password `correct-horse-battery`.
+
+**For a local environment that actually produces output**, set
+`CAIRN_MODEL_BACKEND=scripted` in `.env` before seeding. Without a model backend
+the pipeline extracts nothing and every brief is empty — correctly, because the
+alternative is presenting keyword matching as understanding (md/09 §8). The
+scripted backend runs the deterministic provider the evaluation harness grades
+against, and a deployed environment refuses to start on it.
 
 ## Commands
 
 ```bash
-make dev         # Design system preview → http://localhost:6006
+pnpm dev         # Design system preview → http://localhost:6006
 pnpm check       # Lint, types, format (both languages)
 pnpm test        # TypeScript tests
 uv run pytest    # Python tests
