@@ -3,30 +3,25 @@
   "ui": "tui",
   "globalDependencies": ["**/.env.*local", "tsconfig.base.json"],
   "tasks": {
-    "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**", ".open-next/**"]
-    },
     "dev": {
       "cache": false,
       "persistent": true
     },
-    "lint": {
-      "dependsOn": ["^build"]
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
     },
+    "lint": {},
     "lint:fix": {
       "cache": false
     },
     "typecheck": {
-      "dependsOn": ["^build"],
       "outputs": []
     },
     "test": {
-      "dependsOn": ["^build"],
       "outputs": []
     },
     "test:coverage": {
-      "dependsOn": ["^build"],
       "outputs": ["coverage/**"]
     }
   }

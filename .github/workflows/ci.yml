@@ -52,6 +52,15 @@ jobs:
         run: pnpm lint
 
       - name: Typecheck
+        # Includes @cairn/api-client, whose types are generated from the API's
+        # OpenAPI document. This is the half of the contract check that catches
+        # a *breaking* change: rename a Pydantic field and the client's
+        # consumers stop compiling here.
+        #
+        # The other half — that the committed document still matches the routes
+        # — is asserted by test_openapi.py in the Python job. Regenerating here
+        # instead would defeat both: a schema generated on the fly always
+        # agrees with itself.
         run: pnpm typecheck
 
   quality-py:
@@ -84,6 +93,47 @@ jobs:
   # -------------------------------------------------------------------------
   # Tests
   # -------------------------------------------------------------------------
+  cloudflare-worker:
+    name: Frontend — Cloudflare Worker builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the Worker bundle
+        # The deployment target is a founder decision (md/06 §1) and the path is
+        # named in §2.1: Next.js on Workers via OpenNext. `next build` passing
+        # says nothing about whether the app bundles for workerd — a Node API
+        # used in the wrong place fails here and nowhere else.
+        #
+        # This job exists because OpenNext states it is not fully compatible
+        # with Windows and recommends WSL, so the developer machine this was
+        # written on cannot run it. Rather than leave the claim unverified, it
+        # is verified on Linux, on every push.
+        run: pnpm --filter @cairn/web exec opennextjs-cloudflare build
+
+      - name: Check the bundle against the Workers size limit
+        # 3 MiB on the free plan, 10 MiB paid (md/06 §2.2). Bundle discipline is
+        # a hard constraint rather than a preference, and discovering a breach
+        # at deploy time means discovering it during an incident.
+        run: |
+          size=$(stat -c %s apps/web/.open-next/worker.js)
+          limit=$((3 * 1024 * 1024))
+          echo "worker.js: $size bytes (limit $limit)"
+          test "$size" -lt "$limit"
+
   test-ts:
     name: TypeScript — tests
     runs-on: ubuntu-latest
@@ -104,7 +154,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test
-        run: pnpm test
+        # The coverage variant, not the plain one: the thresholds in each
+        # package's vitest config were configured and never enforced, because
+        # nothing in CI ran a command that reads them.
+        run: pnpm test:coverage
 
   test-py:
     name: Python — tests
@@ -158,6 +211,20 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --dev
 
+      - name: Start the Pub/Sub emulator
+        # Run as a step rather than a `services:` container: the emulator image
+        # has no long-running entrypoint of its own, so it needs an explicit
+        # command. Without it the adapter tests skip in CI and the production
+        # broker is only ever exercised on a developer's laptop.
+        run: |
+          docker run -d --name pubsub -p 8085:8085 \
+            gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators \
+            gcloud beta emulators pubsub start --project=cairn-local --host-port=0.0.0.0:8085
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:8085 && break
+            sleep 1
+          done
+
       - name: Create test databases
         run: |
           export PGPASSWORD=cairn_local_dev
@@ -167,7 +234,135 @@ jobs:
       - name: Test
         # CI=true makes conftest fail rather than skip when the database is
         # unreachable, so a broken service block cannot hide behind a green run.
-        run: uv run pytest
+        #
+        # --cov here rather than in addopts: it slows every local run, and a
+        # threshold failing on a developer's partial test selection trains
+        # people to pass --no-cov, which defeats the point. Enforced where it
+        # matters instead.
+        env:
+          # Presence of this variable is how the Pub/Sub client library and the
+          # adapter tests find the emulator. Absent, those tests skip — which is
+          # honest locally and would be a silent gap in CI.
+          PUBSUB_EMULATOR_HOST: localhost:8085
+        run: uv run pytest --cov=apps/api/src/cairn_api --cov-report=term-missing
+
+      # ---------------------------------------------------------------------
+      # Evaluation. Three steps, because they answer three different questions
+      # and a single red X would not say which one failed.
+      #
+      # Separate from the tests for the same reason: "the evaluation gate
+      # blocked" and "a unit test broke" are different conversations, and
+      # collapsing them means the first gets diagnosed as the second.
+      # ---------------------------------------------------------------------
+
+      - name: Evaluation gate — harness can pass
+        # ReferencePipeline scores perfectly by construction. This proves the
+        # harness, the dataset and the gate all work — so when the real run
+        # below fails, the instrument is not a suspect.
+        #
+        # On its own this proved nothing about the product, and for several
+        # steps it was the only evaluation CI ran. That is the finding this
+        # block exists to close.
+        run: uv run python -m cairn_api.evaluation.runner --pipeline reference
+
+      - name: Evaluation gate — harness can fail
+        # The negative control. BrokenPipeline fails one metric per case on
+        # purpose, so this step asserts a *non-zero* exit: a gate that has never
+        # blocked anything is a gate that might not be able to, and its failure
+        # mode is reporting success.
+        #
+        # `!` rather than `continue-on-error`, which would pass on either
+        # outcome and therefore assert nothing.
+        run: |
+          ! uv run python -m cairn_api.evaluation.runner --pipeline broken
+
+      - name: Evaluation gate — the product
+        # UnderstandingPipeline, Stages 1 to 4. The run that says something
+        # about what customers would receive.
+        #
+        # Driven by evaluation/scripted.py because no model credentials exist
+        # here. That provider is deliberately the adversary's best case — it
+        # complies with every injection it is shown — so these numbers are a
+        # floor on the pipeline's machinery rather than a measure of model
+        # quality. Its limits are documented in scripted.py, not implied here.
+        #
+        # Compared against baseline-real.json, which is a separate file from the
+        # reference pipeline's baseline: one shared file would either make the
+        # real pipeline look like a permanent catastrophic regression against
+        # the stand-in's 1.0s, or stop the stand-in from proving 100% is
+        # reachable.
+        #
+        # KNOWN BLOCKED. This step fails today, on case coverage 14/15 against a
+        # 95% floor. Left failing on purpose: the thresholds were not weakened
+        # to make it green, and a build that is honestly red about a real
+        # measurement is worth more than one that is green about a stand-in.
+        # See baseline-real.json for the numbers and the diagnosis.
+        run: uv run python -m cairn_api.evaluation.runner --pipeline real
+
+  # -------------------------------------------------------------------------
+  # Container
+  # -------------------------------------------------------------------------
+  docker-build:
+    name: Container — build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # Never pushed. There is no registry and no deployment yet
+          # (infra/README.md) — but an image that is only built when someone
+          # deploys is one that breaks silently in between, and the break is
+          # discovered during the deploy. Building it on every pull request
+          # keeps the Dockerfile honest for free.
+          push: false
+          load: true
+          tags: cairn:ci
+          # GitHub Actions cache, so the dependency layer is not rebuilt on
+          # every run. mode=max caches the intermediate build stage too, which
+          # is the expensive one — the default only caches the final stage,
+          # which in a multi-stage build is the cheap half.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify both entrypoints import
+        # A build that succeeds proves the layers assembled, not that the
+        # application is in them. This is the check that would have caught an
+        # empty virtualenv from a `uv sync` that resolved to nothing in a
+        # workspace whose root declares no dependencies.
+        #
+        # Imports rather than starts: starting either process needs a database,
+        # and a smoke test that needs the world is one that gets deleted the
+        # first time it flakes. An import failure is the failure mode a bad
+        # image actually has.
+        run: |
+          docker run --rm --entrypoint python cairn:ci \
+            -c "import cairn_api.api.app, cairn_api.jobs.main; print('both entrypoints import')"
+
+      - name: Verify the image does not run as root
+        # Asserted rather than trusted. A later edit that adds a RUN needing
+        # root, and moves USER to fix it, changes nothing observable — this is
+        # what notices.
+        run: |
+          user="$(docker run --rm --entrypoint id cairn:ci -un)"
+          echo "runtime user: $user"
+          [ "$user" = "cairn" ]
+
+      - name: Verify no dev dependencies shipped
+        # `--no-dev` is one flag away from being dropped. A production image
+        # containing pytest is a code-execution primitive with a friendly CLI.
+        run: |
+          if docker run --rm --entrypoint python cairn:ci \
+              -c "import pytest" 2>/dev/null; then
+            echo "::error::pytest is present in the production image"
+            exit 1
+          fi
+          echo "dev dependencies are absent"
 
   # -------------------------------------------------------------------------
   # Security — dependency and secret scanning (standards §9)
@@ -195,7 +390,7 @@ jobs:
   ci-passed:
     name: CI passed
     runs-on: ubuntu-latest
-    needs: [quality-ts, quality-py, test-ts, test-py, security]
+    needs: [quality-ts, quality-py, cloudflare-worker, test-ts, test-py, docker-build, security]
     if: always()
     steps:
       - name: Verify every job succeeded

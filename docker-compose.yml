@@ -36,6 +36,30 @@ services:
       timeout: 3s
       retries: 15
 
+  # Pub/Sub emulator — the production queue, running locally.
+  #
+  # Present so the Pub/Sub adapter is exercised rather than assumed. An adapter
+  # that only runs in production is one whose first real test is an incident,
+  # and the semantics that matter here — at-least-once delivery, ack deadlines,
+  # dead-letter topics — are exactly the ones a mock would get wrong.
+  pubsub:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    container_name: cairn-pubsub
+    restart: unless-stopped
+    command: >
+      gcloud beta emulators pubsub start
+      --project=cairn-local
+      --host-port=0.0.0.0:8085
+    ports:
+      - "8085:8085"
+    healthcheck:
+      # The emulator answers on / once it is listening. Tests wait on this
+      # rather than sleeping an arbitrary number of seconds.
+      test: ["CMD-SHELL", "curl -sf http://localhost:8085 || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
 volumes:
   postgres_data:
     name: cairn_postgres_data

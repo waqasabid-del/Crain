@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "CAIRN — an AI-native team operating system",
+  "description": "CAIRN \u00e2\u20ac\u201d an AI-native team operating system",
   "packageManager": "pnpm@10.33.4",
   "engines": {
     "node": ">=22.0.0",
@@ -11,6 +11,13 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "migrate": "cd apps/api && uv run alembic upgrade head",
+    "seed": "cd apps/api && uv run python -m cairn_api.db.seed",
+    "setup": "pnpm db:up && pnpm migrate && pnpm seed",
+    "dev:api": "cd apps/api && uv run uvicorn --factory cairn_api.api:create_app --reload --port 8000",
+    "dev:web": "pnpm --filter @cairn/web dev",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint:fix",
@@ -26,7 +33,8 @@
     "py:typecheck": "uv run mypy .",
     "py:test": "uv run pytest",
     "check": "pnpm lint && pnpm typecheck && pnpm format:check && pnpm py:lint && pnpm py:format:check && pnpm py:typecheck",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "comments": "uv run --project apps/api python scripts/comment_ratio.py"
   },
   "devDependencies": {
     "@cairn/config": "workspace:*",

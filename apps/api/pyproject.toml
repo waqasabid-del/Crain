@@ -12,6 +12,30 @@ dependencies = [
     "pydantic>=2.11.7",
     "pydantic-settings>=2.10.1",
     "argon2-cffi>=25.1.0",
+    "fastapi>=0.118",
+    # Imported directly by api/errors.py and api/middleware.py —
+    # BaseHTTPMiddleware, StarletteHTTPException and the ASGI types are not
+    # re-exported by FastAPI. Declared rather than relied on as FastAPI's
+    # transitive dependency: an undeclared import works right up until the day
+    # FastAPI widens or drops its own pin, and then it breaks in a module that
+    # has not been touched.
+    "starlette>=0.47",
+    "uvicorn[standard]>=0.37",
+    "structlog>=25.4",
+    "email-validator>=2.2",
+    "google-cloud-pubsub>=2.31",
+    # pipeline/credentials.py imports google.auth directly to obtain and refresh
+    # an access token for Vertex. That package arrives transitively with
+    # google-cloud-pubsub today, which means the model adapter's credentials
+    # depend on the *queue* backend's dependency tree — a coupling nobody chose
+    # and nothing records. Declared so it survives dropping Pub/Sub.
+    "google-auth>=2.35",
+    "pyjwt[crypto]>=2.10",
+    "httpx>=0.28",
+    # pgvector's SQLAlchemy type, so embedding columns are typed rather than
+    # hand-cast strings. The extension itself is already required by the
+    # initial migration (md/06 §4.4).
+    "pgvector>=0.4",
 ]
 
 [build-system]
@@ -20,3 +44,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cairn_api"]
+
+[dependency-groups]
+dev = [
+    "asgi-lifespan>=2.1",
+    "httpx>=0.28",
+    # pgvector's SQLAlchemy type, so embedding columns are typed rather than
+    # hand-cast strings. The extension itself is already required by the
+    # initial migration (md/06 §4.4).
+    "pgvector>=0.4",
+]
