@@ -1,14 +1,7 @@
-/**
- * Spacing, radii, borders, shadows and motion.
- *
- * All spacing derives from a 4px base. A single rhythm applied consistently is
- * what makes an interface feel considered; arbitrary values are what make it
- * feel improvised.
- */
+/** Spacing, radii, borders, shadows and motion, all on a 4px base. */
 
 const BASE_UNIT_PX = 4;
 
-/** Spacing scale in rem, derived from a 4px base at a 16px root. */
 export const space = {
   0: "0",
   1: "0.25rem",
@@ -27,7 +20,7 @@ export const space = {
 
 export type SpaceStep = keyof typeof space;
 
-/** Convert a spacing step to pixels. Used by the token tests. */
+/** Exists so the 4px rhythm can be asserted rather than assumed. */
 export function spaceToPx(step: SpaceStep): number {
   return step * BASE_UNIT_PX;
 }
@@ -45,50 +38,27 @@ export const borderWidth = {
   thick: "2px",
 } as const;
 
-/**
- * Shadows are deliberately minimal.
- *
- * In a monochrome interface heavy shadows read as noise. Elevation is mostly
- * communicated through borders and background steps instead.
- */
+/** Minimal by design: in a monochrome interface heavy shadows read as noise. */
 export const shadow = {
   none: "none",
   sm: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
   md: "0 4px 8px -2px rgb(0 0 0 / 0.08)",
 } as const;
 
-/**
- * Minimum interactive target size.
- *
- * WCAG 2.2 (2.5.8 Target Size, Minimum) sets 24×24 CSS px. This uses 44px,
- * the stricter mobile guideline, because CAIRN's most important repeated
- * action — correcting your own record — must be effortless on any device
- * (md/05 §A.3). A correction that is fiddly is a correction that never happens,
- * and an error that silently persists.
- */
+/** 44px, not the 24px of WCAG 2.5.8: correcting your own record must be
+ * effortless on any device (md/05 §A.3). */
 export const minTargetSize = "44px";
 
-/**
- * Focus ring.
- *
- * A monochrome interface tends to fail WCAG 2.4.7 (Focus Visible), because the
- * usual approach of tinting a background does not read against greyscale. The
- * ring is therefore an explicit, high-contrast outline with an offset so it
- * stays visible against both light and dark surfaces.
- */
+/** An explicit high-contrast outline with an offset: tinting a background does
+ * not read against greyscale, so a monochrome interface fails WCAG 2.4.7. */
 export const focusRing = {
   width: "2px",
   offset: "2px",
   style: "solid",
 } as const;
 
-/**
- * Motion.
- *
- * Short and unobtrusive. Every duration here is well under the 5 second
- * threshold at which WCAG 2.2.2 requires a pause control, and all motion must
- * be disabled under `prefers-reduced-motion`.
- */
+/** All well under the 5s at which WCAG 2.2.2 requires a pause control, and all
+ * motion must be disabled under `prefers-reduced-motion`. */
 export const duration = {
   instant: "0ms",
   fast: "120ms",

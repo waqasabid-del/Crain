@@ -1,0 +1,101 @@
+/* Loading ------------------------------------------------------------------ */
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: var(--prose-max-width);
+}
+
+/*
+ * Skeleton lines rather than a spinner.
+ *
+ * A spinner says "wait" and nothing else; a skeleton says what is coming and
+ * roughly how much of it, so the layout does not jump when content lands. That
+ * shift is the reason a page feels unstable even when it is fast.
+ */
+.line {
+  height: 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+}
+
+.line:nth-child(2) {
+  width: 92%;
+}
+
+.line:nth-child(3) {
+  width: 74%;
+}
+
+/*
+ * The pulse is a background fade, not a moving highlight.
+ *
+ * A sweeping shimmer is animated motion across the viewport, which is precisely
+ * what vestibular disorders react to. Opacity alone carries the "still working"
+ * signal with nothing travelling across the screen.
+ *
+ * The global reduce rule in @cairn/ui already collapses this to nothing; it is
+ * repeated here because a reader relying on that behaviour has to open another
+ * package to discover it, and because the app must stay correct if the global
+ * rule is ever narrowed.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .line {
+    animation: pulse 1.6s var(--easing-standard) infinite;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Empty and error ---------------------------------------------------------- */
+
+.panel {
+  max-width: var(--prose-max-width);
+  padding: var(--space-6);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+}
+
+.title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.body {
+  margin: 0;
+  color: var(--fg-muted);
+  line-height: var(--leading-relaxed);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+/*
+ * The correlation ID, present but quiet.
+ *
+ * It is meaningless to the reader and essential to whoever they contact, so it
+ * belongs on the screen and nowhere near the headline. Monospaced because it
+ * will be read aloud or retyped.
+ */
+.reference {
+  margin: var(--space-4) 0 0;
+  color: var(--fg-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}

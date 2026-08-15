@@ -1,9 +1,15 @@
 /**
  * Design tokens as CSS custom properties.
  *
- * Mirrors src/tokens/*.ts. The TypeScript tokens are the source of truth for
- * anything that needs to be reasoned about in code (contrast tests, generated
- * documentation); these are what components actually consume at runtime.
+ * GENERATED FILE — do not edit.
+ *
+ * Produced from src/tokens/*.ts by src/styles/generate.ts, and checked for
+ * drift by src/styles/generate.test.ts. Editing this file directly will fail
+ * that test; change the TypeScript token and regenerate instead.
+ *
+ * The TypeScript tokens are the single source of truth precisely because the
+ * contrast tests read them: a hand-maintained copy could pass every
+ * accessibility assertion while shipping a colour that fails WCAG.
  *
  * Theme switching is a single attribute on the root element, so it costs one
  * repaint rather than a re-render.
@@ -11,8 +17,7 @@
 
 :root {
   /* Typography */
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --text-xs: 0.75rem;
@@ -34,6 +39,7 @@
   --prose-max-width: 68ch;
 
   /* Spacing — 4px base */
+  --space-0: 0;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -44,8 +50,11 @@
   --space-10: 2.5rem;
   --space-12: 3rem;
   --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
 
   /* Shape */
+  --radius-none: 0;
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
@@ -54,6 +63,7 @@
   --border-thin: 1px;
   --border-thick: 2px;
 
+  --shadow-none: none;
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow-md: 0 4px 8px -2px rgb(0 0 0 / 0.08);
 
@@ -61,10 +71,14 @@
   --min-target: 44px;
   --focus-width: 2px;
   --focus-offset: 2px;
+  --focus-style: solid;
 
+  --duration-instant: 0ms;
   --duration-fast: 120ms;
   --duration-normal: 200ms;
+
   --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --easing-decelerate: cubic-bezier(0, 0, 0, 1);
 }
 
 /* Light theme — the default */
@@ -113,7 +127,11 @@
   --accent-default: #60a5fa;
 }
 
-/* Respect the OS preference when no explicit theme is set */
+/* Respect the OS preference when no explicit theme is set.
+
+   Scoped with :not([data-theme="light"]) so an explicit light choice still wins
+   on a device set to dark — otherwise the theme toggle would appear broken in
+   one direction only. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
@@ -167,7 +185,7 @@ body {
  * interfaces.
  */
 :focus-visible {
-  outline: var(--focus-width) solid var(--border-focus);
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
   outline-offset: var(--focus-offset);
 }
 

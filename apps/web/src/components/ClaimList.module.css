@@ -1,0 +1,139 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * One claim, one card.
+ *
+ * The rule is what separates claims, not a heavier surface — no shadow, no
+ * elevation, no alternating background. A page of shadowed cards reads as a
+ * dashboard, and md/05 §A.1 puts prose above dashboards deliberately.
+ */
+.claim {
+  padding: var(--space-5);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-default);
+}
+
+.text {
+  max-width: var(--prose-max-width);
+  margin: 0;
+  line-height: var(--leading-relaxed);
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.credits {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/*
+ * The citation affordance.
+ *
+ * `margin-left: auto` pushes it to the trailing edge on a wide card and it wraps
+ * underneath on a narrow one, so it is always in the same place relative to the
+ * claim it belongs to.
+ */
+.sources {
+  margin-left: auto;
+}
+
+.summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--min-target);
+  padding: 0 var(--space-2);
+
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  /* The default triangle is inconsistent between browsers; the caret below
+     replaces it and rotates with the open state. */
+  list-style: none;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary:hover {
+  color: var(--fg-default);
+}
+
+.caret {
+  margin-left: var(--space-2);
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+
+.sources[open] .caret {
+  transform: rotate(90deg);
+}
+
+.citations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: var(--space-4);
+  list-style: none;
+
+  background: var(--bg-subtle);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.citationSource {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+.citationLink {
+  display: inline-block;
+  min-height: var(--min-target);
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+  /*
+   * Underlined, always. Removing underlines from links inside prose leaves
+   * colour as the only signal that something is a link — which is WCAG 1.4.1,
+   * and in a monochrome palette there is not even a colour to notice.
+   */
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.citationUnlinked {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/*
+ * The quoted span, set as a quotation.
+ *
+ * A left rule rather than quotation marks: the text is verbatim from a source
+ * and may itself contain quotes.
+ */
+.quote {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  border-left: var(--border-thick) solid var(--border-strong);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}

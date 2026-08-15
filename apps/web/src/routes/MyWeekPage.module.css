@@ -1,0 +1,131 @@
+/*
+ * My week.
+ *
+ * The visual argument is the same as everywhere else and matters more here:
+ * this is the screen a person opens to see what a machine says about them, and
+ * anything that reads as a scoreboard turns coordination software into
+ * monitoring (md/05 §B.1). No counts, no emphasis on volume, plenty of space.
+ */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  border-top: var(--border-thin) solid var(--border-default);
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) 0;
+  border-bottom: var(--border-thin) solid var(--border-default);
+}
+
+.statement {
+  margin: 0;
+  max-width: 70ch;
+  color: var(--fg-default);
+  line-height: var(--leading-relaxed);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.source {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+a.source {
+  text-decoration: underline;
+}
+
+.corrections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-subtle);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.rewordForm {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.rewordLabel {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.reword {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  color: var(--fg-default);
+  font: inherit;
+  font-size: var(--text-sm);
+  background: var(--bg-default);
+  border: var(--border-thin) solid var(--border-interactive);
+  border-radius: var(--radius-md);
+  resize: vertical;
+}
+
+.reword:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+/*
+ * Confirmation in words. A row that simply vanishes leaves the reader unsure
+ * whether their correction was recorded or the page merely moved.
+ */
+.done {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/*
+ * Bordered rather than filled with a warning colour — the palette carries no
+ * semantic red, and inventing one here would put the only colour in the product
+ * at the reader's least confident moment.
+ */
+.problem {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--fg-default);
+  background: var(--bg-muted);
+  border: var(--border-thin) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+/*
+ * Kept in the accessibility tree, taken out of the layout. `display: none`
+ * would remove the name a screen-reader user needs to tell one "Not right?"
+ * button from another.
+ */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

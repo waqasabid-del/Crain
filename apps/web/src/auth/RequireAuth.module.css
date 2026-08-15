@@ -1,0 +1,20 @@
+/*
+ * The frame for the two moments before the app knows who the reader is.
+ *
+ * Centred and bare — deliberately without the sidebar. Drawing the full shell
+ * around a skeleton would mean rendering navigation and an account block for a
+ * person who may turn out not to be signed in, and the account block would flash
+ * a placeholder identity before being replaced.
+ */
+.gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: var(--space-6);
+}
+
+.inner {
+  width: 100%;
+  max-width: 32rem;
+}

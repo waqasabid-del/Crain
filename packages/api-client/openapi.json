@@ -1,0 +1,4090 @@
+{
+  "components": {
+    "schemas": {
+      "AcceptInvitationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Displayname"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 12,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "token": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": ["token", "email"],
+        "title": "AcceptInvitationRequest",
+        "type": "object"
+      },
+      "BriefArchive": {
+        "additionalProperties": false,
+        "description": "A page of past briefs, newest first.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BriefSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          }
+        },
+        "title": "BriefArchive",
+        "type": "object"
+      },
+      "BriefClaimResponse": {
+        "additionalProperties": false,
+        "description": "One sentence of a brief, with everything needed to check it.",
+        "properties": {
+          "certainty": {
+            "$ref": "#/components/schemas/Certainty"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/CitationResponse"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "credits": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Credits",
+            "type": "array"
+          },
+          "factIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Factids",
+            "type": "array"
+          },
+          "hedgedBySystem": {
+            "default": false,
+            "title": "Hedgedbysystem",
+            "type": "boolean"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": ["text", "certainty"],
+        "title": "BriefClaimResponse",
+        "type": "object"
+      },
+      "BriefResponse": {
+        "additionalProperties": false,
+        "description": "A period's brief: prose, and the claims behind it.",
+        "properties": {
+          "abstained": {
+            "default": false,
+            "title": "Abstained",
+            "type": "boolean"
+          },
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/BriefClaimResponse"
+            },
+            "title": "Claims",
+            "type": "array"
+          },
+          "generatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generatedat"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "narrative": {
+            "title": "Narrative",
+            "type": "string"
+          },
+          "periodEnd": {
+            "format": "date-time",
+            "title": "Periodend",
+            "type": "string"
+          },
+          "periodStart": {
+            "format": "date-time",
+            "title": "Periodstart",
+            "type": "string"
+          },
+          "stored": {
+            "default": false,
+            "title": "Stored",
+            "type": "boolean"
+          },
+          "suppressedCount": {
+            "default": 0,
+            "title": "Suppressedcount",
+            "type": "integer"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": ["periodStart", "periodEnd", "narrative"],
+        "title": "BriefResponse",
+        "type": "object"
+      },
+      "BriefSummary": {
+        "additionalProperties": false,
+        "description": "One entry in the archive.\n\nDeliberately not the whole brief. An archive is a list to scan, and sending\nevery claim of every period to render a list of dates is the request that\nmakes the screen slow exactly as a workspace accumulates history.",
+        "properties": {
+          "abstained": {
+            "title": "Abstained",
+            "type": "boolean"
+          },
+          "claimCount": {
+            "title": "Claimcount",
+            "type": "integer"
+          },
+          "excerpt": {
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "generatedAt": {
+            "format": "date-time",
+            "title": "Generatedat",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "periodEnd": {
+            "format": "date-time",
+            "title": "Periodend",
+            "type": "string"
+          },
+          "periodStart": {
+            "format": "date-time",
+            "title": "Periodstart",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "periodStart",
+          "periodEnd",
+          "generatedAt",
+          "excerpt",
+          "claimCount",
+          "abstained"
+        ],
+        "title": "BriefSummary",
+        "type": "object"
+      },
+      "Certainty": {
+        "description": "How much CAIRN trusts a claim.\n\nCategorical, never numeric. A \"73% confident\" badge looks rigorous, means\nnothing to a non-technical reader, and invites false precision. Internal\nnumeric confidence exists for thresholds and evaluation, but it never\nreaches this type or the interface.\n\nSee md/05-ux-design-privacy.md \u00a7A.2.1.",
+        "enum": ["verified", "observed", "suggested"],
+        "title": "Certainty",
+        "type": "string"
+      },
+      "CitationResponse": {
+        "additionalProperties": false,
+        "description": "Where a claim came from, resolvable in one click.\n\n**The URL is the whole point of this type.** Citations used to be bare\nevidence identifiers \u2014 `ev-pr-482` \u2014 which satisfies \"every claim carries a\ncitation\" and fails the thing the citation is *for*: a reader cannot check\n`ev-pr-482`. Step 21's criterion is that every claim links to its source in\none click, and a string that only means something inside this database is\nnot a link.\n\n`url` is optional because some evidence genuinely has no permalink \u2014 a\nmeeting transcript, most obviously. The interface names the source rather\nthan hiding the citation: an unlinked citation is still provenance a person\ncan go and check, whereas a hidden one silently breaks the promise.",
+        "properties": {
+          "evidenceId": {
+            "title": "Evidenceid",
+            "type": "string"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": ["evidenceId", "source"],
+        "title": "CitationResponse",
+        "type": "object"
+      },
+      "ConnectGitHubRequest": {
+        "additionalProperties": false,
+        "description": "Bind a GitHub App installation to this workspace.\n\nThe `installation_id` arrives as a query parameter on GitHub's post-install\nredirect. The caller must be an authenticated member with permission to\nconnect integrations, which is the whole point: an inbound webhook must\nnever be able to create this mapping, or whoever installed the app would\nhave their activity bound to a workspace nobody chose.",
+        "properties": {
+          "accountLogin": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Accountlogin",
+            "type": "string"
+          },
+          "accountType": {
+            "default": "Organization",
+            "maxLength": 32,
+            "title": "Accounttype",
+            "type": "string"
+          },
+          "installationId": {
+            "exclusiveMinimum": 0.0,
+            "title": "Installationid",
+            "type": "integer"
+          },
+          "repositories": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Repositories",
+            "type": "array"
+          }
+        },
+        "required": ["installationId", "accountLogin"],
+        "title": "ConnectGitHubRequest",
+        "type": "object"
+      },
+      "ConsentResponse": {
+        "additionalProperties": false,
+        "description": "What CAIRN may attribute to the caller, and what it never does.\n\nThe refusals travel with the choices deliberately. md/05 \u00a7B.3.4 requires the\ncontractual refusals to be stated in-product, and the moment a person is\ndeciding whether to opt out is the moment they are most entitled to read\nthem \u2014 not a policy page they would have to go looking for.",
+        "properties": {
+          "refusals": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Refusals",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceConsent"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "title": "ConsentResponse",
+        "type": "object"
+      },
+      "ConsentUpdate": {
+        "additionalProperties": false,
+        "description": "A person changing what CAIRN may attribute to them.",
+        "properties": {
+          "optedOut": {
+            "title": "Optedout",
+            "type": "boolean"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": ["source", "optedOut"],
+        "title": "ConsentUpdate",
+        "type": "object"
+      },
+      "ConsentUpdateResponse": {
+        "additionalProperties": false,
+        "description": "The result of one choice.",
+        "properties": {
+          "optedOut": {
+            "title": "Optedout",
+            "type": "boolean"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "unlinked": {
+            "default": 0,
+            "title": "Unlinked",
+            "type": "integer"
+          }
+        },
+        "required": ["source", "optedOut"],
+        "title": "ConsentUpdateResponse",
+        "type": "object"
+      },
+      "CorrectionRequest": {
+        "additionalProperties": false,
+        "description": "A person saying what CAIRN got wrong about them.\n\nA closed set of kinds rather than a free-text box, because free text is the\nworse input on both sides: it asks somebody to explain a defect in a product\nthey did not build, and it hands evaluation an unlabelled string instead of\na failure mode. `note` exists for the detail a kind cannot carry, and\nnothing depends on it being filled in.",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "statement": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statement"
+          }
+        },
+        "required": ["kind"],
+        "title": "CorrectionRequest",
+        "type": "object"
+      },
+      "CorrectionResponse": {
+        "additionalProperties": false,
+        "description": "What the correction did.",
+        "properties": {
+          "correctedFactId": {
+            "format": "uuid",
+            "title": "Correctedfactid",
+            "type": "string"
+          },
+          "replacement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FactResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["correctedFactId"],
+        "title": "CorrectionResponse",
+        "type": "object"
+      },
+      "FacetPerson": {
+        "additionalProperties": false,
+        "description": "Somebody at least one current fact is about.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "FacetPerson",
+        "type": "object"
+      },
+      "FacetsResponse": {
+        "additionalProperties": false,
+        "description": "What this workspace can actually be filtered by.\n\nEvery value here is one that at least one currently-valid fact would match,\nread from the facts rather than from a list of what CAIRN could hold. A menu\noffering \"Meetings\" to a workspace that never connected one produces an empty\nresult the reader blames on the product.\n\n**No counts anywhere.** A number beside a person's name is a productivity\nmetric wearing a filter's clothes (md/05 \u00a7B.1), and it would be the first\nthing on this screen anyone screenshotted.",
+        "properties": {
+          "people": {
+            "items": {
+              "$ref": "#/components/schemas/FacetPerson"
+            },
+            "title": "People",
+            "type": "array"
+          },
+          "projects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "title": "FacetsResponse",
+        "type": "object"
+      },
+      "FactKind": {
+        "description": "What sort of statement this is. Deliberately few and glossary-free.",
+        "enum": ["delivery", "decision", "blocker", "in_progress", "open_question"],
+        "title": "FactKind",
+        "type": "string"
+      },
+      "FactOrigin": {
+        "description": "Who asserted this \u2014 a human correction outranks an extracted fact.",
+        "enum": ["extracted", "correction"],
+        "title": "FactOrigin",
+        "type": "string"
+      },
+      "FactPage": {
+        "additionalProperties": false,
+        "description": "One page of facts, and how to ask for the next.\n\nNo total count. Counting rows a reader has not asked for costs a second\nquery on every page, and the number would be read as \"how much did this team\ndo\" \u2014 a measurement this product does not make (md/09 \u00a710).",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FactResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          }
+        },
+        "title": "FactPage",
+        "type": "object"
+      },
+      "FactPersonResponse": {
+        "additionalProperties": false,
+        "description": "A person a fact concerns, resolved or not.\n\n`personId` is null for a mention the identity graph could not place\nunambiguously, and the raw mention is returned anyway. A name the system\ncould not resolve is a question the workspace can answer; dropping it makes\n\"who is Sam?\" unanswerable.",
+        "properties": {
+          "mention": {
+            "title": "Mention",
+            "type": "string"
+          },
+          "personId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Personid"
+          }
+        },
+        "required": ["mention"],
+        "title": "FactPersonResponse",
+        "type": "object"
+      },
+      "FactResponse": {
+        "additionalProperties": false,
+        "description": "One statement the pipeline asserts, with its validity interval.",
+        "properties": {
+          "certainty": {
+            "$ref": "#/components/schemas/Certainty"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "occurredAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurredat"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/FactOrigin"
+          },
+          "people": {
+            "items": {
+              "$ref": "#/components/schemas/FactPersonResponse"
+            },
+            "title": "People",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/FactSourceResponse"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "supersededById": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersededbyid"
+          },
+          "supersessionReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersessionreason"
+          },
+          "validFrom": {
+            "format": "date-time",
+            "title": "Validfrom",
+            "type": "string"
+          },
+          "validUntil": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validuntil"
+          }
+        },
+        "required": ["id", "kind", "statement", "certainty", "origin", "validFrom"],
+        "title": "FactResponse",
+        "type": "object"
+      },
+      "FactSourceResponse": {
+        "additionalProperties": false,
+        "description": "Where a fact came from, precisely enough to open.",
+        "properties": {
+          "evidenceId": {
+            "title": "Evidenceid",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": ["source", "evidenceId"],
+        "title": "FactSourceResponse",
+        "type": "object"
+      },
+      "GitHubInstallationResponse": {
+        "additionalProperties": false,
+        "description": "A connected installation.",
+        "properties": {
+          "accountLogin": {
+            "title": "Accountlogin",
+            "type": "string"
+          },
+          "accountType": {
+            "title": "Accounttype",
+            "type": "string"
+          },
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "backfillRuns": {
+            "title": "Backfillruns",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "installationId": {
+            "title": "Installationid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "installationId",
+          "accountLogin",
+          "accountType",
+          "active",
+          "backfillRuns"
+        ],
+        "title": "GitHubInstallationResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["status", "environment"],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "IntegrationResponse": {
+        "additionalProperties": false,
+        "description": "One source, and whether it is currently reading.\n\nDisconnected integrations are returned rather than filtered out: a gap in the\nfeed is explained by \"GitHub was disconnected on the 4th\" and unexplained by\nsilence.",
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "connectedAt": {
+            "format": "date-time",
+            "title": "Connectedat",
+            "type": "string"
+          },
+          "disconnectedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disconnectedat"
+          },
+          "installationId": {
+            "title": "Installationid",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "suspended": {
+            "default": false,
+            "title": "Suspended",
+            "type": "boolean"
+          }
+        },
+        "required": ["source", "account", "installationId", "connectedAt"],
+        "title": "IntegrationResponse",
+        "type": "object"
+      },
+      "InvitationResponse": {
+        "additionalProperties": false,
+        "description": "An issued invitation.\n\n**The token is not here.** It reaches the invitee by email and nowhere else.\nReturning it would let anyone who can issue an invitation also redeem it,\ncollapsing the distinction between inviting an address and proving control\nof it \u2014 and would write a working credential into the API logs of every\nintermediary.",
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TenantRole"
+          }
+        },
+        "required": ["id", "email", "role", "expiresAt"],
+        "title": "InvitationResponse",
+        "type": "object"
+      },
+      "InviteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TenantRole",
+            "default": "member"
+          }
+        },
+        "required": ["email"],
+        "title": "InviteRequest",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 1024,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": ["email", "password"],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "MembershipResponse": {
+        "additionalProperties": false,
+        "description": "A person's place in a workspace.\n\nCarries role and join date and nothing else \u2014 no activity counts, no last\nseen, no \"engagement\". Roles govern configuration; they do not govern how\nmuch is visible about a person (md/15 \u00a72.2), and a members list is exactly\nwhere a visibility field would first appear.",
+        "properties": {
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Displayname"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "joinedAt": {
+            "format": "date-time",
+            "title": "Joinedat",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TenantRole"
+          },
+          "userId": {
+            "format": "uuid",
+            "title": "Userid",
+            "type": "string"
+          }
+        },
+        "required": ["userId", "email", "displayName", "role", "joinedAt"],
+        "title": "MembershipResponse",
+        "type": "object"
+      },
+      "NotificationStatus": {
+        "additionalProperties": false,
+        "description": "Worker notification across the workspace.",
+        "properties": {
+          "memberCount": {
+            "title": "Membercount",
+            "type": "integer"
+          },
+          "optedOutCount": {
+            "title": "Optedoutcount",
+            "type": "integer"
+          },
+          "people": {
+            "items": {
+              "$ref": "#/components/schemas/PersonNotification"
+            },
+            "title": "People",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": ["memberCount", "optedOutCount"],
+        "title": "NotificationStatus",
+        "type": "object"
+      },
+      "OnboardingResponse": {
+        "additionalProperties": false,
+        "description": "How far a workspace has got through its first ten minutes.\n\nCounters rather than a percentage. GitHub does not say how many commits a\nrepository holds before it is walked, so a percentage would be invented \u2014\nand an invented one always stalls near the end, which reads as broken rather\nthan as unknown. A number that climbs is honest and, on the screen where\nabandonment costs most, more reassuring.",
+        "properties": {
+          "accountLogin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accountlogin"
+          },
+          "commitsImported": {
+            "default": 0,
+            "title": "Commitsimported",
+            "type": "integer"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "factsAvailable": {
+            "default": 0,
+            "title": "Factsavailable",
+            "type": "integer"
+          },
+          "importing": {
+            "default": false,
+            "title": "Importing",
+            "type": "boolean"
+          },
+          "repositories": {
+            "items": {
+              "$ref": "#/components/schemas/RepositoryProgress"
+            },
+            "title": "Repositories",
+            "type": "array"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": ["stage", "connected"],
+        "title": "OnboardingResponse",
+        "type": "object"
+      },
+      "PersonNotification": {
+        "additionalProperties": false,
+        "description": "Whether one member has been served the worker notification.\n\nNamed per person deliberately. Notification is an obligation the employer\nowes each individual before capture begins, and an Owner who cannot see who\nis outstanding cannot discharge it.\n\nNote what is **not** here: whether they opted out. That is the person's own\ndecision about their own record, and a list of names beside \"opted out\" is a\nlist of employees who declined to be recorded, handed to whoever writes their\nreview \u2014 see `NotificationStatus`.",
+        "properties": {
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Displayname"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "notifiedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notifiedat"
+          },
+          "userId": {
+            "format": "uuid",
+            "title": "Userid",
+            "type": "string"
+          }
+        },
+        "required": ["userId", "email"],
+        "title": "PersonNotification",
+        "type": "object"
+      },
+      "PrivacySettings": {
+        "additionalProperties": false,
+        "description": "What happens to this workspace's raw activity.\n\nThe bounds are returned with the value so the interface states the range it\nwill accept before somebody is refused for typing outside it.",
+        "properties": {
+          "maxRetentionDays": {
+            "title": "Maxretentiondays",
+            "type": "integer"
+          },
+          "minRetentionDays": {
+            "title": "Minretentiondays",
+            "type": "integer"
+          },
+          "region": {
+            "$ref": "#/components/schemas/Region"
+          },
+          "retentionDays": {
+            "title": "Retentiondays",
+            "type": "integer"
+          }
+        },
+        "required": ["retentionDays", "minRetentionDays", "maxRetentionDays", "region"],
+        "title": "PrivacySettings",
+        "type": "object"
+      },
+      "PrivacyUpdate": {
+        "additionalProperties": false,
+        "description": "How long to keep raw activity.",
+        "properties": {
+          "retentionDays": {
+            "title": "Retentiondays",
+            "type": "integer"
+          }
+        },
+        "required": ["retentionDays"],
+        "title": "PrivacyUpdate",
+        "type": "object"
+      },
+      "Region": {
+        "description": "Where a tenant's data is stored (only ``US_CENTRAL1`` is live so far,\nmd/06 \u00a76.3).",
+        "enum": ["us-central1", "europe-west1"],
+        "title": "Region",
+        "type": "string"
+      },
+      "RepositoryProgress": {
+        "additionalProperties": false,
+        "description": "One repository's import, as the onboarding screen shows it.",
+        "properties": {
+          "commitsImported": {
+            "title": "Commitsimported",
+            "type": "integer"
+          },
+          "finished": {
+            "title": "Finished",
+            "type": "boolean"
+          },
+          "repository": {
+            "title": "Repository",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["repository", "state", "commitsImported", "finished"],
+        "title": "RepositoryProgress",
+        "type": "object"
+      },
+      "RoleUpdate": {
+        "additionalProperties": false,
+        "description": "A member's new role.\n\nA role, and nothing else. A body that also carried, say, `email` would make\nthis endpoint a general-purpose member editor, and the next field added to it\nwould be added without anybody deciding an administrator should be able to\nchange it.",
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/TenantRole"
+          }
+        },
+        "required": ["role"],
+        "title": "RoleUpdate",
+        "type": "object"
+      },
+      "SearchHit": {
+        "additionalProperties": false,
+        "description": "One search result: a stored fact, and how it was found.",
+        "properties": {
+          "fact": {
+            "$ref": "#/components/schemas/FactResponse"
+          },
+          "matchedOn": {
+            "enum": ["words", "meaning"],
+            "title": "Matchedon",
+            "type": "string"
+          }
+        },
+        "required": ["fact", "matchedOn"],
+        "title": "SearchHit",
+        "type": "object"
+      },
+      "SearchResults": {
+        "additionalProperties": false,
+        "description": "What a search found.\n\n**No cursor, deliberately.** Keyset pagination needs a stable total order,\nand relevance is not one \u2014 it is recomputed per query and would reorder under\na cursor. A ranked list is an answer rather than a stream, so this returns\nthe best `limit` results and says when it stopped short of everything.\n\n**Results are stored facts.** Nothing on this path calls a model to compose a\nreply, which is what \"grounded\" is being used to mean: the reader is looking\nat what CAIRN recorded, with the evidence attached, not at prose about it.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "semantic": {
+            "default": true,
+            "title": "Semantic",
+            "type": "boolean"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "title": "SearchResults",
+        "type": "object"
+      },
+      "SessionResponse": {
+        "additionalProperties": false,
+        "description": "Who the caller is, and where they can go.",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserResponse"
+          },
+          "workspaces": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceMembershipResponse"
+            },
+            "title": "Workspaces",
+            "type": "array"
+          }
+        },
+        "required": ["user", "workspaces"],
+        "title": "SessionResponse",
+        "type": "object"
+      },
+      "SignupRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Displayname"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 1024,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          },
+          "workspaceName": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Workspacename",
+            "type": "string"
+          },
+          "workspaceSlug": {
+            "maxLength": 63,
+            "minLength": 3,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Workspaceslug",
+            "type": "string"
+          }
+        },
+        "required": ["password", "email", "workspaceName", "workspaceSlug"],
+        "title": "SignupRequest",
+        "type": "object"
+      },
+      "SourceConsent": {
+        "additionalProperties": false,
+        "description": "One source, and whether this person has opted out of it.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "optedOut": {
+            "title": "Optedout",
+            "type": "boolean"
+          },
+          "reads": {
+            "title": "Reads",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": ["source", "label", "reads", "optedOut"],
+        "title": "SourceConsent",
+        "type": "object"
+      },
+      "TenantRole": {
+        "description": "A person's role within one workspace. Deliberately four (md/15 \u00a72.2).\n``ADMIN`` governs configuration, never visibility depth.",
+        "enum": ["owner", "admin", "member", "viewer"],
+        "title": "TenantRole",
+        "type": "string"
+      },
+      "TrustCenter": {
+        "additionalProperties": false,
+        "description": "The Trust & Privacy Center (md/05 \u00a7B.6).\n\n**In-product and readable by every member**, not an administrator's page and\nnot a PDF. Two audiences and identical content: employees deciding whether to\ntrust it daily, and buyers evaluating it.\n\nEvery number here is read from this workspace rather than written into the\ncopy. A trust page that states a retention period the system does not apply\nis the most damaging sentence this product could publish, because it is read\nby the audience deciding whether the rest is true.",
+        "properties": {
+          "awaitingNotification": {
+            "title": "Awaitingnotification",
+            "type": "integer"
+          },
+          "commitments": {
+            "items": {
+              "$ref": "#/components/schemas/TrustCommitment"
+            },
+            "title": "Commitments",
+            "type": "array"
+          },
+          "refusals": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Refusals",
+            "type": "array"
+          },
+          "region": {
+            "$ref": "#/components/schemas/Region"
+          },
+          "retentionDays": {
+            "title": "Retentiondays",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/TrustSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "subprocessors": {
+            "items": {
+              "$ref": "#/components/schemas/TrustCommitment"
+            },
+            "title": "Subprocessors",
+            "type": "array"
+          }
+        },
+        "required": ["retentionDays", "region", "awaitingNotification"],
+        "title": "TrustCenter",
+        "type": "object"
+      },
+      "TrustCommitment": {
+        "additionalProperties": false,
+        "description": "One thing CAIRN does, or refuses to do, in plain language.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["title", "detail"],
+        "title": "TrustCommitment",
+        "type": "object"
+      },
+      "TrustSource": {
+        "additionalProperties": false,
+        "description": "One source, what it reads, and whether it is switched on here.",
+        "properties": {
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "reads": {
+            "title": "Reads",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": ["source", "label", "reads", "connected"],
+        "title": "TrustSource",
+        "type": "object"
+      },
+      "UserResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Displayname"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "emailVerified": {
+            "default": false,
+            "title": "Emailverified",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["id", "email", "displayName"],
+        "title": "UserResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": ["loc", "msg", "type"],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VerifyEmailRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": ["token"],
+        "title": "VerifyEmailRequest",
+        "type": "object"
+      },
+      "WorkRole": {
+        "description": "What somebody does, self-described. Not a permission \u2014 decides what\nCAIRN opens on (md/08 \u00a7A, md/11 \u00a76).",
+        "enum": ["founder", "developer", "designer", "product", "operations"],
+        "title": "WorkRole",
+        "type": "string"
+      },
+      "WorkRoleResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "workRole": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "WorkRoleResponse",
+        "type": "object"
+      },
+      "WorkRoleUpdate": {
+        "additionalProperties": false,
+        "description": "What the reader says they do.\n\nNullable, because withdrawing the answer has to be as easy as giving it. A\nperson who decides they would rather not say should not have to pick\nsomething inaccurate instead.",
+        "properties": {
+          "workRole": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "WorkRoleUpdate",
+        "type": "object"
+      },
+      "WorkspaceMembershipResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/TenantRole"
+          },
+          "workRole": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/WorkspaceResponse"
+          }
+        },
+        "required": ["workspace", "role"],
+        "title": "WorkspaceMembershipResponse",
+        "type": "object"
+      },
+      "WorkspaceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "slug"],
+        "title": "WorkspaceResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "CAIRN's HTTP API.\n\nErrors are RFC 9457 problem documents (`application/problem+json`) with a stable\n`type` URI to branch on. Authentication is a `HttpOnly` session cookie issued by\n`POST /v1/auth/login`; browser clients must send credentials and never need to\nread the cookie.",
+    "title": "CAIRN API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/healthz": {
+      "get": {
+        "description": "Report that the process is running. Never touches the database.",
+        "operationId": "liveness_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness probe",
+        "tags": ["health"]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "description": "Report whether this instance can serve traffic.\n\nReturns 503 rather than raising, so the body is a plain health document in\nboth cases \u2014 a probe parsing two different shapes is a probe that eventually\nmisreads one.",
+        "operationId": "readiness_readyz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "description": "A dependency is unavailable."
+          }
+        },
+        "summary": "Readiness probe",
+        "tags": ["health"]
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "description": "Verify credentials and issue a session.",
+        "operationId": "login_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Unknown address or wrong password \u2014 deliberately indistinguishable."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many attempts."
+          }
+        },
+        "summary": "Exchange credentials for a session",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "description": "Revoke this session and clear the cookie.\n\nBoth, in that order. Clearing the cookie alone leaves a token that still\nworks if it was captured; revoking alone leaves a browser presenting a dead\ncredential on every request.",
+        "operationId": "logout_v1_auth_logout_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "End the current session",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/logout-everywhere": {
+      "post": {
+        "description": "Revoke every session except the one making the request.\n\nThe account-recovery path. Until this existed, the only way to end a session\nwas to present its token \u2014 which is precisely what someone reporting a\ncompromised account does not have, and what the attacker does.\n\nThe current session survives so that \"sign out everywhere else\" does not sign\nthe user out of the device they are asking from, which reads as the button\nhaving failed.",
+        "operationId": "logout_everywhere_v1_auth_logout_everywhere_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "End every other session for this user",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/resend-verification": {
+      "post": {
+        "description": "Issue a new verification token, invalidating any outstanding one.\n\nReturns the same response whether or not the account is already verified.\nSaying \"already verified\" would confirm account state to whoever holds the\nsession, and there is no useful action either answer enables.",
+        "operationId": "resend_verification_v1_auth_resend_verification_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Resend Verification V1 Auth Resend Verification Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send a fresh verification link",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/session": {
+      "get": {
+        "description": "Return the signed-in user and their workspaces.\n\nThe request a frontend makes before rendering anything, which is why it\nreturns workspaces in the same round trip rather than requiring a second\ncall to decide what to draw.",
+        "operationId": "current_session_v1_auth_session_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid session."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Identify the current caller",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/signup": {
+      "post": {
+        "description": "Create a user, a workspace and the owner membership joining them.\n\nAll three or none \u2014 the transaction is the caller's, and a partial signup\nleaves an account that cannot do anything and cannot be recovered without\nmanual intervention.\n\nSigning in immediately is deliberate: making someone who just chose a\npassword type it again is friction with no security benefit, on the one\nscreen where abandonment costs the most.",
+        "operationId": "signup_v1_auth_signup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "The email address already has an account."
+          },
+          "422": {
+            "description": "The password is too short, or a field is malformed."
+          },
+          "429": {
+            "description": "Too many signups from this address."
+          }
+        },
+        "summary": "Create an account and its first workspace",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/verify-email": {
+      "post": {
+        "description": "Redeem a verification link.\n\nDeliberately unauthenticated: someone clicking a link from their inbox may\nnot have a session in that browser, and requiring one would send them to a\nlogin screen that discards the token they arrived with.\n\nThe token is the credential. It is 256 bits of entropy delivered only to the\naddress it proves, which is a stronger claim about that address than a\nsession is.",
+        "operationId": "verify_email_endpoint_v1_auth_verify_email_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Unknown, expired, already-used or superseded link."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Prove control of an email address",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/invitations/accept": {
+      "post": {
+        "description": "Join the workspace an invitation names.\n\n**The invited person joins the existing workspace.** No workspace is created\n\u2014 that is the entire point of this endpoint and the mistake it exists to\nprevent. A signup path that creates a workspace for every new account turns\none team into several isolated single-person workspaces, each showing an\nempty brief. Everyone can sign in, so it looks like it works.\n\nRuns on the platform connection because there is no membership yet, and so\nno tenant context to scope to. This is one of three routes that legitimately\ndo.\n\nNote that redeeming does **not** issue a session. The caller proves control\nof the address by holding the token, which is not the same as proving they\nknow the password; signing them in here would let anyone who intercepts an\ninvitation link take over an existing account.",
+        "operationId": "accept_v1_invitations_accept_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInvitationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Unknown, expired, superseded, or already-accepted invitation."
+          },
+          "422": {
+            "description": "A new account was required and the password is too short."
+          },
+          "429": {
+            "description": "Too many attempts from this address."
+          }
+        },
+        "summary": "Redeem an invitation",
+        "tags": ["invitations"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}": {
+      "get": {
+        "description": "Return the workspace the caller is a member of.\n\nRead through the tenant-scoped session rather than the platform one, even\nthough membership is already proven. Two reasons: privileged connections\nshould stay rare enough that `grep platform_db` remains reviewable, and it\nmeans row-level security is exercised on the ordinary read path, where a\npolicy regression would show up immediately rather than in the one endpoint\nthat happens to be scoped.",
+        "operationId": "get_workspace_v1_workspaces__workspace_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read a workspace",
+        "tags": ["workspaces"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/brief": {
+      "get": {
+        "description": "Serve the period's brief: from the archive if it is a record, else fresh.\n\nA finished period is generated once and kept; the current one is generated\nlive, never stored, and reused from `briefs.BriefCache` for a few minutes so\na morning's readers share one model call. Every claim carries the facts and\nthe evidence it rests on, and claims failing synthesis' four gates are\ndropped rather than caveated \u2014 the count is reported instead.\n\nThe rate limit is applied only when something is actually generated, so\nneither reading the archive nor reading a cached brief is rationed: reading\nis not what costs money.",
+        "operationId": "get_brief_v1_workspaces__workspace_id__brief_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Start of the period. Defaults to 7 days ago.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Start of the period. Defaults to 7 days ago.",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "End of the period. Defaults to now.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "End of the period. Defaults to now.",
+              "title": "Until"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BriefResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to read content."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "description": "The requested period is inverted or too long."
+          },
+          "429": {
+            "description": "Too many briefs generated for this workspace."
+          }
+        },
+        "summary": "Generate a brief for a period",
+        "tags": ["facts"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/briefs": {
+      "get": {
+        "description": "The archive.\n\nSummaries, not whole briefs: an archive is a list to scan, and sending every\nclaim of every period to render a list of dates is the request that makes\nthis screen slow exactly as a workspace accumulates history.\n\nKeyset pagination on `period_end`, matching `/facts`. Offset pagination on a\nlist that grows at the newest end shifts every row down as briefs are\nwritten, so a reader paging backwards sees one period twice and never sees\nanother.",
+        "operationId": "list_briefs_v1_workspaces__workspace_id__briefs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The `nextCursor` from a previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `nextCursor` from a previous page.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BriefArchive"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "The pagination cursor could not be read."
+          },
+          "403": {
+            "description": "Requires permission to read content."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Past briefs, newest first",
+        "tags": ["facts"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/briefs/{brief_id}": {
+      "get": {
+        "description": "A stored brief by id \u2014 the permalink the archive links to.\n\nA stable address matters more here than it looks: \"you told us on Tuesday\nthat payments had shipped\" needs something a person can send to somebody\nelse. A URL that reconstructs the period as query parameters would be that\naddress only until the period boundaries were computed differently.\n\nReads only stored briefs. There is deliberately no fallback that generates\none for a missing id: an archive entry that appears when it is asked for is\nnot a record of anything.",
+        "operationId": "get_archived_brief_v1_workspaces__workspace_id__briefs__brief_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "brief_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Brief Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BriefResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to read content."
+          },
+          "404": {
+            "description": "No such brief in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One brief from the archive",
+        "tags": ["facts"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/facets": {
+      "get": {
+        "description": "The people, projects and sources that appear in this workspace's facts.\n\nRead from the facts, not from a list of what CAIRN can hold. A filter menu is\na description of what is there \u2014 offering a value that matches nothing\nteaches a reader that the filters are broken, and they are right to conclude\nit.",
+        "operationId": "get_facets_v1_workspaces__workspace_id__facets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacetsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to read content."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What this workspace can be filtered by",
+        "tags": ["facts"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/facts": {
+      "get": {
+        "description": "Return a page of facts, newest activity first.\n\n**Keyset pagination, not limit/offset**, and the choice is forced by what\nthis list is. Facts arrive continuously \u2014 every webhook can insert into the\nmiddle of the ordering, because a fact is ordered by when the activity\n*happened*, not by when it was stored. Under `OFFSET 50` a fact inserted\nwhile someone reads page one is a fact that shifts every later page by a\nrow: the reader sees one item twice and never sees another at all, with\nnothing in the response to indicate it. A keyset cursor names the last row\nof the previous page, so an insertion behind the cursor is simply invisible\nand an insertion ahead of it appears on a later page. It is also the version\nthat stays fast: `OFFSET 10000` reads and discards ten thousand rows, on a\ntable that only grows.\n\nThe cursor is opaque on purpose. It encodes `(occurred_at, id)`, and a\nclient that parsed it would be depending on the sort key \u2014 which is exactly\nthe thing a later \"sort by relevance\" would change.\n\n**Undated facts sort last and page consistently.** `occurred_at` is nullable\n\u2014 some sources do not timestamp reliably \u2014 so the ordering is\n`occurred_at DESC NULLS LAST, id DESC`, and the cursor predicate has a\nmatching branch for a null. Dropping undated facts from the list instead\nwould silently hide whole sources.",
+        "operationId": "list_facts_v1_workspaces__workspace_id__facts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Restrict to these fact kinds. Repeat the parameter to pass several.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/FactKind"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict to these fact kinds. Repeat the parameter to pass several.",
+              "title": "Kind"
+            }
+          },
+          {
+            "description": "Only facts concerning these people. Repeat to pass several.",
+            "in": "query",
+            "name": "person",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only facts concerning these people. Repeat to pass several.",
+              "title": "Person"
+            }
+          },
+          {
+            "description": "Only facts whose evidence names these projects.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only facts whose evidence names these projects.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "Only facts with evidence from these sources.",
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only facts with evidence from these sources.",
+              "title": "Source"
+            }
+          },
+          {
+            "description": "Only activity that happened at or after this time.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only activity that happened at or after this time.",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "Only activity that happened at or before this time.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only activity that happened at or before this time.",
+              "title": "Until"
+            }
+          },
+          {
+            "description": "Include facts that have been replaced. Off by default.",
+            "in": "query",
+            "name": "includeSuperseded",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include facts that have been replaced. Off by default.",
+              "title": "Includesuperseded",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The `nextCursor` from a previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `nextCursor` from a previous page.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "The pagination cursor could not be read."
+          },
+          "403": {
+            "description": "Requires permission to read content."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List the facts CAIRN holds for this workspace",
+        "tags": ["facts"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/facts/{fact_id}/correction": {
+      "post": {
+        "description": "Record a correction, superseding the fact it corrects.\n\n**The check is subject, not seniority.** A caller may correct a fact that\nconcerns them and no other, whatever their role. An Owner rewriting what\nCAIRN said about somebody else would be the product taking a person's record\naway from them at exactly the moment it matters most.",
+        "operationId": "correct_v1_workspaces__workspace_id__facts__fact_id__correction_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Fact Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorrectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "That fact is not about you."
+          },
+          "404": {
+            "description": "No such fact in this workspace."
+          },
+          "409": {
+            "description": "That fact has already been superseded."
+          },
+          "422": {
+            "description": "A reworded correction needs the corrected sentence."
+          }
+        },
+        "summary": "Correct something CAIRN said about you",
+        "tags": ["me"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations": {
+      "get": {
+        "description": "Every integration, connected or not, and its state.\n\nReadable by every member rather than by administrators only. What is\nconnected decides what CAIRN can see about the person reading \u2014 the same\nreasoning that puts the source list on the notification screen. Hiding it\nbehind a role would mean a Viewer had to ask permission to find out what was\nbeing read about them.\n\nDisconnected installations are listed, not omitted: a gap in the feed is\nexplained by \"GitHub was disconnected on the 4th\" and unexplained by silence.\n\nRead through the tenant-scoped connection even though the write below is\nplatform-side. The application role has `SELECT` on this table behind a\nrow-level-security policy, so the isolation is enforced by the database\nrather than by the `WHERE` clause being remembered.",
+        "operationId": "list_integrations_v1_workspaces__workspace_id__integrations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IntegrationResponse"
+                  },
+                  "title": "Response List Integrations V1 Workspaces  Workspace Id  Integrations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What this workspace has connected",
+        "tags": ["administration"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/github": {
+      "post": {
+        "description": "Bind an installation to this workspace and start its backfill.\n\n**The only way an installation is ever created**, and deliberately so. An\naudit found the webhook path could resolve an installation and nothing could\ncreate one, which made Steps 11 to 13 unreachable end to end \u2014 but the fix\nis not to let the webhook create it. An inbound webhook creating the mapping\nwould mean whoever installed the app has their activity bound to a workspace\nnobody chose. This runs behind a session, a membership and a permission\ncheck, which is the point at which we know who asked.\n\nRuns on the platform connection because the installation table is read\nbefore tenant context exists on the webhook path, so its writes live\nplatform-side too.",
+        "operationId": "connect_github_v1_workspaces__workspace_id__integrations_github_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectGitHubRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to connect integrations."
+          },
+          "409": {
+            "description": "That installation is already connected elsewhere."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect a GitHub App installation to this workspace",
+        "tags": ["workspaces"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/github/{installation_id}": {
+      "delete": {
+        "description": "Stop capture from one installation.\n\n**Marked, not deleted**, and the two differ in what they promise. Marking\nstops every future delivery being processed \u2014 the ingestion path checks this\nalready, because a suspended installation that kept delivering was treated as\na consent problem rather than a bug. Deleting the row would additionally\nerase the record that the integration ever existed, which turns the months of\nactivity it produced into facts with no explanation of where they came from.\n\n**What was already captured stays**, and the interface says so rather than\nletting an administrator discover it. Disconnecting is \"stop reading\", not\n\"forget what you read\": the second is a deletion request, it applies to\neveryone's shared history, and it is not a side effect of a button labelled\n*Disconnect*.\n\nThis does not uninstall the GitHub App. CAIRN cannot revoke somebody else's\ninstallation, and pretending otherwise would leave an administrator believing\nthey had removed an access grant that is still live on GitHub's side.",
+        "operationId": "disconnect_github_v1_workspaces__workspace_id__integrations_github__installation_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "title": "Installation Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to disconnect integrations."
+          },
+          "404": {
+            "description": "No such installation in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop capturing activity from a GitHub installation",
+        "tags": ["administration"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/invitations": {
+      "get": {
+        "description": "List invitations that are still redeemable.\n\nGated on the permission to *invite* rather than a separate read permission.\nWho has been invited but not yet joined is administrative information, and a\nViewer having it serves no purpose while disclosing hiring intent.\n\nSuperseded and accepted invitations are excluded \u2014 an admin asking \"who is\nstill outstanding\" means exactly the rows a new invitation would conflict\nwith.",
+        "operationId": "list_invitations_v1_workspaces__workspace_id__invitations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InvitationResponse"
+                  },
+                  "title": "Response List Invitations V1 Workspaces  Workspace Id  Invitations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to invite."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List outstanding invitations",
+        "tags": ["workspaces"]
+      },
+      "post": {
+        "description": "Issue an invitation.\n\nTwo escalation paths are closed in the service layer and worth restating,\nbecause the route is where someone would be tempted to re-implement them:\na Member cannot invite at all, and nobody \u2014 including an Admin \u2014 can invite\nat a role above their own. Ownership moves by explicit transfer.\n\nThe caller's `Membership` is passed rather than a tenant ID and a user ID,\nso the three facts cannot disagree.\n\n**The token is not returned.** It goes to the invited address and nowhere\nelse. Returning it would let anyone who can invite also redeem, collapsing\n\"invite an address\" into \"prove control of it\".",
+        "operationId": "create_invitation_v1_workspaces__workspace_id__invitations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to invite, or the role outranks yours."
+          },
+          "409": {
+            "description": "That address is already a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Invite someone to the workspace",
+        "tags": ["workspaces"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/invitations/{invitation_id}": {
+      "delete": {
+        "description": "Withdraw an invitation that has not been accepted.\n\nMarks it superseded rather than deleting it. \"We invited this person and\nthen withdrew it\" is exactly the sort of question an audit trail is kept to\nanswer, and the partial unique index treats superseded rows as free, so the\naddress can be invited again immediately.",
+        "operationId": "revoke_invitation_v1_workspaces__workspace_id__invitations__invitation_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invitation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Invitation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to invite."
+          },
+          "404": {
+            "description": "No such outstanding invitation."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Withdraw an invitation",
+        "tags": ["workspaces"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/me/role": {
+      "get": {
+        "description": "The caller's own work role.\n\nAlso on the session, which is where every screen reads it from. This exists\nfor the one case the session does not cover: confirming what was saved\nwithout re-authenticating.",
+        "operationId": "my_role_v1_workspaces__workspace_id__me_role_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkRoleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What the caller says they do",
+        "tags": ["me"]
+      },
+      "put": {
+        "description": "Record what the caller does.\n\n**Self only, by construction rather than by a check.** The membership being\nwritten is the one the caller's own session resolved to; there is no path\nthrough this API that sets anybody else's. That absence is the design: an\nadministrator who could label a colleague's role would be storing a\nmanagement classification on their record, in a product whose position is\nthat it does not do that (md/05 \u00a7B.2).\n\n**It changes emphasis and never access.** What CAIRN opens on, and how a\nperson's own record is framed. Every role sees the same facts, and\n`test_roles.py` asserts it rather than trusting that nobody will wire a\nfilter to this field later.\n\n**Null is accepted**, because withdrawing the answer has to be as easy as\ngiving it \u2014 otherwise the only way out of a wrong guess is a different wrong\nguess.\n\nNo permission is declared. Every role including Viewer may answer a question\nabout themselves, and requiring one would mean a person's own description of\ntheir work was something the workspace granted them.",
+        "operationId": "set_my_role_v1_workspaces__workspace_id__me_role_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkRoleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkRoleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "description": "Not a role CAIRN knows."
+          }
+        },
+        "summary": "Say what you do, or withdraw the answer",
+        "tags": ["me"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/me/sources": {
+      "get": {
+        "description": "Every source, whether the caller has opted out, and the refusals.\n\n**Every source is listed, not only the connected ones.** md/11 \u00a74.1 requires\nthe notification to reach a person *before* any of their activity is\ncaptured, which means before their workspace has necessarily connected\nanything. An opt-out for a source nobody has connected yet is not pointless\n\u2014 it is a person deciding in advance, which is the strongest form the choice\ncan take.\n\n**Serving this is what \"notified\" means**, and it is recorded here. Worker\nnotification is a legal obligation before first capture with no regional\nexception, and an obligation nobody can evidence is one an Owner has to take\non trust at the moment a works council asks them not to. This response *is*\nthe notification \u2014 what is read, and the control for switching it off \u2014 so\nthe moment it is delivered is the honest moment to stamp. Deliberately\nnarrower than \"they read it\", which no software knows.",
+        "operationId": "my_sources_v1_workspaces__workspace_id__me_sources_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to read content."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What CAIRN may attribute to you, and what it never does",
+        "tags": ["me"]
+      },
+      "put": {
+        "description": "Record the caller's choice about one source.\n\n**A `PUT` of the desired state rather than two verbs.** The interface is a\ntoggle, and a toggle that has to choose between `POST` and `DELETE` based on\nwhat it believes the current state to be is a toggle that gets it wrong\nafter a stale page \u2014 turning \"opt me out\" into \"opt me back in\" at the worst\npossible moment.\n\nOnly ever the caller's own consent. There is no workspace-level version of\nthis endpoint, and there should not be: an Owner opting somebody else back\nin would be the product overriding a privacy decision on the person's\nbehalf.",
+        "operationId": "set_source_consent_v1_workspaces__workspace_id__me_sources_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentUpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "CAIRN has not linked any activity to your account yet."
+          },
+          "422": {
+            "description": "Unknown source."
+          }
+        },
+        "summary": "Opt out of a source, or back in",
+        "tags": ["me"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/me/week": {
+      "get": {
+        "description": "The caller's own record.\n\n**Scoped in the query, not in the response.** Filtering the team's facts down\nto the reader in the interface would mean one forgotten condition shows a\nperson somebody else's record \u2014 the failure that turns a trust product into\na surveillance complaint. Scoping the query means the same bug shows nothing.\n\nSuperseded facts are excluded, so a correction takes effect the moment it is\nmade. That is the point of the screen: a person who fixes something should\nsee it fixed, not see their correction queued behind a nightly job.",
+        "operationId": "my_week_v1_workspaces__workspace_id__me_week_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Defaults to seven days ago.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Defaults to seven days ago.",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "Defaults to now.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Defaults to now.",
+              "title": "Until"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to read content."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What CAIRN believes about you",
+        "tags": ["me"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/members": {
+      "get": {
+        "description": "List everyone in the workspace, with their roles.\n\nAvailable to every member, including Viewers, and identical for all of them.\nThat symmetry is deliberate and load-bearing: an Owner sees exactly what a\nMember sees. Adding a field here that only Admins receive would be the first\nstep towards the visibility hierarchy this product exists not to have.",
+        "operationId": "list_members_v1_workspaces__workspace_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MembershipResponse"
+                  },
+                  "title": "Response List Members V1 Workspaces  Workspace Id  Members Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List workspace members",
+        "tags": ["workspaces"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/members/{user_id}": {
+      "delete": {
+        "description": "Remove a member's access.\n\n**Their record is not deleted with them.** The facts stay, still attributed,\nand this is the decision worth arguing with rather than the one it looks\nlike. A leaver's work is the team's history \u2014 the decision they made in March\nis why the system is shaped as it is, and removing it on their last day\nrewrites the record for everyone still there.\n\nWhat ends is *access*: the membership row goes, the session it depends on\nstops resolving, and no new activity is captured because nothing links them\nto the workspace any more. Somebody who wants their record removed as well is\nexercising a different right (GDPR Article 17) through a different path,\nwhich is deliberately not an administrator's button.",
+        "operationId": "remove_member_v1_workspaces__workspace_id__members__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to remove members."
+          },
+          "404": {
+            "description": "No such member of this workspace."
+          },
+          "422": {
+            "description": "The removal would leave the workspace with no Owner."
+          }
+        },
+        "summary": "Remove somebody from this workspace",
+        "tags": ["administration"]
+      },
+      "patch": {
+        "description": "Change one member's role.\n\n**A role is about configuration, not about what they can see.** Moving\nsomebody from Admin to Viewer takes away their ability to connect an\nintegration; it takes away nothing about their colleagues' work, because\nthere was never anything extra to take.\n\nTwo refusals, both structural:\n\n- **Nobody changes their own role.** The realistic version of this is an\n  Owner demoting themselves while tidying up and locking themselves out of\n  billing on a Friday. There is a transfer flow for handing the workspace\n  over; this is not it.\n- **The last Owner stays an Owner.** A workspace with no Owner cannot be\n  given one from inside, so the recovery path is a support ticket \u2014 the exact\n  thing this module exists to remove.",
+        "operationId": "change_role_v1_workspaces__workspace_id__members__user_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembershipResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to change roles."
+          },
+          "404": {
+            "description": "No such member of this workspace."
+          },
+          "422": {
+            "description": "The change would leave no Owner, or is a self-demotion."
+          }
+        },
+        "summary": "Change what somebody may configure",
+        "tags": ["administration"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/notifications": {
+      "get": {
+        "description": "Notification per person; opt-outs only as a number.\n\n**This is the asymmetry, and it is the most considered decision in the\nmodule.** md/15 \u00a74.2 describes one screen showing \"who has been notified, who\nhas opted out\". The first half is named per person and the second is not, and\nthe two halves are different kinds of fact:\n\n- **Notification is the employer's obligation**, owed to each person\n  individually before capture begins, with no regional exception. An Owner\n  who cannot see that Priya has not been notified cannot discharge it, and\n  cannot evidence it when a works council asks. So it is named.\n- **An opt-out is the person's own decision about their own record.** A list\n  of names beside \"opted out\" is a list of employees who declined to be\n  recorded, handed to the person who writes their review. It does not matter\n  that no reasonable manager would misuse it; what matters is that a person\n  deciding whether to opt out would have to weigh that possibility, which\n  turns a privacy control into a career calculation and produces a low\n  opt-out rate that means nothing.\n\nSo the rate is reported and the names are not. That is also the number\nmd/11 \u00a77 makes the product's trust barometer and md/13 makes a phase gate \u2014\nand a rate is exactly what a gate needs, where a list is not.\n\nThe permission is `WORKSPACE_SETTINGS` rather than `CONTENT_READ`: whether a\ncolleague has been notified is compliance administration rather than\nsomething everyone needs, and this endpoint names people.",
+        "operationId": "notification_status_v1_workspaces__workspace_id__notifications_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to change workspace settings."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Who has been told their activity may be captured",
+        "tags": ["administration"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/onboarding": {
+      "get": {
+        "description": "Assemble the state of the workspace's first ten minutes.\n\nCheap enough to poll. The three queries are a count, a small indexed select\nand one lookup on a unique column; the screen refreshes every few seconds\nwhile an import runs, and a query that grew with the workspace would turn\nonboarding into the most expensive page in the product.",
+        "operationId": "get_onboarding_v1_workspaces__workspace_id__onboarding_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to read content."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "How far this workspace has got, for the onboarding screen",
+        "tags": ["onboarding"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/privacy": {
+      "get": {
+        "description": "How long raw activity is kept, and where it lives.\n\nReadable by everybody for the same reason the integration list is: these are\nfacts about what happens to the reader's own activity, and a person should\nnot need a role to learn them.",
+        "operationId": "get_privacy_v1_workspaces__workspace_id__privacy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivacySettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retention and region",
+        "tags": ["administration"]
+      },
+      "put": {
+        "description": "Set the retention period.\n\n**The setting is enforced by a sweep that deletes**, not by a filter that\nhides \u2014 see `retention.py`. A retention period nothing acts on is the worst\nkind of claim this product could make, because it is stated in the Trust &\nPrivacy Center to an audience deciding whether to believe the rest of it.\n\n**Region is not changeable here**, and is returned so the interface can show\nit. Moving a workspace between regions is a data migration under compliance\npressure (md/06 \u00a76.3), not a dropdown \u2014 and a control that silently did\nnothing would be worse than its absence.\n\nShortening the window takes effect on the next sweep, which will delete what\nhas just fallen outside it. That is the honest consequence and the interface\nstates it before the change, because \"we deleted three months of raw activity\nbecause you typed 30\" is not a thing to learn afterwards.",
+        "operationId": "set_privacy_v1_workspaces__workspace_id__privacy_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivacyUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivacySettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to change workspace settings."
+          },
+          "422": {
+            "description": "The retention period is outside the permitted range."
+          }
+        },
+        "summary": "Change how long raw activity is kept",
+        "tags": ["administration"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/search": {
+      "get": {
+        "description": "Facts matching a query, most relevant first, each with its evidence.\n\n**Results are stored facts and nothing else.** No model is called on this\npath, and the response has no field for prose. That is what \"grounded\" means\nhere: the reader is looking at what CAIRN recorded, with the citation\nattached, rather than at a summary of it. A generated answer with sources\nlisted underneath is the failure md/09 \u00a75 exists to prevent \u2014 the prose is\nwhat gets believed and the citations are what nobody opens.\n\n**The same filters as the feed**, from the same object, so narrowing the\nscreen and then searching cannot widen it again.\n\nRate limited per workspace because a query with vector search enabled embeds\nthe text, which is a model call. Far above a person typing and far below a\nscript.",
+        "operationId": "search_facts_v1_workspaces__workspace_id__search_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "What to look for.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "What to look for.",
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/FactKind"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "person",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Person"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResults"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to read content."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many searches for this workspace."
+          }
+        },
+        "summary": "Search the facts CAIRN holds",
+        "tags": ["facts"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/trust": {
+      "get": {
+        "description": "The Trust & Privacy Center for this workspace.\n\n**Every member, no permission check beyond membership.** An engineer should\nnot need their manager's role to find out what is read about them \u2014 and a\npage about trust that some of the team cannot open has answered the question\nit was written to address.\n\nSources are listed exhaustively with a connected flag rather than filtered to\nthe connected ones. \"What could CAIRN read here if somebody switched it on\"\nis the question a person joining a workspace is actually asking, and a list\nthat grows silently as integrations are added answers it only in hindsight.",
+        "operationId": "trust_center_v1_workspaces__workspace_id__trust_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrustCenter"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What CAIRN reads, what it refuses to do, and what happens to it",
+        "tags": ["trust"]
+      }
+    }
+  }
+}

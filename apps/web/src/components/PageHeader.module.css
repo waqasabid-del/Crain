@@ -1,0 +1,32 @@
+.header {
+  margin-bottom: var(--space-8);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  /*
+   * Slightly tightened tracking at display size. Type set for body copy looks
+   * loose when scaled up; this is the only place in the app that adjusts it.
+   */
+  letter-spacing: -0.015em;
+}
+
+.description {
+  max-width: var(--prose-max-width);
+  margin: var(--space-3) 0 0;
+  color: var(--fg-muted);
+  line-height: var(--leading-relaxed);
+}
+
+/*
+ * Supporting metadata — when a brief was generated, how many people are in a
+ * workspace. Small and grey, because it is orientation rather than content.
+ */
+.meta {
+  margin: var(--space-2) 0 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+}

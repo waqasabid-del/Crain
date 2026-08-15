@@ -1,0 +1,129 @@
+/*
+ * The sign-in screen.
+ *
+ * Deliberately plain: one column, centred, no illustration, no marketing copy.
+ * It is the first thing anyone sees, and what it should communicate is that the
+ * product is careful — which is said better by restraint than by decoration.
+ */
+
+.page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: var(--space-6);
+  background: var(--bg-subtle);
+}
+
+.card {
+  width: 100%;
+  max-width: 24rem;
+  padding: var(--space-10) var(--space-8);
+  background: var(--bg-default);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-8);
+  color: var(--fg-default);
+}
+
+.brandName {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: -0.015em;
+}
+
+.subtitle {
+  margin: var(--space-2) 0 var(--space-8);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.input {
+  min-height: var(--min-target);
+  padding: 0 var(--space-3);
+
+  color: var(--fg-default);
+  background: var(--bg-default);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+
+  /*
+   * `border-interactive`, not `border-default`.
+   *
+   * The outline of an input is information required to identify a control, so
+   * WCAG 1.4.11 asks for 3:1 against the background. The decorative hairlines
+   * elsewhere in the app are exempt from that; this is the case the distinction
+   * exists for, and using the wrong token here is the most likely way to fail
+   * the guideline while looking consistent.
+   */
+  border: var(--border-thin) solid var(--border-interactive);
+  border-radius: var(--radius-md);
+}
+
+.input:disabled {
+  background: var(--bg-muted);
+  color: var(--fg-muted);
+}
+
+/*
+ * The failure message.
+ *
+ * Bordered rather than filled with a warning colour — the palette has no
+ * semantic red, and inventing one here would be the only colour in the product
+ * arriving at the reader's least confident moment.
+ */
+.problem {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--fg-default);
+  background: var(--bg-muted);
+  border: var(--border-thin) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.submit {
+  margin-top: var(--space-1);
+}
+
+/* Requirements stated before they can be broken. Learning a rule by failing it
+ * is the most common reason a form takes two attempts. */
+.hint {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}

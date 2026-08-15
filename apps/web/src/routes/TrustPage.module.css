@@ -1,0 +1,132 @@
+.section {
+  max-width: 72ch;
+  margin-bottom: var(--space-10);
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+.heading {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.lead,
+.aside {
+  margin: 0 0 var(--space-5);
+  color: var(--fg-muted);
+}
+
+.aside {
+  margin-top: var(--space-5);
+  margin-bottom: 0;
+  font-size: var(--text-sm);
+}
+
+.link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.sources {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.source {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sourceHeader {
+  display: flex;
+  gap: var(--space-4);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.sourceName {
+  font-weight: var(--weight-medium);
+}
+
+/*
+ * Connected and not-connected are distinguished by the word, not by colour.
+ * The palette is monochrome by design, and a state carried only by a shade is
+ * one a reader with low vision has to guess at.
+ */
+.on,
+.off {
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+.on {
+  color: var(--fg-default);
+}
+
+.sourceReads {
+  max-width: 62ch;
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+.refusals {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--fg-default);
+}
+
+.refusals li {
+  margin-bottom: var(--space-2);
+}
+
+.commitments {
+  margin: 0;
+}
+
+.commitment {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.commitmentTitle {
+  font-weight: var(--weight-medium);
+}
+
+.commitmentDetail {
+  max-width: 62ch;
+  margin: var(--space-2) 0 0;
+  color: var(--fg-muted);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-4) var(--space-6);
+  margin: 0;
+}
+
+.facts dt {
+  font-size: var(--text-sm);
+  color: var(--fg-subtle);
+}
+
+.facts dd {
+  max-width: 62ch;
+  margin: 0;
+}
+
+@media (max-width: 40rem) {
+  .facts {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
+}

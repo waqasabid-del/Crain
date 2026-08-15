@@ -1,0 +1,77 @@
+.choice {
+  margin-top: var(--space-4);
+}
+
+.lead {
+  max-width: 62ch;
+  margin: 0 0 var(--space-5);
+  color: var(--fg-muted);
+}
+
+.options {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  padding: 0;
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+/*
+ * The whole row is the label, so the target is the option and not the eight
+ * pixels of the radio itself. On a phone that is the difference between a
+ * control people use and one they poke at twice.
+ */
+.option {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3) 0;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.option:last-child {
+  border-bottom: 0;
+}
+
+.radio {
+  margin-top: 0.25em;
+  accent-color: var(--fg-default);
+}
+
+.radio:focus-visible {
+  outline: 2px solid var(--fg-default);
+  outline-offset: 2px;
+}
+
+.optionText {
+  display: block;
+}
+
+.optionLabel {
+  display: block;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.optionDetail {
+  display: block;
+  max-width: 62ch;
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--fg-subtle);
+}
+
+.problem {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--fg-default);
+}

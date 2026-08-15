@@ -1,0 +1,137 @@
+/*
+ * The worker notification.
+ *
+ * The restraint matters more here than on any other screen. This is where a
+ * person decides whether CAIRN is a tool or a monitor, and a page that looks
+ * like a consent banner — dense, boxed, urgent — answers that question before
+ * they read a word of it. So: generous space, one rule weight, and the reader's
+ * own record given the room a page normally gives a headline.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  max-width: 52rem;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.heading {
+  margin: 0;
+  color: var(--fg-default);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+
+.lead {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.sources {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  border-top: var(--border-thin) solid var(--border-default);
+}
+
+.source {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
+  border-bottom: var(--border-thin) solid var(--border-default);
+}
+
+.sourceHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-6);
+}
+
+.sourceName {
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.sourceReads {
+  margin: var(--space-1) 0 0;
+  max-width: 52ch;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.checkbox {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+
+.checkbox:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.controlLabel {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+/*
+ * The refusals. Set as plain sentences rather than in a bordered panel: a
+ * promise in a box reads as legal text somebody was required to include, and
+ * these are the sentences the page most wants believed.
+ */
+.refusals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  max-width: 60ch;
+  list-style: none;
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.note {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.problem {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--fg-default);
+  background: var(--bg-muted);
+  border: var(--border-thin) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.continue {
+  margin: 0;
+}

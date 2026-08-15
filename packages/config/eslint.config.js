@@ -62,6 +62,46 @@ export default tseslint.config(
     ...jsxA11y.flatConfigs.strict,
   },
   {
+    /*
+     * Build tooling — ESLint's own config, Vitest config and setup, codegen
+     * scripts.
+     *
+     * None of it is shipped, so none of it appears in a tsconfig `include`, and
+     * the type-aware rules cannot parse a file outside the project graph: they
+     * report "not found by the project service" instead of linting it. That
+     * parse failure is why the package lint scripts were narrowed to `src` in
+     * the first place — which quietly left every one of these files unchecked.
+     *
+     * Disabling type-aware rules for this subset is the right trade. These
+     * files still get the syntactic rules (unused variables, no-console,
+     * accidental globals), which is what actually goes wrong in build scripts,
+     * and no tsconfig has to pretend that tooling is part of the product.
+     */
+    files: [
+      "**/*.config.{js,mjs,ts}",
+      "**/eslint.config.js",
+      "**/vitest.setup.ts",
+      "**/scripts/**/*.{js,mjs}",
+    ],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      // `disableTypeChecked` turns off the type-aware *rules*, but the parser
+      // still consults the project service and fails before any rule runs.
+      // Switching it off here is what actually makes these files lintable.
+      parserOptions: { projectService: false, project: null },
+      // These run under Node, not in a browser or a Worker.
+      globals: { console: "readonly", process: "readonly", URL: "readonly" },
+    },
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      // `no-console` exists because console is not observability — but a
+      // codegen script's output *is* its user interface. Telling a developer
+      // which files were written belongs on stdout, not in a structured logger
+      // that nothing collects at build time.
+      "no-console": "off",
+    },
+  },
+  {
     files: ["**/*.test.ts", "**/*.test.tsx", "**/tests/**"],
     rules: {
       "@typescript-eslint/no-non-null-assertion": "off",

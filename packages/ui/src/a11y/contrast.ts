@@ -1,19 +1,6 @@
-/**
- * WCAG contrast calculation.
- *
- * WCAG 2.1 AA is a locked requirement, not an aspiration (md/05 §A.6) — the
- * European Accessibility Act has been in force since June 2025 and applies to
- * any company serving EU customers, and US ADA web accessibility litigation is
- * common regardless.
- *
- * "We checked the colours once in a design tool" is not compliance. This module
- * exists so that contrast is asserted in the test suite, meaning a token change
- * that breaks accessibility fails CI rather than reaching a user.
- *
- * Implements the WCAG 2.x relative luminance and contrast ratio definitions:
- * https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
- * https://www.w3.org/TR/WCAG21/#dfn-contrast-ratio
- */
+/** WCAG contrast calculation. AA is a locked requirement (md/05 §A.6), so this
+ * exists to assert contrast in the test suite rather than in a design tool.
+ * https://www.w3.org/TR/WCAG21/#dfn-contrast-ratio */
 
 export interface Rgb {
   r: number;
@@ -23,27 +10,19 @@ export interface Rgb {
 
 /** WCAG 2.1 minimum contrast ratios. */
 export const WCAG_AA = {
-  /** 1.4.3 — body text below 18pt (or 14pt bold). */
-  normalText: 4.5,
-  /** 1.4.3 — text at 18pt+ (or 14pt+ bold). */
-  largeText: 3,
-  /** 1.4.11 — UI components and graphical objects. */
-  nonText: 3,
+  normalText: 4.5, // 1.4.3 — body text below 18pt (or 14pt bold)
+  largeText: 3, // 1.4.3 — text at 18pt+ (or 14pt+ bold)
+  nonText: 3, // 1.4.11 — UI components and graphical objects
 } as const;
 
-/** WCAG 2.1 AAA, tracked but not required. */
+/** AAA, tracked but not required. */
 export const WCAG_AAA = {
   normalText: 7,
   largeText: 4.5,
 } as const;
 
-/**
- * Parse a hex colour into RGB channels.
- *
- * @throws If the value is not a 3- or 6-digit hex colour. Failing loudly is
- *   deliberate: a silently mis-parsed colour would produce a contrast result
- *   that looks valid and is not.
- */
+/** @throws If not a 3- or 6-digit hex colour; a mis-parsed one would give a
+ *   contrast result that looks valid and is not. */
 export function parseHex(hex: string): Rgb {
   const normalized = hex.trim().replace(/^#/, "");
 
@@ -66,23 +45,17 @@ export function parseHex(hex: string): Rgb {
   };
 }
 
-/** Convert an 8-bit channel to its linear-light value, per WCAG. */
 function linearizeChannel(channel8Bit: number): number {
   const c = channel8Bit / 255;
   return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }
 
-/** Relative luminance of a colour, 0 (black) to 1 (white). */
 export function relativeLuminance(color: Rgb | string): number {
   const { r, g, b } = typeof color === "string" ? parseHex(color) : color;
   return 0.2126 * linearizeChannel(r) + 0.7152 * linearizeChannel(g) + 0.0722 * linearizeChannel(b);
 }
 
-/**
- * Contrast ratio between two colours, from 1 (identical) to 21 (black on white).
- *
- * Order-independent, matching the WCAG definition.
- */
+/** 1 (identical) to 21 (black on white). Order-independent, per WCAG. */
 export function contrastRatio(foreground: Rgb | string, background: Rgb | string): number {
   const l1 = relativeLuminance(foreground);
   const l2 = relativeLuminance(background);
@@ -99,7 +72,6 @@ export interface ContrastResult {
   passes: boolean;
 }
 
-/** Check a foreground/background pair against a WCAG AA requirement. */
 export function checkContrast(
   foreground: string,
   background: string,

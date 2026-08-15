@@ -1,0 +1,30 @@
+/*
+ * The narrative, set as prose.
+ *
+ * Larger than body copy and measured to `--prose-max-width` (68ch). This is the
+ * product's primary output — "prose over dashboards" is the first design
+ * principle in md/05 §A.1 — so it gets the typographic treatment an article
+ * would, not the treatment a card would.
+ */
+.narrative {
+  max-width: var(--prose-max-width);
+  margin: 0 0 var(--space-10);
+  font-size: var(--text-lg);
+  line-height: var(--leading-relaxed);
+}
+
+.sectionTitle {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+/* Back to the archive. A plain link, above the brief rather than beside the
+ * title: it is a way out, not a peer of the heading. */
+.backLink {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+}

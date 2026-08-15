@@ -1,30 +1,9 @@
-/**
- * Colour tokens.
- *
- * CAIRN's palette is black and white. This is not minimalism for its own sake —
- * it is doing real product work:
- *
- * 1. A calm, neutral interface reinforces "this tool observes and informs; it
- *    does not judge or rank". Given how close this product sits to workplace
- *    monitoring, visual restraint is positioning (md/05 §A.4).
- * 2. Colour carries meaning, and meaning about people is exactly what CAIRN
- *    refuses to imply. A red/amber/green vocabulary would smuggle judgement in
- *    through the back door.
- *
- * There is therefore no semantic "success/warning/danger" colour scale for
- * anything describing a person's work. Status colours exist only for *system*
- * state — a failed integration, an unsaved form — never for human activity.
- *
- * @see md/05-ux-design-privacy.md §A.1, §A.4
- */
+/** Colour tokens. The palette is black and white: no success/warning/danger
+ * scale for anything describing a person's work, because colour would smuggle
+ * judgement in. Status colour is for system state only.
+ * @see md/05-ux-design-privacy.md §A.1, §A.4 */
 
-/**
- * The neutral ramp. Every value is a true grey (equal R/G/B) so the interface
- * has no colour temperature at all.
- *
- * Steps are named by lightness rather than by role, so that light and dark
- * themes can map roles to different steps without renaming anything.
- */
+/** True greys (equal R/G/B), named by lightness rather than role. */
 export const neutral = {
   0: "#ffffff",
   50: "#fafafa",
@@ -43,24 +22,14 @@ export const neutral = {
 
 export type NeutralStep = keyof typeof neutral;
 
-/**
- * The single accent, used only for focus rings and interactive affordances.
- *
- * Deliberately one colour, not a palette. It exists so that keyboard focus is
- * unmistakable — a WCAG 2.1 AA requirement (2.4.7 Focus Visible) that a purely
- * monochrome interface tends to fail.
- */
+/** One accent, for focus rings only: keyboard focus must be unmistakable (WCAG
+ * 2.4.7), which a purely monochrome interface tends to fail. */
 export const accent = {
   light: "#1d4ed8",
   dark: "#60a5fa",
 } as const;
 
-/**
- * Semantic tokens for the light theme.
- *
- * Roles, not colours. Components reference `fg.default`, never `neutral[900]`,
- * so a theme change never requires touching a component.
- */
+/** Roles, not colours: components reference `fg.default`, never `neutral[900]`. */
 export const lightTheme = {
   bg: {
     default: neutral[0],
@@ -76,20 +45,18 @@ export const lightTheme = {
     onAccent: neutral[0],
   },
   border: {
-    /** Decorative dividers and card outlines. See the note on §border below. */
     default: neutral[200],
-    /** Emphasised dividers. Still decorative. */
     strong: neutral[300],
-    /** Boundaries that identify a control — inputs, toggles. Must meet 3:1. */
+    /** Identifies a control — inputs, toggles. Must meet 3:1 (WCAG 1.4.11);
+     * `default` and `strong` are decorative and deliberately do not. */
     interactive: neutral[500],
     focus: accent.light,
   },
   accent: {
     default: accent.light,
   },
-} as const;
+} as const satisfies Theme;
 
-/** Semantic tokens for the dark theme. Mirrors `lightTheme` role for role. */
 export const darkTheme = {
   bg: {
     default: neutral[950],
@@ -113,69 +80,39 @@ export const darkTheme = {
   accent: {
     default: accent.dark,
   },
-} as const;
+} as const satisfies Theme;
 
-export type Theme = typeof lightTheme;
+/** Structural, not `typeof lightTheme`: the token objects are `as const`, so
+ * that type would narrow to literal hex strings and reject `darkTheme`. */
+export interface Theme {
+  readonly bg: Readonly<Record<"default" | "subtle" | "muted" | "inverse", string>>;
+  readonly fg: Readonly<Record<"default" | "muted" | "subtle" | "inverse" | "onAccent", string>>;
+  readonly border: Readonly<Record<"default" | "strong" | "interactive" | "focus", string>>;
+  readonly accent: Readonly<Record<"default", string>>;
+}
 
-/**
- * A note on borders, since the distinction is easy to collapse and expensive to
- * get wrong.
- *
- * WCAG 1.4.11 requires 3:1 contrast for "visual information required to
- * identify user interface components and states" — but not for decoration. A
- * hairline dividing two sections carries no information: remove it and the
- * layout still reads. The outline of a text input carries essential
- * information: remove it and a user cannot tell where to type.
- *
- * So `border.default` and `border.strong` are deliberately low-contrast and
- * carry no accessibility requirement, while `border.interactive` meets 3:1 in
- * both themes and is mandatory for anything that identifies a control.
- *
- * The alternative — darkening every border to 3:1 — would satisfy a naive
- * reading of the guideline while making the interface heavy and noisy, which
- * works against the calm, restrained direction the product depends on. Deciding
- * this deliberately is the difference between accessible and merely compliant.
- */
-
-/**
- * Visual treatment for the three certainty tiers.
- *
- * This is the most product-specific part of the design system, and the part
- * most easily got wrong.
- *
- * CAIRN's sources vary enormously in reliability — a GitHub assignment is
- * unambiguous, while a meeting-derived commitment carries roughly 30% speaker
- * misattribution risk (md/03 §2). The interface must show that difference, or
- * it presents a guess with the same authority as a fact.
- *
- * The obvious approach — green / amber / red — is wrong here for two reasons:
- * it would be the only colour in a monochrome system, drawing the eye to
- * *uncertainty* rather than to content; and traffic-light colouring reads as a
- * judgement about the person the claim concerns, not about the evidence.
- *
- * So certainty is expressed through **weight, opacity and border treatment**
- * instead. A less certain claim looks quieter, not more alarming. This also
- * means the distinction survives greyscale printing and colour-blindness
- * without any additional work.
- *
- * Note there is no numeric confidence anywhere: a "73%" badge looks rigorous,
- * means nothing to a non-technical reader, and invites false precision
- * (md/05 §A.2.1).
- */
+/** Certainty is carried by weight, border and wording — never colour, which reads
+ * as a judgement about the person (md/03 §2), and never numbers (md/05 §A.2.1).
+ * Not opacity either: dimming to 75% drops `fg.muted` near 3:1. */
 export const certaintyTreatment = {
   verified: {
     fgToken: "fg.default",
+    borderToken: "border.strong",
     borderStyle: "solid",
-    opacity: 1,
+    weight: "medium",
   },
   observed: {
     fgToken: "fg.default",
+    borderToken: "border.default",
     borderStyle: "solid",
-    opacity: 0.85,
+    weight: "normal",
   },
   suggested: {
     fgToken: "fg.muted",
+    borderToken: "border.default",
     borderStyle: "dashed",
-    opacity: 0.75,
+    weight: "normal",
   },
 } as const;
+
+export type CertaintyTier = keyof typeof certaintyTreatment;

@@ -1,0 +1,227 @@
+/**
+ * Preview chrome only.
+ *
+ * Everything here styles the style guide itself, never the components on
+ * display. A preview that restyles what it is previewing is worse than no
+ * preview: it shows a component that does not exist anywhere else.
+ *
+ * Note the metadata labels use --fg-muted, not --fg-subtle. fg.subtle is a
+ * large-text-only token — it measures 4.18:1 on the dark background, under the
+ * 4.5:1 that normal text requires — and every label here is 12px. Reaching for
+ * the quieter token because it looked right is exactly how that rule gets
+ * broken.
+ *
+ * Which is also why every value below is a token. If this file reached for a
+ * raw hex or an arbitrary margin, the page would stop being evidence that the
+ * token set is sufficient to build with.
+ */
+
+.page {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6) var(--space-16);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: var(--space-6);
+  border-bottom: var(--border-thin) solid var(--border-default);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  margin: var(--space-2) 0 0;
+  max-width: var(--prose-max-width);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.section {
+  padding-top: var(--space-12);
+}
+
+.sectionTitle {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.sectionNote {
+  margin: 0 0 var(--space-6);
+  max-width: var(--prose-max-width);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.specimen {
+  padding: var(--space-5);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
+.specimenLabel {
+  margin: 0 0 var(--space-4);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--space-4);
+}
+
+/* Swatches ---------------------------------------------------------------- */
+
+.swatch {
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.swatchChip {
+  height: 3.5rem;
+}
+
+.swatchMeta {
+  padding: var(--space-2) var(--space-3);
+  border-top: var(--border-thin) solid var(--border-default);
+}
+
+.swatchName {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.swatchValue {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* Contrast table ---------------------------------------------------------- */
+
+.tableWrapper {
+  /* Tables are the one thing here that legitimately exceeds the column, and a
+     horizontally scrolling page is a usability failure in its own right. */
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.table th,
+.table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: var(--border-thin) solid var(--border-default);
+  white-space: nowrap;
+}
+
+.table th {
+  color: var(--fg-muted);
+  font-weight: var(--weight-medium);
+}
+
+.ratio {
+  font-family: var(--font-mono);
+}
+
+/* Pass and fail are the one place this page needs a status vocabulary, and it
+   still refuses colour — these describe the palette, and colouring them would
+   quietly contradict the thing being demonstrated. Text carries the meaning
+   (WCAG 1.4.1), weight carries the emphasis. */
+.pass {
+  font-weight: var(--weight-medium);
+}
+
+.fail {
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* Type specimens ---------------------------------------------------------- */
+
+.specimenRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: baseline;
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-thin) solid var(--border-default);
+}
+
+.specimenRow:last-child {
+  border-bottom: none;
+}
+
+.specimenName {
+  flex: 0 0 8rem;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.specimenText {
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+
+/* Spacing scale ----------------------------------------------------------- */
+
+.spaceRow {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.spaceBar {
+  height: var(--space-4);
+  background: var(--fg-default);
+  border-radius: var(--radius-sm);
+}
+
+.footer {
+  margin-top: var(--space-16);
+  padding-top: var(--space-6);
+  border-top: var(--border-thin) solid var(--border-default);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}

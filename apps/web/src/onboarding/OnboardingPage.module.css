@@ -1,0 +1,113 @@
+/*
+ * The first ten minutes.
+ *
+ * Every value is a token. The restraint matters more here than anywhere: this
+ * is the screen where a founder decides whether the product is serious, and a
+ * page of progress bars and celebratory colour says "marketing" where a quiet
+ * page of true numbers says "engineering".
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 44rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background: var(--bg-subtle);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.cardTitle {
+  margin: 0;
+  color: var(--fg-default);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+
+.cardBody {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.aside {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}
+
+/*
+ * The counters, side by side. Numbers first, labels under them: the number is
+ * what changes and what the eye returns to.
+ */
+.counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin: 0;
+}
+
+.counter {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--space-1);
+}
+
+.counter dt {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.counter dd {
+  margin: 0;
+  color: var(--fg-default);
+  font-size: var(--text-2xl);
+  /*
+   * Tabular figures so a climbing counter does not shift the labels beside it.
+   * Proportional digits make "1,109" narrower than "1,000", and a number that
+   * jitters while it updates reads as instability in the product.
+   */
+  font-variant-numeric: tabular-nums;
+}
+
+.repositories {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.repository {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-top: var(--space-2);
+  border-top: var(--border-thin) solid var(--border-default);
+  font-size: var(--text-sm);
+}
+
+.repositoryName {
+  color: var(--fg-default);
+  overflow-wrap: anywhere;
+}
+
+.repositoryState {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

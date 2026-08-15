@@ -1,0 +1,254 @@
+/*
+ * The application frame.
+ *
+ * The whole visual argument of this file is restraint. CAIRN sits close to the
+ * line between coordination software and workplace monitoring (md/05 §B.1), and
+ * a calm, quiet interface is the clearest way to say "this tool observes and
+ * informs; it does not judge or rank". So: one rule weight, one radius, no
+ * shadows in the chrome, no colour outside the focus ring, and a great deal of
+ * space.
+ *
+ * Everything here is a token from @cairn/ui. No hex value, no arbitrary
+ * spacing — an off-rhythm value looks fine in isolation and breaks the vertical
+ * alignment of everything beside it.
+ */
+
+.shell {
+  display: grid;
+  /*
+   * A fixed sidebar rather than a fractional one. Navigation is a constant, and
+   * a column that grows with the window makes the eye re-find the same five
+   * links at a different width on every screen.
+   */
+  grid-template-columns: 15.5rem minmax(0, 1fr);
+  min-height: 100dvh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  padding: var(--space-6) var(--space-4);
+
+  background: var(--bg-subtle);
+  /*
+   * A single hairline is the only thing separating navigation from content.
+   * `border-default` is deliberately low contrast: this rule is decorative —
+   * remove it and the layout still reads — so WCAG 1.4.11's 3:1 requirement
+   * does not apply and meeting it anyway would make the chrome heavy.
+   */
+  border-right: var(--border-thin) solid var(--border-default);
+}
+
+/* Brand -------------------------------------------------------------------- */
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  color: var(--fg-default);
+  text-decoration: none;
+}
+
+.brandMark {
+  flex: none;
+  /* `currentColor` throughout, so the mark inverts with the theme for free. */
+  color: currentcolor;
+}
+
+.brandName {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  /* Widely tracked lettering is the one typographic flourish in the product. */
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* Navigation --------------------------------------------------------------- */
+
+.nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.navList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navLink {
+  display: flex;
+  align-items: center;
+  /*
+   * 44px, from `minTargetSize`. Above the WCAG 2.2 minimum on purpose: the most
+   * important repeated action in this product is correcting your own record,
+   * and a fiddly correction is a correction that never happens.
+   */
+  min-height: var(--min-target);
+  padding: 0 var(--space-3);
+
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+
+.navLink:hover {
+  color: var(--fg-default);
+  background: var(--bg-muted);
+}
+
+/*
+ * The current page, identified by the attribute react-router already sets.
+ *
+ * Styling `aria-current` rather than a separate "active" class ties the visual
+ * state to the accessible one: they cannot drift apart, because there is only
+ * one of them. Weight and a solid background carry it — never colour alone
+ * (WCAG 1.4.1).
+ */
+.navLink[aria-current="page"] {
+  color: var(--fg-default);
+  font-weight: var(--weight-medium);
+  background: var(--bg-muted);
+}
+
+/* Sidebar footer ----------------------------------------------------------- */
+
+.account {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-5);
+  border-top: var(--border-thin) solid var(--border-default);
+}
+
+.accountIdentity {
+  padding: 0 var(--space-3);
+  min-width: 0;
+}
+
+.accountName {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountDetail {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Main --------------------------------------------------------------------- */
+
+.main {
+  min-width: 0;
+  padding: var(--space-12) var(--space-10) var(--space-20);
+}
+
+.content {
+  /*
+   * A reading measure, not a page width.
+   *
+   * The primary output is plain-English narrative (md/05 §A.1), and prose set
+   * across a 2000px monitor is genuinely hard to read — the eye loses the line
+   * on the return sweep. Screens with tabular content override this locally.
+   */
+  max-width: 60rem;
+  margin: 0 auto;
+}
+
+/*
+ * Skip link — WCAG 2.4.1.
+ *
+ * Off-screen until focused, then pinned to the top-left. Without it a keyboard
+ * user tabs through every navigation link on every page before reaching the
+ * content, which is the single most common keyboard complaint about sidebar
+ * layouts.
+ */
+.skipLink {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 10;
+
+  padding: var(--space-2) var(--space-4);
+  color: var(--fg-default);
+  background: var(--bg-default);
+  border: var(--border-thin) solid var(--border-interactive);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+
+  transform: translateY(-200%);
+}
+
+.skipLink:focus-visible {
+  transform: translateY(0);
+}
+
+/* Narrow viewports --------------------------------------------------------- */
+
+/*
+ * The sidebar becomes a top bar. No hamburger, no drawer, no overlay.
+ *
+ * A drawer would need a focus trap, an escape handler, a scroll lock and a
+ * return-focus rule — four accessibility obligations, each easy to get subtly
+ * wrong — to hide five links. Five links fit. The rejected alternative is worth
+ * naming because it will be proposed again: it becomes the right call at around
+ * a dozen destinations, not at five.
+ */
+@media (width <= 60rem) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    border-right: none;
+    border-bottom: var(--border-thin) solid var(--border-default);
+  }
+
+  .nav {
+    overflow-x: auto;
+  }
+
+  .navList {
+    flex-direction: row;
+  }
+
+  .navLink {
+    white-space: nowrap;
+  }
+
+  .account {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding-top: var(--space-4);
+  }
+
+  .main {
+    padding: var(--space-8) var(--space-5) var(--space-16);
+  }
+}
