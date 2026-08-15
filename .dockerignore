@@ -1,0 +1,75 @@
+# What never enters the build context.
+#
+# Two different jobs, and only one of them is about speed.
+#
+# 1. Correctness. `.venv/` is a virtualenv built against the *host* — on a
+#    developer's machine that is Windows or macOS, with platform-specific
+#    wheels and absolute paths baked into its scripts. Copied into a Linux
+#    image it shadows the one the build produced and fails in ways that read as
+#    dependency problems. The same is true of every `node_modules/`.
+#
+# 2. Disclosure. Everything sent to the daemon can end up in a layer, and a
+#    layer is not deleted by a later `RUN rm` — it is still in the image
+#    history for anyone who pulls it. `.env` files, keys and `.git/` (which
+#    holds every secret ever committed and reverted) must not be sent at all.
+#
+# Deny-list rather than allow-list, deliberately. An allow-list is safer for
+# disclosure and worse for correctness here: the build needs several scattered
+# paths across a monorepo, and the failure mode of forgetting one is a build
+# that breaks loudly. The failure mode of forgetting a deny entry is a secret
+# in a published layer, so the entries below err toward over-excluding.
+
+# -- Correctness: host-built artefacts that must not shadow the image's --------
+.venv/
+**/.venv/
+**/node_modules/
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/dist/
+**/build/
+**/.next/
+**/.open-next/
+**/*.tsbuildinfo
+
+# -- Disclosure ---------------------------------------------------------------
+.git/
+.github/
+.env
+.env.*
+!.env.example
+**/*.pem
+**/*.key
+**/service-account*.json
+
+# -- Caches and local state: large, useless in an image, sometimes revealing ---
+.turbo/
+**/.turbo/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.pnpm-store/
+htmlcov/
+coverage/
+.coverage
+**/test-results/
+**/playwright-report/
+pgdata/
+*.log
+
+# -- Not part of the runtime image --------------------------------------------
+#
+# Tests are excluded because they are not copied by the Dockerfile anyway, and
+# leaving them in the context invites a future COPY that puts a test runner's
+# fixtures — including any credentials a test fixture grows — into production.
+apps/api/tests/
+apps/web/
+docs/
+md/
+infra/
+scripts/
+services/
+packages/
+Makefile
+docker-compose.yml
+*.md

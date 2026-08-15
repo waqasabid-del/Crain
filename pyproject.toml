@@ -22,6 +22,18 @@ dev = [
     "pytest-cov>=6.2.1",
     "pytest-asyncio>=1.1.0",
     "greenlet>=3.2.4",
+    # Runs the FastAPI lifespan around httpx-driven API tests. Declared here
+    # rather than installed ad hoc: an undeclared test dependency works until
+    # the next `uv sync` prunes it, and then the whole suite fails to collect
+    # for a reason unrelated to any change.
+    "asgi-lifespan>=2.1",
+    # `pytest.mark.anyio` and `anyio.run(...)` in test_pipeline.py. The marker is
+    # registered by anyio's pytest plugin, and `--strict-markers` is on — so
+    # without anyio installed the suite does not merely fail, it fails at
+    # collection with "unknown marker", which reads like a configuration error
+    # rather than a missing package. It arrives transitively via httpx and
+    # starlette today; the same audit that found asgi-lifespan found this.
+    "anyio>=4.6",
 ]
 
 # ---------------------------------------------------------------------------
@@ -80,6 +92,14 @@ exclude = ["\\.venv", "build", "dist"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+# google-cloud-pubsub ships no type information (no py.typed marker), so mypy
+# cannot follow it. Declared here rather than with inline ignores, so the
+# exemption is one visible decision instead of a scattering of comments — and so
+# it disappears in one edit if the library ever ships stubs.
+[[tool.mypy.overrides]]
+module = ["google.cloud.*", "google.api_core.*"]
+ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
 # pytest
