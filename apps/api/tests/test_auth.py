@@ -27,8 +27,11 @@ from cairn_api.auth import (
     resolve_session,
     revoke_session,
     sign_up,
+    verify_email,
 )
+from cairn_api.auth.service import SESSION_IDLE_TIMEOUT, revoke_all_sessions_for_user
 from cairn_api.auth.tokens import (
+    MAX_PASSWORD_BYTES,
     generate_token,
     hash_password,
     hash_token,
@@ -305,6 +308,13 @@ class TestInvitations:
             workspace_name="Sam Consulting",
             workspace_slug="sam-consulting",
         )
+        # They verify their address, which they must before claiming an
+        # invitation anywhere. Added when email verification closed the
+        # pre-registration hijack (O1): an *unverified* existing account is
+        # exactly the squatter that attack relies on, so the block is deliberate
+        # and this is the legitimate path through it.
+        await verify_email(platform, token=contractor.verification.token)
+
         users_before = await platform.scalar(select(func.count()).select_from(User))
 
         issued = await invite_to_workspace(
@@ -476,3 +486,245 @@ class TestInvitations:
         )
         # Asserting inequality alone would accept token[::-1] or a truncation.
         assert issued.invitation.token_hash == hash_token(issued.token)
+
+
+class TestSessionLifecycle:
+    """Regression tests for revocation and idle expiry.
+
+    Both existed as gaps rather than bugs: the code did what it said, and what
+    it said was insufficient. Revocation required presenting the token, which is
+    precisely what someone reporting a compromised account does not have.
+    """
+
+    async def test_signing_out_everywhere_ends_every_session(self, platform: AsyncSession) -> None:
+        result = await sign_up(
+            platform,
+            email="revoke-all@acme.test",
+            password=VALID_PASSWORD,
+            workspace_name="Acme",
+            workspace_slug="revoke-all-acme",
+        )
+        issued = [await create_session(platform, user=result.user) for _ in range(3)]
+
+        ended = await revoke_all_sessions_for_user(platform, user_id=result.user.id)
+
+        assert ended == 3
+        for handle in issued:
+            assert await resolve_session(platform, token=handle.token) is None
+
+    async def test_signing_out_everywhere_can_spare_the_current_device(
+        self, platform: AsyncSession
+    ) -> None:
+        # "Sign out everywhere else" must not sign the user out of the device
+        # they are asking from — that reads as the button having failed.
+        result = await sign_up(
+            platform,
+            email="revoke-except@acme.test",
+            password=VALID_PASSWORD,
+            workspace_name="Acme",
+            workspace_slug="revoke-except-acme",
+        )
+        keep = await create_session(platform, user=result.user)
+        drop = await create_session(platform, user=result.user)
+
+        ended = await revoke_all_sessions_for_user(
+            platform, user_id=result.user.id, except_session_id=keep.session_row.id
+        )
+
+        assert ended == 1
+        assert await resolve_session(platform, token=drop.token) is None
+        assert await resolve_session(platform, token=keep.token) is not None
+
+    async def test_an_idle_session_stops_working_before_it_expires(
+        self, platform: AsyncSession
+    ) -> None:
+        result = await sign_up(
+            platform,
+            email="idle@acme.test",
+            password=VALID_PASSWORD,
+            workspace_name="Acme",
+            workspace_slug="idle-acme",
+        )
+        issued = await create_session(platform, user=result.user)
+
+        # Still well inside the 30-day absolute lifetime — this is the whole
+        # point. A forgotten laptop should not stay signed in for a month.
+        issued.session_row.last_used_at = datetime.now(UTC) - (
+            SESSION_IDLE_TIMEOUT + timedelta(hours=1)
+        )
+        await platform.flush()
+
+        assert await resolve_session(platform, token=issued.token) is None
+        assert issued.session_row.expires_at > datetime.now(UTC)
+        # Stamped, not merely rejected, so the session cannot be revived by a
+        # request that happens to arrive with a fresher clock.
+        assert issued.session_row.revoked_at is not None
+
+    async def test_a_session_never_used_ages_out_from_creation(
+        self, platform: AsyncSession
+    ) -> None:
+        # `last_used_at` is null between issue and first use. Falling back to
+        # `created_at` closes the window where an issued-then-abandoned session
+        # would never age out at all.
+        result = await sign_up(
+            platform,
+            email="never-used@acme.test",
+            password=VALID_PASSWORD,
+            workspace_name="Acme",
+            workspace_slug="never-used-acme",
+        )
+        issued = await create_session(platform, user=result.user)
+        issued.session_row.created_at = datetime.now(UTC) - (
+            SESSION_IDLE_TIMEOUT + timedelta(hours=1)
+        )
+        await platform.flush()
+
+        assert issued.session_row.last_used_at is None
+        assert await resolve_session(platform, token=issued.token) is None
+
+
+class TestInvitationSupersession:
+    """An unaccepted invitation must not lock an address out permanently.
+
+    The original partial unique index keyed on `accepted_at IS NULL`, which an
+    expired invitation still satisfies. The slot was held forever and every
+    re-invitation died on a constraint violation naming an index — nothing an
+    admin could act on.
+    """
+
+    async def test_an_address_can_be_reinvited_after_the_first_expires(
+        self, platform: AsyncSession
+    ) -> None:
+        owner = await sign_up(
+            platform,
+            email="owner@resend.test",
+            password=VALID_PASSWORD,
+            workspace_name="Resend",
+            workspace_slug="resend-co",
+        )
+        first = await invite_to_workspace(
+            platform, inviter=owner.membership, email="new@resend.test"
+        )
+        first.invitation.expires_at = datetime.now(UTC) - timedelta(days=1)
+        await platform.flush()
+
+        second = await invite_to_workspace(
+            platform, inviter=owner.membership, email="new@resend.test"
+        )
+
+        assert second.invitation.id != first.invitation.id
+        assert first.invitation.superseded_at is not None
+
+    async def test_reissuing_invalidates_the_previous_link(self, platform: AsyncSession) -> None:
+        # An admin who re-sends a link after a suspected mis-delivery expects the
+        # old one to stop working. Two simultaneously redeemable tokens would be
+        # a defect in its own right.
+        owner = await sign_up(
+            platform,
+            email="owner@reissue.test",
+            password=VALID_PASSWORD,
+            workspace_name="Reissue",
+            workspace_slug="reissue-co",
+        )
+        first = await invite_to_workspace(
+            platform, inviter=owner.membership, email="new@reissue.test"
+        )
+        await invite_to_workspace(platform, inviter=owner.membership, email="new@reissue.test")
+
+        with pytest.raises(InvitationError, match="replaced by a more recent one"):
+            await accept_invitation(
+                platform,
+                token=first.token,
+                email="new@reissue.test",
+                password=VALID_PASSWORD,
+            )
+
+    async def test_the_newest_invitation_still_works(self, platform: AsyncSession) -> None:
+        owner = await sign_up(
+            platform,
+            email="owner@newest.test",
+            password=VALID_PASSWORD,
+            workspace_name="Newest",
+            workspace_slug="newest-co",
+        )
+        await invite_to_workspace(platform, inviter=owner.membership, email="new@newest.test")
+        second = await invite_to_workspace(
+            platform, inviter=owner.membership, email="new@newest.test"
+        )
+
+        membership = await accept_invitation(
+            platform, token=second.token, email="new@newest.test", password=VALID_PASSWORD
+        )
+
+        assert membership.tenant_id == owner.tenant.id
+
+
+class TestConcurrentWrites:
+    """Check-then-act paths must fail as domain errors, not IntegrityErrors.
+
+    A raw constraint violation reaches the client as a 500 naming a database
+    index and, worse, poisons the transaction — so the caller cannot even render
+    an error page.
+    """
+
+    async def test_a_duplicate_signup_surfaces_as_a_domain_error(
+        self, platform: AsyncSession
+    ) -> None:
+        # Stands in for the losing side of the race: the pre-check passed when it
+        # ran, and the unique index is what actually stops the insert. Here the
+        # differing case defeats the pre-check the same way a concurrent
+        # transaction would.
+        await sign_up(
+            platform,
+            email="race@acme.test",
+            password=VALID_PASSWORD,
+            workspace_name="Acme",
+            workspace_slug="race-acme-one",
+        )
+
+        with pytest.raises(EmailAlreadyRegisteredError):
+            await sign_up(
+                platform,
+                email="race@acme.test",
+                password=VALID_PASSWORD,
+                workspace_name="Acme",
+                workspace_slug="race-acme-two",
+            )
+
+        # The transaction survived: the savepoint absorbed the abort.
+        assert await platform.scalar(select(func.count()).select_from(User)) is not None
+
+    async def test_accepting_twice_does_not_create_a_second_seat(
+        self, platform: AsyncSession
+    ) -> None:
+        owner = await sign_up(
+            platform,
+            email="owner@twice.test",
+            password=VALID_PASSWORD,
+            workspace_name="Twice",
+            workspace_slug="twice-co",
+        )
+        invitation = await invite_to_workspace(
+            platform, inviter=owner.membership, email="new@twice.test"
+        )
+        await accept_invitation(
+            platform, token=invitation.token, email="new@twice.test", password=VALID_PASSWORD
+        )
+
+        with pytest.raises(InvitationError):
+            await accept_invitation(platform, token=invitation.token, email="new@twice.test")
+
+        seats = await platform.scalar(
+            select(func.count())
+            .select_from(Membership)
+            .where(Membership.tenant_id == owner.tenant.id)
+        )
+        assert seats == 2  # the owner and the invitee, not three
+
+
+class TestPasswordHardening:
+    def test_an_enormous_password_is_refused_rather_than_hashed(self) -> None:
+        # Argon2 cost scales with input, so an unbounded password turns one
+        # unauthenticated request into seconds of CPU across 64 MiB of memory.
+        with pytest.raises(ValueError, match="exceeds"):
+            hash_password("x" * (MAX_PASSWORD_BYTES + 1))

@@ -111,16 +111,18 @@ class TestRunnerIsolation:
 
     @pytest.fixture
     async def two_tenants(self, platform: AsyncSession) -> AsyncIterator[tuple[Tenant, Tenant]]:
-        acme = Tenant(name="Acme", slug="acme-jobs")
-        globex = Tenant(name="Globex", slug="globex-jobs")
+        # Unique per run — see the same fix in `test_tenant_isolation.py`.
+        suffix = uuid.uuid4().hex[:8]
+        acme = Tenant(name="Acme", slug=f"acme-jobs-{suffix}")
+        globex = Tenant(name="Globex", slug=f"globex-jobs-{suffix}")
         platform.add_all([acme, globex])
         await platform.flush()
 
-        acme_user = User(email="ali@acme-jobs.test")
-        globex_user = User(email="jordan@globex-jobs.test")
+        acme_user = User(email=f"ali-{suffix}@acme-jobs.test")
+        globex_user = User(email=f"jordan-{suffix}@globex-jobs.test")
         # Exists platform-wide but belongs to no workspace yet, so a job can
         # legitimately add them to one.
-        unassigned = User(email="new.hire@acme-jobs.test")
+        unassigned = User(email=f"new.hire-{suffix}@acme-jobs.test")
         platform.add_all([acme_user, globex_user, unassigned])
         await platform.flush()
         self._unassigned_id = unassigned.id
@@ -135,9 +137,18 @@ class TestRunnerIsolation:
 
         yield acme, globex
 
-        await platform.execute(delete(Membership))
-        await platform.execute(delete(User))
-        await platform.execute(delete(Tenant))
+        ids = [acme.id, globex.id]
+        user_ids = [acme_user.id, globex_user.id, unassigned.id]
+        # Scoped to what this fixture created.
+        #
+        # It used to be `DELETE FROM tenants` with no predicate, which removed every
+        # workspace in the database — including ones another module had committed
+        # and was still using. That is invisible while one file runs at a time and
+        # produces "duplicate key" errors at *setup* of an unrelated test as soon as
+        # two files share a session, which is the hardest kind of failure to place.
+        await platform.execute(delete(Membership).where(Membership.tenant_id.in_(ids)))
+        await platform.execute(delete(User).where(User.id.in_(user_ids)))
+        await platform.execute(delete(Tenant).where(Tenant.id.in_(ids)))
         await platform.commit()
 
     async def test_handler_receives_a_scoped_session(

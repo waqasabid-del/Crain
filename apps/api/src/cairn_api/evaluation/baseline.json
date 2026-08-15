@@ -1,0 +1,8 @@
+{
+  "groundedness": 1.0,
+  "attribution_accuracy": 1.0,
+  "recall": 1.0,
+  "abstention_accuracy": 1.0,
+  "dataset_version": "0.1.0-seed",
+  "cases": 18
+}

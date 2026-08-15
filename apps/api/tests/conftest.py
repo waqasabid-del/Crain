@@ -63,6 +63,11 @@ os.environ["CAIRN_DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["CAIRN_PLATFORM_DATABASE_URL"] = MIGRATION_DATABASE_URL
 
 
+# HTTP fixtures live in their own module so the database fixtures above stay
+# readable. Re-exported here because pytest only discovers fixtures in conftest.
+from conftest_api import app, client, limiter  # noqa: E402, F401
+
+
 def _database_available() -> bool:
     """Whether a test database can be reached.
 

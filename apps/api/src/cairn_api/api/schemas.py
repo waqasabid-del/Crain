@@ -1,0 +1,796 @@
+"""Request and response models.
+
+Separate from the SQLAlchemy models on purpose. Serialising an ORM object
+directly means every column added to the database appears in the API by default
+— which is how password hashes and internal flags leak. Here, a field reaches a
+client only because someone wrote it down.
+
+**Field names are camelCase on the wire, snake_case in Python.** The alias
+generator does the conversion once, so neither language writes the other's
+convention by hand. Without it the generated TypeScript client is full of
+`display_name`, and someone eventually "fixes" one endpoint and breaks the
+contract.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic.alias_generators import to_camel
+
+from cairn_api.auth.service import MIN_PASSWORD_LENGTH
+from cairn_api.auth.tokens import MAX_PASSWORD_BYTES
+from cairn_api.db.fact_models import FactOrigin
+from cairn_api.db.models import Region, TenantRole, WorkRole
+from cairn_api.domain import Certainty
+
+
+class ApiModel(BaseModel):
+    """Base for everything crossing the wire."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        from_attributes=True,
+        # Reject unknown fields rather than ignoring them. A client sending
+        # `displayname` for `displayName` should be told, not silently given an
+        # account with no name — and on an update endpoint, silently dropping an
+        # unrecognised field means a user's change vanishes without an error.
+        extra="forbid",
+    )
+
+
+# -- Requests ---------------------------------------------------------------
+
+
+class PasswordField(ApiModel):
+    """Shared password constraints.
+
+    The maximum is not arbitrary: Argon2's cost scales with input length, so an
+    unbounded password turns one unauthenticated request into seconds of CPU
+    across 64 MiB. The service layer enforces this too — this exists so the
+    rejection is a 422 naming the field rather than a 500.
+    """
+
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=MAX_PASSWORD_BYTES)
+
+
+class SignupRequest(PasswordField):
+    email: EmailStr
+    workspace_name: str = Field(min_length=1, max_length=100)
+    workspace_slug: str = Field(
+        min_length=3,
+        max_length=63,
+        # Lowercase, digits and single hyphens. Bounded to what is safe in a
+        # subdomain, because that is where slugs end up, and a slug that cannot
+        # be a hostname is a migration nobody wants later.
+        pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
+    )
+    display_name: str | None = Field(default=None, max_length=100)
+
+
+class LoginRequest(ApiModel):
+    email: EmailStr
+    # Deliberately unconstrained beyond a sane ceiling. Enforcing the minimum
+    # length here would reject an old password that predates a policy change
+    # with a validation error rather than "incorrect", telling an attacker their
+    # guess was too short to be this account's password.
+    password: str = Field(max_length=MAX_PASSWORD_BYTES)
+
+
+class InviteRequest(ApiModel):
+    email: EmailStr
+    role: TenantRole = TenantRole.MEMBER
+
+
+class VerifyEmailRequest(ApiModel):
+    token: str = Field(min_length=1, max_length=256)
+
+
+class ConnectGitHubRequest(ApiModel):
+    """Bind a GitHub App installation to this workspace.
+
+    The `installation_id` arrives as a query parameter on GitHub's post-install
+    redirect. The caller must be an authenticated member with permission to
+    connect integrations, which is the whole point: an inbound webhook must
+    never be able to create this mapping, or whoever installed the app would
+    have their activity bound to a workspace nobody chose.
+    """
+
+    installation_id: int = Field(gt=0)
+    account_login: str = Field(min_length=1, max_length=255)
+    account_type: str = Field(default="Organization", max_length=32)
+
+    #: Repositories to import history for, as `owner/name`.
+    repositories: list[str] = Field(default_factory=list, max_length=200)
+
+
+class AcceptInvitationRequest(ApiModel):
+    token: str = Field(min_length=1, max_length=256)
+    email: EmailStr
+    #: Required only when the invited person has no account yet.
+    password: str | None = Field(
+        default=None, min_length=MIN_PASSWORD_LENGTH, max_length=MAX_PASSWORD_BYTES
+    )
+    display_name: str | None = Field(default=None, max_length=100)
+
+
+# -- Responses --------------------------------------------------------------
+
+
+class UserResponse(ApiModel):
+    id: uuid.UUID
+    email: EmailStr
+    display_name: str | None
+
+    #: Whether this person has proved they control the address.
+    #:
+    #: Exposed so the interface can prompt for it. Not a permission in itself —
+    #: what verification gates is claiming an invitation someone else sent.
+    email_verified: bool = False
+
+
+class WorkspaceResponse(ApiModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+
+
+class MembershipResponse(ApiModel):
+    """A person's place in a workspace.
+
+    Carries role and join date and nothing else — no activity counts, no last
+    seen, no "engagement". Roles govern configuration; they do not govern how
+    much is visible about a person (md/15 §2.2), and a members list is exactly
+    where a visibility field would first appear.
+    """
+
+    user_id: uuid.UUID
+    email: EmailStr
+    display_name: str | None
+    role: TenantRole
+    joined_at: datetime
+
+
+class SessionResponse(ApiModel):
+    """Who the caller is, and where they can go."""
+
+    user: UserResponse
+    workspaces: list[WorkspaceMembershipResponse]
+
+
+class WorkspaceMembershipResponse(ApiModel):
+    workspace: WorkspaceResponse
+    role: TenantRole
+
+    #: What the person says they do, if they have said.
+    #:
+    #: Carried on the session rather than fetched separately, because it decides
+    #: where the app opens — and a first screen that arrives one request late is
+    #: a first screen the reader watches change under them.
+    #:
+    #: Null is normal. Every screen works without it.
+    work_role: WorkRole | None = None
+
+
+class InvitationResponse(ApiModel):
+    """An issued invitation.
+
+    **The token is not here.** It reaches the invitee by email and nowhere else.
+    Returning it would let anyone who can issue an invitation also redeem it,
+    collapsing the distinction between inviting an address and proving control
+    of it — and would write a working credential into the API logs of every
+    intermediary.
+    """
+
+    id: uuid.UUID
+    email: EmailStr
+    role: TenantRole
+    expires_at: datetime
+
+
+class GitHubInstallationResponse(ApiModel):
+    """A connected installation."""
+
+    id: uuid.UUID
+    installation_id: int
+    account_login: str
+    account_type: str
+    active: bool
+
+    #: Backfill runs started for this connection, for the onboarding screen.
+    backfill_runs: int
+
+
+class HealthResponse(ApiModel):
+    status: str
+    environment: str
+
+
+# Resolves the forward reference in SessionResponse.
+SessionResponse.model_rebuild()
+
+
+# -- The understanding layer ------------------------------------------------
+#
+# What the pipeline produced, on its way to a reader. Everything here carries
+# provenance, because a claim a reader cannot check is one the product is not
+# entitled to make (md/09 §5.1) — which is why there is no shape in this section
+# that can be serialised without its sources.
+
+
+class FactSourceResponse(ApiModel):
+    """Where a fact came from, precisely enough to open."""
+
+    source: str
+    evidence_id: str
+
+    #: The span the fact rests on, where the ingesting system gave us one.
+    quote: str | None = None
+
+    #: A resolvable location. This is what makes "open the source in one click"
+    #: real rather than aspirational.
+    url: str | None = None
+
+    #: What this evidence was about — a repository full name, and later a
+    #: channel or a document space. Null where the source names no project,
+    #: which is normal rather than a gap: a filter therefore means "evidence
+    #: that names this project" and nothing broader.
+    project: str | None = None
+
+
+class FactPersonResponse(ApiModel):
+    """A person a fact concerns, resolved or not.
+
+    `personId` is null for a mention the identity graph could not place
+    unambiguously, and the raw mention is returned anyway. A name the system
+    could not resolve is a question the workspace can answer; dropping it makes
+    "who is Sam?" unanswerable.
+    """
+
+    mention: str
+    person_id: uuid.UUID | None = None
+
+
+class FactResponse(ApiModel):
+    """One statement the pipeline asserts, with its validity interval."""
+
+    id: uuid.UUID
+
+    #: `delivery`, `decision`, `blocker`, `in_progress`, `open_question`.
+    #:
+    #: A string rather than an enum, matching the column. The taxonomy is
+    #: expected to grow, and a generated client that refuses to deserialise a
+    #: fact kind it has not been regenerated for would turn adding one into a
+    #: coordinated deploy.
+    kind: str
+
+    statement: str
+
+    #: Categorical, and with no numeric counterpart anywhere in this schema
+    #: (md/05 §A.2.1). A confidence float that existed would eventually be
+    #: rendered.
+    certainty: Certainty
+
+    #: `extracted` or `correction`. A human correction outranks an extracted
+    #: fact, and the interface has to be able to say which it is looking at
+    #: without inferring it from the presence of a user id.
+    origin: FactOrigin
+
+    #: When the activity happened, not when it was extracted. Null when the
+    #: source did not timestamp it.
+    occurred_at: datetime | None = None
+
+    valid_from: datetime
+
+    #: Null means currently valid. A non-null value with `supersededById` is a
+    #: fact that has been replaced — kept, never deleted (md/12 §6).
+    valid_until: datetime | None = None
+    superseded_by_id: uuid.UUID | None = None
+    supersession_reason: str | None = None
+
+    sources: list[FactSourceResponse] = Field(default_factory=list)
+    people: list[FactPersonResponse] = Field(default_factory=list)
+
+
+class WorkRoleUpdate(ApiModel):
+    """What the reader says they do.
+
+    Nullable, because withdrawing the answer has to be as easy as giving it. A
+    person who decides they would rather not say should not have to pick
+    something inaccurate instead.
+    """
+
+    work_role: WorkRole | None = None
+
+
+class WorkRoleResponse(ApiModel):
+    work_role: WorkRole | None = None
+
+
+class RoleUpdate(ApiModel):
+    """A member's new role.
+
+    A role, and nothing else. A body that also carried, say, `email` would make
+    this endpoint a general-purpose member editor, and the next field added to it
+    would be added without anybody deciding an administrator should be able to
+    change it.
+    """
+
+    role: TenantRole
+
+
+class IntegrationResponse(ApiModel):
+    """One source, and whether it is currently reading.
+
+    Disconnected integrations are returned rather than filtered out: a gap in the
+    feed is explained by "GitHub was disconnected on the 4th" and unexplained by
+    silence.
+    """
+
+    #: `github`, and later `chat`, `meeting`, `document`.
+    source: str
+
+    #: The organisation or account it reads from.
+    account: str
+
+    #: GitHub's own identifier for the installation, which the disconnect route
+    #: takes. Not a secret — it appears in the app's own install URL — and the
+    #: alternative is an administrator who can see a connection and has no way to
+    #: name it when switching it off.
+    installation_id: int
+
+    connected_at: datetime
+
+    #: Null while it is still connected.
+    disconnected_at: datetime | None = None
+
+    #: GitHub reports an installation suspended without removing it. Suspended
+    #: deliveries are not processed, so this is a reason a workspace's feed is
+    #: quiet and not a cosmetic flag.
+    suspended: bool = False
+
+
+class PrivacySettings(ApiModel):
+    """What happens to this workspace's raw activity.
+
+    The bounds are returned with the value so the interface states the range it
+    will accept before somebody is refused for typing outside it.
+    """
+
+    retention_days: int
+    min_retention_days: int
+    max_retention_days: int
+
+    #: Where the data lives. Read-only here: moving a workspace between regions
+    #: is a data migration under compliance pressure (md/06 §6.3), and a
+    #: dropdown that silently did nothing would be worse than its absence.
+    region: Region
+
+
+class PrivacyUpdate(ApiModel):
+    """How long to keep raw activity."""
+
+    retention_days: int
+
+
+class PersonNotification(ApiModel):
+    """Whether one member has been served the worker notification.
+
+    Named per person deliberately. Notification is an obligation the employer
+    owes each individual before capture begins, and an Owner who cannot see who
+    is outstanding cannot discharge it.
+
+    Note what is **not** here: whether they opted out. That is the person's own
+    decision about their own record, and a list of names beside "opted out" is a
+    list of employees who declined to be recorded, handed to whoever writes their
+    review — see `NotificationStatus`.
+    """
+
+    user_id: uuid.UUID
+    email: EmailStr
+    display_name: str | None = None
+
+    #: When the notification's content was actually served to them. Null means
+    #: it has not been, and CAIRN attributes nothing to them until it has.
+    notified_at: datetime | None = None
+
+
+class NotificationStatus(ApiModel):
+    """Worker notification across the workspace."""
+
+    people: list[PersonNotification] = Field(default_factory=list)
+
+    member_count: int
+
+    #: **A count, never a list.** md/11 §7 makes the opt-out rate the product's
+    #: trust barometer and md/13 makes it a phase gate — and a rate is what a
+    #: gate needs. Naming the individuals would mean a person deciding whether to
+    #: opt out had to weigh how it looked to their employer, which turns a
+    #: privacy control into a career calculation and produces a low number that
+    #: means nothing.
+    opted_out_count: int
+
+    #: The sources a person can opt out of, so the screen can say what the count
+    #: is a count of.
+    sources: list[str] = Field(default_factory=list)
+
+
+class TrustCommitment(ApiModel):
+    """One thing CAIRN does, or refuses to do, in plain language."""
+
+    title: str
+    detail: str
+
+
+class TrustCenter(ApiModel):
+    """The Trust & Privacy Center (md/05 §B.6).
+
+    **In-product and readable by every member**, not an administrator's page and
+    not a PDF. Two audiences and identical content: employees deciding whether to
+    trust it daily, and buyers evaluating it.
+
+    Every number here is read from this workspace rather than written into the
+    copy. A trust page that states a retention period the system does not apply
+    is the most damaging sentence this product could publish, because it is read
+    by the audience deciding whether the rest is true.
+    """
+
+    #: What is read, per source, with whether it is connected.
+    sources: list[TrustSource] = Field(default_factory=list)
+
+    #: What CAIRN contractually refuses to do (md/05 §B.3.4).
+    refusals: list[str] = Field(default_factory=list)
+
+    #: How the product behaves — symmetry, correction, provenance.
+    commitments: list[TrustCommitment] = Field(default_factory=list)
+
+    retention_days: int
+    region: Region
+
+    #: Members who have not yet been served the worker notification. A count,
+    #: for the same reason the opt-out figure is one — and shown to everybody,
+    #: because "has everyone here been told?" is a question the whole team has a
+    #: stake in.
+    awaiting_notification: int
+
+    #: Third parties that process customer content, named rather than described
+    #: as "trusted partners" (md/02 §5).
+    subprocessors: list[TrustCommitment] = Field(default_factory=list)
+
+
+class TrustSource(ApiModel):
+    """One source, what it reads, and whether it is switched on here."""
+
+    source: str
+    label: str
+    reads: str
+    connected: bool
+
+
+# Resolves the forward reference in TrustCenter.
+TrustCenter.model_rebuild()
+
+
+class FacetPerson(ApiModel):
+    """Somebody at least one current fact is about."""
+
+    id: uuid.UUID
+    name: str
+
+
+class FacetsResponse(ApiModel):
+    """What this workspace can actually be filtered by.
+
+    Every value here is one that at least one currently-valid fact would match,
+    read from the facts rather than from a list of what CAIRN could hold. A menu
+    offering "Meetings" to a workspace that never connected one produces an empty
+    result the reader blames on the product.
+
+    **No counts anywhere.** A number beside a person's name is a productivity
+    metric wearing a filter's clothes (md/05 §B.1), and it would be the first
+    thing on this screen anyone screenshotted.
+    """
+
+    people: list[FacetPerson] = Field(default_factory=list)
+
+    #: Repository full names today; channels and document spaces later.
+    projects: list[str] = Field(default_factory=list)
+
+    sources: list[str] = Field(default_factory=list)
+
+
+class SearchHit(ApiModel):
+    """One search result: a stored fact, and how it was found."""
+
+    fact: FactResponse
+
+    #: `words` — the statement contains what was typed. `meaning` — it was found
+    #: by similarity and may contain none of those words.
+    #:
+    #: Shown to the reader rather than kept internal. The two kinds of match fail
+    #: differently, and a semantic near-miss presented as an exact hit is how a
+    #: search result gets believed more than it has earned.
+    matched_on: Literal["words", "meaning"]
+
+
+class SearchResults(ApiModel):
+    """What a search found.
+
+    **No cursor, deliberately.** Keyset pagination needs a stable total order,
+    and relevance is not one — it is recomputed per query and would reorder under
+    a cursor. A ranked list is an answer rather than a stream, so this returns
+    the best `limit` results and says when it stopped short of everything.
+
+    **Results are stored facts.** Nothing on this path calls a model to compose a
+    reply, which is what "grounded" is being used to mean: the reader is looking
+    at what CAIRN recorded, with the evidence attached, not at prose about it.
+    """
+
+    items: list[SearchHit] = Field(default_factory=list)
+
+    #: True when the ranking was cut at `limit`. A search that quietly returned
+    #: its first fifty of two hundred looks identical to one that found fifty.
+    truncated: bool = False
+
+    #: False when the configured embedder is the offline hash, whose vectors are
+    #: real and semantically meaningless. Reported rather than hidden: a reader
+    #: comparing results across environments should be able to see that one of
+    #: the two ways of matching was not running.
+    semantic: bool = True
+
+
+class FactPage(ApiModel):
+    """One page of facts, and how to ask for the next.
+
+    No total count. Counting rows a reader has not asked for costs a second
+    query on every page, and the number would be read as "how much did this team
+    do" — a measurement this product does not make (md/09 §10).
+    """
+
+    items: list[FactResponse] = Field(default_factory=list)
+
+    #: Opaque. Pass it back as `cursor` to continue. Null means this was the
+    #: last page — a client must branch on that rather than on a short page,
+    #: because a filtered page can be short and still have more behind it.
+    next_cursor: str | None = None
+
+
+class CitationResponse(ApiModel):
+    """Where a claim came from, resolvable in one click.
+
+    **The URL is the whole point of this type.** Citations used to be bare
+    evidence identifiers — `ev-pr-482` — which satisfies "every claim carries a
+    citation" and fails the thing the citation is *for*: a reader cannot check
+    `ev-pr-482`. Step 21's criterion is that every claim links to its source in
+    one click, and a string that only means something inside this database is
+    not a link.
+
+    `url` is optional because some evidence genuinely has no permalink — a
+    meeting transcript, most obviously. The interface names the source rather
+    than hiding the citation: an unlinked citation is still provenance a person
+    can go and check, whereas a hidden one silently breaks the promise.
+    """
+
+    evidence_id: str
+    #: `github`, `chat`, `meeting`, `document`.
+    source: str
+    url: str | None = None
+
+    #: The exact span the claim rests on, where the extractor kept one.
+    quote: str | None = None
+
+
+class BriefClaimResponse(ApiModel):
+    """One sentence of a brief, with everything needed to check it."""
+
+    text: str
+    certainty: Certainty
+
+    #: The facts this rests on, and the evidence those facts cite. Both, because
+    #: they answer different questions: which belief produced this sentence, and
+    #: what in the source material supports that belief.
+    fact_ids: list[uuid.UUID] = Field(default_factory=list)
+    citations: list[CitationResponse] = Field(default_factory=list)
+
+    #: People the underlying facts concern.
+    credits: list[str] = Field(default_factory=list)
+
+    #: Whether synthesis had to add the hedge the model omitted. Surfaced
+    #: because a model that never hedges unprompted is a prompt problem, and a
+    #: prompt problem is invisible once the fallback silently corrects it.
+    hedged_by_system: bool = False
+
+
+class BriefResponse(ApiModel):
+    """A period's brief: prose, and the claims behind it."""
+
+    #: Present for a stored brief, absent for one generated on the spot.
+    #: The archive links by this; the live brief has nothing to link to yet.
+    id: uuid.UUID | None = None
+
+    period_start: datetime
+    period_end: datetime
+
+    #: When this brief was written. For a stored brief that is when synthesis
+    #: ran, which is not the same as the end of the period it covers — and the
+    #: difference is what tells a reader whether they are looking at a record or
+    #: at something composed just now.
+    generated_at: datetime | None = None
+
+    #: Whether this came from the archive rather than being generated for this
+    #: request. Surfaced because "this is what we said on Tuesday" and "this is
+    #: what we would say about Tuesday now" are different claims, and only the
+    #: first is a record.
+    stored: bool = False
+
+    narrative: str
+    claims: list[BriefClaimResponse] = Field(default_factory=list)
+
+    #: Explicit rather than inferred from an empty claim list. "Nothing to
+    #: report" and "everything was suppressed" are different answers and only
+    #: one of them is fine (md/09 §8).
+    abstained: bool = False
+
+    #: How many claims did not survive verification or the guardrails.
+    #:
+    #: **A count, never the text.** A suppressed claim is model output that
+    #: failed a check — an unsupported assertion, a boundary violation, an echoed
+    #: injection — and returning it to a browser would publish exactly the
+    #: content the gate rejected. The count is what makes "why is this brief
+    #: short" answerable; the text belongs in the operator's log.
+    suppressed_count: int = 0
+
+    #: Whether retrieval stopped at its budget rather than running out of graph.
+    #: A silently truncated brief reads exactly like a complete one.
+    truncated: bool = False
+
+
+class RepositoryProgress(ApiModel):
+    """One repository's import, as the onboarding screen shows it."""
+
+    repository: str
+    #: `pending`, `running`, `throttled`, `completed`, `failed`.
+    state: str
+    commits_imported: int
+    finished: bool
+
+
+class OnboardingResponse(ApiModel):
+    """How far a workspace has got through its first ten minutes.
+
+    Counters rather than a percentage. GitHub does not say how many commits a
+    repository holds before it is walked, so a percentage would be invented —
+    and an invented one always stalls near the end, which reads as broken rather
+    than as unknown. A number that climbs is honest and, on the screen where
+    abandonment costs most, more reassuring.
+    """
+
+    #: `not_connected`, `importing`, `understanding`, `ready`.
+    stage: str
+    connected: bool
+    account_login: str | None = None
+    repositories: list[RepositoryProgress] = Field(default_factory=list)
+    commits_imported: int = 0
+    facts_available: int = 0
+
+    #: Whether a backfill is still running, so the screen knows to keep polling.
+    #: Distinct from `stage`: a workspace can have readable facts *and* an
+    #: import still in flight, which is the normal case after about a minute.
+    importing: bool = False
+
+
+class BriefSummary(ApiModel):
+    """One entry in the archive.
+
+    Deliberately not the whole brief. An archive is a list to scan, and sending
+    every claim of every period to render a list of dates is the request that
+    makes the screen slow exactly as a workspace accumulates history.
+    """
+
+    id: uuid.UUID
+    period_start: datetime
+    period_end: datetime
+    generated_at: datetime
+
+    #: The first sentence, for a list that is scannable. Truncated server-side
+    #: rather than in CSS: a clipped line still ships the whole paragraph to the
+    #: browser, and an archive of five hundred briefs would ship all of it.
+    excerpt: str
+    claim_count: int
+    abstained: bool
+
+
+class BriefArchive(ApiModel):
+    """A page of past briefs, newest first."""
+
+    items: list[BriefSummary] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class CorrectionRequest(ApiModel):
+    """A person saying what CAIRN got wrong about them.
+
+    A closed set of kinds rather than a free-text box, because free text is the
+    worse input on both sides: it asks somebody to explain a defect in a product
+    they did not build, and it hands evaluation an unlabelled string instead of
+    a failure mode. `note` exists for the detail a kind cannot carry, and
+    nothing depends on it being filled in.
+    """
+
+    #: `reworded`, `did_not_happen`, `wrong_person`, `no_longer_true`.
+    kind: str
+
+    #: The corrected sentence. Required for `reworded` and ignored otherwise —
+    #: demanding one for "this did not happen" would make the fastest and most
+    #: common correction the most laborious.
+    statement: str | None = Field(default=None, max_length=1000)
+
+    #: Optional context, for the audit trail and for whoever reviews the
+    #: correction before it becomes an evaluation case.
+    note: str | None = Field(default=None, max_length=500)
+
+
+class CorrectionResponse(ApiModel):
+    """What the correction did."""
+
+    corrected_fact_id: uuid.UUID
+
+    #: The fact that replaced it, when the correction supplied one. Absent for a
+    #: denial: nothing replaced it, and returning an empty object would suggest
+    #: something did.
+    replacement: FactResponse | None = None
+
+
+class SourceConsent(ApiModel):
+    """One source, and whether this person has opted out of it."""
+
+    source: str
+    #: Plain English, so the notification does not have to carry a glossary.
+    label: str
+    #: What CAIRN reads from it — stated per source, because "we read your
+    #: activity" is the sentence that makes people opt out (md/11 §4.1).
+    reads: str
+    opted_out: bool
+
+
+class ConsentResponse(ApiModel):
+    """What CAIRN may attribute to the caller, and what it never does.
+
+    The refusals travel with the choices deliberately. md/05 §B.3.4 requires the
+    contractual refusals to be stated in-product, and the moment a person is
+    deciding whether to opt out is the moment they are most entitled to read
+    them — not a policy page they would have to go looking for.
+    """
+
+    sources: list[SourceConsent] = Field(default_factory=list)
+
+    #: What CAIRN will never do, in the person's own words rather than legal
+    #: ones. Served from the API rather than hardcoded in the interface so that
+    #: every surface — web, email, a future mobile client — states the same
+    #: promise, and changing it is one edit rather than a search.
+    refusals: list[str] = Field(default_factory=list)
+
+
+class ConsentUpdate(ApiModel):
+    """A person changing what CAIRN may attribute to them."""
+
+    source: str
+    opted_out: bool
+
+
+class ConsentUpdateResponse(ApiModel):
+    """The result of one choice."""
+
+    source: str
+    opted_out: bool
+
+    #: How many existing attributions were removed.
+    #:
+    #: Reported because a control that visibly did something is a control a
+    #: person believes. A silent toggle asks them to take it on faith at exactly
+    #: the moment they have decided not to.
+    unlinked: int = 0

@@ -1,0 +1,133 @@
+"""The worker process entrypoint (``make worker``), separate from the API
+since they scale on different signals (md/06 §6B.2). Handlers are imported
+here, not scanned for, so a missing registration fails as an import error."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import signal
+
+import structlog
+
+from cairn_api.api.ratelimit import purge_expired_buckets
+from cairn_api.config import get_settings
+from cairn_api.db.preflight import run_preflight_checks
+from cairn_api.db.session import dispose_engines, platform_session
+from cairn_api.github import handlers as github_handlers
+from cairn_api.github import jobs as github_jobs
+from cairn_api.jobs.factory import build_queue
+from cairn_api.jobs.queue import JobQueue
+from cairn_api.jobs.runner import JobRegistry
+from cairn_api.jobs.worker import Worker, WorkerConfig
+from cairn_api.logging import configure_logging
+from cairn_api.pipeline import jobs as pipeline_jobs
+from cairn_api.pipeline import retention
+
+logger = structlog.get_logger(__name__)
+
+DEPTH_REPORT_INTERVAL_SECONDS = 15.0
+MAINTENANCE_INTERVAL_SECONDS = 3600.0
+
+RATE_LIMIT_BUCKET_TTL_SECONDS = 86400.0
+
+
+async def report_depth(queue: JobQueue, *, interval: float) -> None:
+    """Per-tenant depth answers "who is starving" (md/06 §6B.3), which the total alone hides."""
+    while True:
+        try:
+            depth = await queue.depth()
+        except Exception as exc:
+            await logger.awarning("queue.depth_unavailable", error=str(exc))
+        else:
+            await logger.ainfo(
+                "queue.depth",
+                pending=depth.pending,
+                in_flight=depth.in_flight,
+                dead_lettered=depth.dead_lettered,
+                total=depth.total,
+            )
+            # Only the busiest few — a line per tenant is unreadable at scale.
+            for tenant_id, count in sorted(depth.per_tenant.items(), key=lambda item: -item[1])[:5]:
+                await logger.ainfo("queue.depth.tenant", tenant_id=str(tenant_id), pending=count)
+
+        await asyncio.sleep(interval)
+
+
+async def run_maintenance(*, interval: float) -> None:
+    """Not a queued job: `rate_limit_buckets` isn't tenant-scoped, but handlers only get one (`runner.py`)."""
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            async with platform_session() as session:
+                purged = await purge_expired_buckets(
+                    session, older_than_seconds=RATE_LIMIT_BUCKET_TTL_SECONDS
+                )
+                expired = await retention.sweep(session)
+        except Exception as exc:
+            await logger.awarning("maintenance.failed", error=str(exc))
+        else:
+            if purged:
+                await logger.ainfo("maintenance.rate_limit_buckets_purged", count=purged)
+            if expired:
+                await logger.ainfo("maintenance.raw_activity_deleted", count=expired)
+
+
+def register_handlers(queue: JobQueue, target: JobRegistry | None = None) -> None:
+    """Every job type this deployment can execute, in one place — two of
+    these were added to close audit findings of a type nobody published or handled.
+    """
+    github_handlers.register(target, queue=queue)
+    github_jobs.register(queue, target)
+    pipeline_jobs.register(target)
+
+
+async def run_worker() -> None:
+    settings = get_settings()
+    configure_logging(settings)
+
+    if settings.is_deployed:
+        # A role that can bypass row-level security means no tenant isolation.
+        await run_preflight_checks()
+
+    queue = build_queue(settings)
+    register_handlers(queue)
+    worker = Worker(queue, config=WorkerConfig())
+
+    loop = asyncio.get_running_loop()
+    stopping = asyncio.Event()
+
+    def _request_stop(signal_name: str) -> None:
+        logger.info("worker.signal_received", signal=signal_name)
+        worker.stop()
+        stopping.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        with contextlib.suppress(NotImplementedError):  # No signal handlers on Windows.
+            loop.add_signal_handler(sig, _request_stop, sig.name)
+
+    background = [
+        asyncio.create_task(report_depth(queue, interval=DEPTH_REPORT_INTERVAL_SECONDS)),
+        asyncio.create_task(run_maintenance(interval=MAINTENANCE_INTERVAL_SECONDS)),
+    ]
+
+    try:
+        await worker.run_forever()
+    finally:
+        for task in background:
+            task.cancel()
+        for task in background:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        await dispose_engines()
+
+
+def main() -> None:
+    try:
+        asyncio.run(run_worker())
+    except KeyboardInterrupt:
+        logger.info("worker.interrupted")
+
+
+if __name__ == "__main__":
+    main()

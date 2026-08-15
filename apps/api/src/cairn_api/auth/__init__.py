@@ -11,6 +11,7 @@ from cairn_api.auth.permissions import (
 from cairn_api.auth.service import (
     AuthError,
     EmailAlreadyRegisteredError,
+    EmailNotVerifiedError,
     InvalidCredentialsError,
     InvitationError,
     SignupResult,
@@ -22,11 +23,13 @@ from cairn_api.auth.service import (
     resolve_session,
     revoke_session,
     sign_up,
+    verify_email,
 )
 
 __all__ = [
     "AuthError",
     "EmailAlreadyRegisteredError",
+    "EmailNotVerifiedError",
     "InvalidCredentialsError",
     "InvitationError",
     "Permission",
@@ -44,4 +47,5 @@ __all__ = [
     "resolve_session",
     "revoke_session",
     "sign_up",
+    "verify_email",
 ]

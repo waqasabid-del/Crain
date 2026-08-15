@@ -1,30 +1,9 @@
 """The permission model.
 
-Conventional SaaS assumes seniority implies visibility: an admin sees more about
-people than a member does. **CAIRN inverts that**, and the inversion is the most
-important thing in this module.
-
-Roles here govern *configuration* — who may connect an integration, invite a
-colleague, change a plan. They do **not** govern *how much is visible about a
-person*. An Owner sees exactly what a Viewer sees about any individual, which is
-exactly what that individual sees about themselves.
-
-This is not decoration. It is:
-
-- **A product commitment** (md/05 §B.2) — symmetrical visibility is what makes
-  CAIRN team coordination rather than workplace monitoring, and it is the
-  positioning competitors selling management dashboards structurally cannot copy.
-- **Regulatory architecture** (md/05 §B.3.3) — a role that granted deeper insight
-  into an individual's behaviour would move the product toward EU AI Act
-  "monitoring and evaluating workers", with conformity assessment and bias
-  testing attached to *everything*, not just the new feature.
-- **An adoption requirement** (md/08 §A.2) — developers are the most likely
-  internal blocker, and a tool where the boss sees more than you do is the tool
-  they reject.
-
-An engineer will reach for a ``members.view_details`` permission at some point,
-because that is how every other product works. There is a test that fails if one
-appears.
+Roles govern *configuration*, never *how much is visible about a person* — an
+Owner sees exactly what a Viewer sees about any individual (md/05 §B.2, §B.3.3;
+md/08 §A.2). Do not add a ``members.view_details``-style permission; a test
+enforces this.
 """
 
 from __future__ import annotations
@@ -35,59 +14,33 @@ from cairn_api.db.models import TenantRole
 
 
 class Permission(enum.StrEnum):
-    """Things a member may be allowed to do within a workspace.
+    """Things a member may be allowed to do within a workspace. Configuration only."""
 
-    Every permission here concerns **configuration or membership**. None
-    concerns how much is visible about a person — see the module docstring.
-    """
-
-    # ---------------------------------------------------------------- billing
     BILLING_MANAGE = "billing.manage"
-    """Change plan, payment method, billing contact."""
 
-    # -------------------------------------------------------------- workspace
     WORKSPACE_DELETE = "workspace.delete"
     WORKSPACE_TRANSFER = "workspace.transfer"
-    """Hand ownership to someone else. Irreversible by the person doing it."""
+    """Irreversible by the person doing it."""
 
     WORKSPACE_SETTINGS = "workspace.settings"
-    """Name, retention period, region, privacy configuration."""
 
-    # ------------------------------------------------------------- membership
     MEMBERS_INVITE = "members.invite"
     MEMBERS_REMOVE = "members.remove"
     MEMBERS_CHANGE_ROLE = "members.change_role"
 
-    # ----------------------------------------------------------- integrations
     INTEGRATIONS_CONNECT = "integrations.connect"
     INTEGRATIONS_DISCONNECT = "integrations.disconnect"
 
-    # --------------------------------------------------------------- projects
     PROJECTS_MANAGE = "projects.manage"
 
-    # ---------------------------------------------------------------- reading
     CONTENT_READ = "content.read"
-    """Read briefs, the feed, and documentation.
-
-    Held by every role including Viewer. Note there is deliberately no
-    finer-grained read permission: what a person can see is determined by the
-    symmetry rule, not by their role.
-    """
 
     OWN_RECORD_CORRECT = "own_record.correct"
-    """Correct your own contribution record.
-
-    Held by everyone, and never grantable *over another person*. This is the
-    employee-owned-records commitment expressed as a permission (md/05 §B.2).
-    """
+    """Never grantable over another person (md/05 §B.2)."""
 
 
-#: What each role may do.
-#:
-#: Written as explicit sets rather than derived from a hierarchy. A hierarchy
-#: invites "Owner inherits everything Admin has", which is true today and would
-#: silently grant Owners any future Admin permission — including one that should
-#: have been considered separately.
+#: Explicit per-role sets, not a hierarchy — a hierarchy would silently grant
+#: Owners any future Admin permission.
 _ROLE_PERMISSIONS: dict[TenantRole, frozenset[Permission]] = {
     TenantRole.OWNER: frozenset(
         {
@@ -107,8 +60,6 @@ _ROLE_PERMISSIONS: dict[TenantRole, frozenset[Permission]] = {
     ),
     TenantRole.ADMIN: frozenset(
         {
-            # Deliberately no billing, deletion or ownership transfer: an Admin
-            # runs the workspace day to day but cannot end it or move money.
             Permission.WORKSPACE_SETTINGS,
             Permission.MEMBERS_INVITE,
             Permission.MEMBERS_REMOVE,
@@ -136,12 +87,7 @@ _ROLE_PERMISSIONS: dict[TenantRole, frozenset[Permission]] = {
 
 
 class PermissionDeniedError(PermissionError):
-    """Raised when a role lacks a required permission.
-
-    A subclass of the built-in ``PermissionError`` so that generic handling
-    treats it sensibly, while remaining distinguishable from a filesystem
-    permission failure.
-    """
+    """Raised when a role lacks a required permission."""
 
     def __init__(self, role: TenantRole, permission: Permission) -> None:
         self.role = role
@@ -160,12 +106,8 @@ def has_permission(role: TenantRole, permission: Permission) -> bool:
 
 
 def require(role: TenantRole, permission: Permission) -> None:
-    """Raise unless the role holds the permission.
-
-    Raising rather than returning a boolean at call sites that must not proceed:
-    an ignored return value is a silent authorisation bypass, whereas an ignored
-    exception is impossible.
-    """
+    """Raise unless the role holds the permission (raises, not bool — an ignored
+    return would be a silent bypass)."""
     if not has_permission(role, permission):
         raise PermissionDeniedError(role, permission)
 
@@ -175,19 +117,7 @@ def can_view_person_record(
     viewer_role: TenantRole,
     viewer_is_subject: bool,
 ) -> bool:
-    """Whether a person's contribution record is visible. Always ``True``.
-
-    This function exists to *be* the answer, and to make the symmetry rule
-    something a reader trips over rather than something they must know.
-
-    Both parameters are accepted and both are ignored. That is the entire point:
-    within a workspace, everyone sees the same categories of information about
-    everyone, including about leadership. There is no manager view, no
-    role-gated depth, and no "your own record shows more".
-
-    If a future requirement genuinely needs asymmetric visibility, the change
-    belongs in md/05 §B.2 first — not here. Editing this function to consult its
-    arguments would quietly convert a coordination tool into a monitoring one,
-    and would put the product's AI Act classification at risk (md/05 §B.3.3).
-    """
+    """Whether a person's record is visible. Always ``True`` — visibility is symmetric
+    for everyone, including leadership. Do not make this consult its arguments; that
+    would convert a coordination tool into a monitoring one (md/05 §B.2, §B.3.3)."""
     return True

@@ -1,12 +1,9 @@
 """Export the ``ActivityEvent`` JSON Schema.
 
-The Python model is the single source of truth. This emits JSON Schema, from
-which TypeScript types are generated — so the two languages describe the same
-shape by construction rather than by discipline.
-
-A test regenerates and compares, so a model change that is not propagated fails
-CI rather than surfacing later as a frontend that quietly disagrees with the
-backend about what an event looks like.
+The Python model is the source of truth; TypeScript types are generated from
+this output, so both languages describe the same shape by construction. A
+test regenerates and compares, so a model change that isn't propagated fails
+CI rather than surfacing later as a frontend/backend disagreement.
 
 Run via ``make schema``.
 """
@@ -19,9 +16,7 @@ from typing import Any
 
 from cairn_api.events.schema import ActivityEvent
 
-#: Checked into the repository. Generated files are committed deliberately:
-#: it makes the diff of a schema change visible in review, which is exactly
-#: where a breaking change should be noticed.
+#: Committed deliberately, so a schema change's diff is visible in review.
 REPO_ROOT = Path(__file__).parents[5]
 SCHEMA_PATH = REPO_ROOT / "packages" / "types" / "schemas" / "activity-event.json"
 
@@ -42,8 +37,7 @@ def build_schema() -> dict[str, Any]:
 def write_schema(path: Path = SCHEMA_PATH) -> Path:
     """Write the schema to disk, returning the path written."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Sorted keys and a trailing newline keep the diff stable, so a regeneration
-    # with no model change produces no diff at all.
+    # Sorted keys + trailing newline: no model change means no diff.
     path.write_text(json.dumps(build_schema(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
 

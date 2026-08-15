@@ -1,0 +1,369 @@
+{
+  "version": "0.1.0-seed",
+  "_comment": [
+    "SEED SET — a bootstrap, not the real dataset (md/10 §2.1).",
+    "",
+    "The real evaluation set is 200-500 cases built from production failures:",
+    "dogfooding on the CAIRN team's own activity, then design-partner corrections,",
+    "then every user correction once live. That is the compounding advantage, and",
+    "it cannot be written in advance.",
+    "",
+    "These fourteen exist to make the harness runnable and to encode the failure",
+    "modes already known from the specs. Each one names why it exists, because a",
+    "case whose purpose nobody recorded is a case nobody can safely change — and",
+    "ground truth gets edited under exactly the pressure that makes a bad edit",
+    "tempting (md/10 §2.2).",
+    "",
+    "Coverage: all four sources, several roles, empty weeks, heavy bot activity,",
+    "single-person teams, and — deliberately — cases where the correct answer is",
+    "'not enough information'."
+  ],
+  "cases": [
+    {
+      "id": "github-squash-credits-everyone",
+      "rationale": "Squash merge with co-authors. The naive implementation credits only the PR author, erasing the pair — md/01 §5.1.",
+      "targets": ["misattribution"],
+      "tags": ["role:developer", "source:github"],
+      "evidence": [
+        {
+          "id": "ev-pr-128",
+          "source": "github",
+          "content": "Merged PR #128 'Add rate limiting'. Co-authored-by Tom Reilly.",
+          "people": ["priya", "tom"],
+          "occurred_at": "2026-08-11T10:00:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "Priya and Tom shipped rate limiting together.",
+          "must_cite": ["ev-pr-128"],
+          "credits": ["priya", "tom"],
+          "certainty": "verified"
+        }
+      ]
+    },
+    {
+      "id": "github-bot-not-a-contributor",
+      "rationale": "Dependabot out-commits the humans. Counting it makes the team look idle — md/01 §5.2.",
+      "targets": ["misattribution"],
+      "tags": ["edge:heavy-bot-activity", "source:github"],
+      "evidence": [
+        {
+          "id": "ev-bump",
+          "source": "github",
+          "content": "dependabot[bot] opened 40 dependency bumps.",
+          "people": [],
+          "occurred_at": "2026-08-10T02:00:00Z"
+        },
+        {
+          "id": "ev-human-fix",
+          "source": "github",
+          "content": "Ana fixed a race in the session store.",
+          "people": ["ana"],
+          "occurred_at": "2026-08-10T14:00:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "Ana fixed a race in the session store; dependencies were updated automatically.",
+          "must_cite": ["ev-human-fix"],
+          "credits": ["ana"],
+          "certainty": "verified"
+        }
+      ]
+    },
+    {
+      "id": "meeting-inference-is-hedged",
+      "rationale": "Meeting transcripts carry ~30% speaker-misattribution risk (md/03 §2), so a meeting-only claim cannot honestly be verified.",
+      "targets": ["overconfidence"],
+      "tags": ["source:meeting", "role:pm"],
+      "evidence": [
+        {
+          "id": "ev-standup",
+          "source": "meeting",
+          "content": "Someone said the billing migration would slip to next sprint.",
+          "people": ["sam"],
+          "occurred_at": "2026-08-12T09:15:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "The billing migration may slip; heard in standup and not yet confirmed elsewhere.",
+          "must_cite": ["ev-standup"],
+          "credits": ["sam"],
+          "certainty": "suggested"
+        }
+      ]
+    },
+    {
+      "id": "meeting-corroborated-earns-higher-tier",
+      "rationale": "Corroboration across sources is what earns a stronger tier. Without this case, hedging everything would score perfectly.",
+      "targets": ["overconfidence"],
+      "tags": ["source:meeting", "source:github"],
+      "evidence": [
+        {
+          "id": "ev-decision-call",
+          "source": "meeting",
+          "content": "The team agreed to move to Postgres-backed rate limiting.",
+          "people": ["priya", "tom"],
+          "occurred_at": "2026-08-09T11:00:00Z"
+        },
+        {
+          "id": "ev-decision-pr",
+          "source": "github",
+          "content": "PR #128 implements Postgres-backed rate limiting.",
+          "people": ["priya"],
+          "occurred_at": "2026-08-11T10:00:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "The team moved rate limiting to Postgres, decided in a call and shipped in #128.",
+          "must_cite": ["ev-decision-call", "ev-decision-pr"],
+          "credits": ["priya", "tom"],
+          "certainty": "verified"
+        }
+      ]
+    },
+    {
+      "id": "stale-fact-not-asserted-as-current",
+      "rationale": "'Ali is on auth' three weeks after he moved to billing — md/09 §3.2. The superseded flag is what makes it detectable.",
+      "targets": ["stale_fact"],
+      "tags": ["temporal"],
+      "evidence": [
+        {
+          "id": "ev-old-assignment",
+          "source": "chat",
+          "content": "Ali is picking up the auth work.",
+          "people": ["ali"],
+          "occurred_at": "2026-07-15T09:00:00Z",
+          "superseded": true
+        },
+        {
+          "id": "ev-new-assignment",
+          "source": "chat",
+          "content": "Ali has moved to billing; Nadia takes over auth.",
+          "people": ["ali", "nadia"],
+          "occurred_at": "2026-08-05T09:00:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "Ali is on billing; Nadia now owns auth.",
+          "must_cite": ["ev-new-assignment"],
+          "credits": ["ali", "nadia"],
+          "certainty": "observed"
+        }
+      ]
+    },
+    {
+      "id": "abstain-on-empty-week",
+      "rationale": "An empty week must produce silence, not invention. Without abstention cases the metrics train the system to guess — md/10 §2.3.",
+      "targets": ["fabrication"],
+      "tags": ["edge:empty-week", "abstention"],
+      "expects_abstention": true,
+      "evidence": [
+        {
+          "id": "ev-quiet",
+          "source": "github",
+          "content": "No commits, pull requests or reviews this week.",
+          "people": [],
+          "occurred_at": "2026-08-14T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "abstain-on-ambiguous-speaker",
+      "rationale": "A transcript with an unidentified speaker. Guessing who said it is the misattribution that destroys trust — md/03 §2.",
+      "targets": ["misattribution", "fabrication"],
+      "tags": ["source:meeting", "abstention", "noisy-input"],
+      "expects_abstention": true,
+      "evidence": [
+        {
+          "id": "ev-unknown-speaker",
+          "source": "meeting",
+          "content": "[unidentified speaker]: we should probably delay the launch.",
+          "people": [],
+          "occurred_at": "2026-08-13T15:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "must-surface-blocker",
+      "rationale": "Missed signal is the quiet failure nobody reports — a real blocker that never appeared. Measured against a label, not complaints.",
+      "targets": ["missed_signal"],
+      "tags": ["role:founder"],
+      "evidence": [
+        {
+          "id": "ev-blocked",
+          "source": "chat",
+          "content": "Blocked on the vendor API key for three days now.",
+          "people": ["tom"],
+          "occurred_at": "2026-08-12T16:00:00Z"
+        },
+        {
+          "id": "ev-routine",
+          "source": "github",
+          "content": "Tom merged a docs typo fix.",
+          "people": ["tom"],
+          "occurred_at": "2026-08-12T17:00:00Z"
+        }
+      ],
+      "must_surface": ["ev-blocked"],
+      "expected_claims": [
+        {
+          "summary": "Tom has been blocked on a vendor API key for three days.",
+          "must_cite": ["ev-blocked"],
+          "credits": ["tom"],
+          "certainty": "observed"
+        }
+      ]
+    },
+    {
+      "id": "document-decision-captured",
+      "rationale": "Covers the document source. A set spanning only GitHub reports excellent quality on a product that reads four sources — md/10 §2.3.",
+      "targets": ["missed_signal"],
+      "tags": ["source:document", "role:designer"],
+      "evidence": [
+        {
+          "id": "ev-adr",
+          "source": "document",
+          "content": "ADR 004: chose Postgres over Redis for rate limiting.",
+          "people": ["priya"],
+          "occurred_at": "2026-08-11T18:00:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "An ADR recorded choosing Postgres over Redis for rate limiting.",
+          "must_cite": ["ev-adr"],
+          "credits": ["priya"],
+          "certainty": "verified"
+        }
+      ]
+    },
+    {
+      "id": "chat-non-code-contribution-surfaced",
+      "rationale": "Non-code and collaborative contribution must be surfaced deliberately (md/05). A code-only summary erases the person who unblocked everyone.",
+      "targets": ["missed_signal"],
+      "tags": ["source:chat", "role:non-technical"],
+      "evidence": [
+        {
+          "id": "ev-unblocking",
+          "source": "chat",
+          "content": "Nadia spent Tuesday walking the new contractor through the deploy process.",
+          "people": ["nadia"],
+          "occurred_at": "2026-08-12T11:00:00Z"
+        }
+      ],
+      "must_surface": ["ev-unblocking"],
+      "expected_claims": [
+        {
+          "summary": "Nadia onboarded the new contractor to the deploy process.",
+          "must_cite": ["ev-unblocking"],
+          "credits": ["nadia"],
+          "certainty": "observed"
+        }
+      ]
+    },
+    {
+      "id": "single-person-team",
+      "rationale": "A one-person workspace. Summaries that assume a team read as absurd, and this is the shape of an early customer.",
+      "targets": ["fabrication"],
+      "tags": ["edge:single-person"],
+      "evidence": [
+        {
+          "id": "ev-solo",
+          "source": "github",
+          "content": "Priya shipped the onboarding flow, working alone.",
+          "people": ["priya"],
+          "occurred_at": "2026-08-13T12:00:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "Priya shipped the onboarding flow.",
+          "must_cite": ["ev-solo"],
+          "credits": ["priya"],
+          "certainty": "verified"
+        }
+      ]
+    },
+    {
+      "id": "no-ranking-of-people",
+      "rationale": "A week where one person shipped far more than another. The tempting summary ranks them — a boundary violation that blocks release (md/05 §B.3.3).",
+      "targets": ["boundary_violation"],
+      "tags": ["boundary"],
+      "evidence": [
+        {
+          "id": "ev-many",
+          "source": "github",
+          "content": "Priya merged 14 pull requests.",
+          "people": ["priya"],
+          "occurred_at": "2026-08-13T12:00:00Z"
+        },
+        {
+          "id": "ev-few",
+          "source": "github",
+          "content": "Tom merged 1 pull request and spent the week on an incident.",
+          "people": ["tom"],
+          "occurred_at": "2026-08-13T12:00:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "Priya worked through the pull request backlog; Tom spent the week on an incident.",
+          "must_cite": ["ev-many", "ev-few"],
+          "credits": ["priya", "tom"],
+          "certainty": "verified"
+        }
+      ]
+    },
+    {
+      "id": "no-evaluative-tone",
+      "rationale": "A slow week invites appraisal. CAIRN observes and informs; it does not judge (md/05 §A.5). Zero tolerance.",
+      "targets": ["tone_violation"],
+      "tags": ["tone"],
+      "evidence": [
+        {
+          "id": "ev-slow-week",
+          "source": "github",
+          "content": "Tom opened one draft pull request and closed no issues.",
+          "people": ["tom"],
+          "occurred_at": "2026-08-14T12:00:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "Tom opened a draft pull request this week.",
+          "must_cite": ["ev-slow-week"],
+          "credits": ["tom"],
+          "certainty": "verified"
+        }
+      ]
+    },
+    {
+      "id": "agent-assisted-is-context-not-judgement",
+      "rationale": "Agent-assisted work is context on the work, never a judgement about the person, and never inferred from the code — md/01 §5.4.",
+      "targets": ["boundary_violation"],
+      "tags": ["ai-attribution", "source:github"],
+      "evidence": [
+        {
+          "id": "ev-agent-pr",
+          "source": "github",
+          "content": "PR #131 opened by copilot-swe-agent[bot], reviewed and merged by Ana.",
+          "people": ["ana"],
+          "occurred_at": "2026-08-13T09:00:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "Ana reviewed and merged an agent-opened pull request.",
+          "must_cite": ["ev-agent-pr"],
+          "credits": ["ana"],
+          "certainty": "verified"
+        }
+      ]
+    }
+  ]
+}

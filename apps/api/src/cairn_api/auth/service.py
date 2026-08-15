@@ -1,51 +1,49 @@
 """Authentication and workspace-membership services.
 
-These are platform operations. Signup creates a user and a workspace before
-either exists, and session lookup must identify a person *before* the tenant is
-known — so both run on the privileged connection rather than a tenant-scoped
-one (``db/session.py``).
-
-The most consequential function here is :func:`accept_invitation`. An invited
-person must join the **existing** workspace, not get a new one of their own.
-Getting that wrong produces a product that appears to work — everyone can log
-in — while quietly splitting a team into isolated single-person workspaces, each
-seeing an empty brief and no colleagues. It is a documented and easy mistake
-(md/15 §3), so it has its own tests.
+Platform operations run on the privileged connection, not a tenant-scoped one
+(``db/session.py``): signup creates a user and workspace before either exists,
+and session lookup must identify a person before the tenant is known.
 """
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cairn_api.auth.permissions import Permission, require
 from cairn_api.auth.tokens import (
     generate_token,
-    hash_password,
+    hash_password_async,
     hash_token,
     needs_rehash,
-    verify_password,
+    verify_password_async,
 )
-from cairn_api.db.auth_models import Invitation, PasswordCredential, Session
+from cairn_api.db.auth_models import (
+    EmailVerification,
+    Invitation,
+    PasswordCredential,
+    Session,
+)
 from cairn_api.db.models import Membership, Tenant, TenantRole, User
 
-#: Sessions are long-lived because CAIRN is a daily-habit product; forcing a
-#: weekly re-login would work against the habit the product depends on.
+#: Long-lived: CAIRN is a daily-habit product; forcing weekly re-login works against that.
 SESSION_LIFETIME = timedelta(days=30)
 
-#: Invitations expire quickly. An invitation link forwarded, archived, or left
-#: in an inbox for months is a standing grant of access to a workspace.
+#: Idle expiry well before the absolute lifetime above — two untouched weeks reads
+#: as a forgotten laptop or stolen cookie, not a returning user.
+SESSION_IDLE_TIMEOUT = timedelta(days=14)
+
 INVITATION_LIFETIME = timedelta(days=7)
 
 MIN_PASSWORD_LENGTH = 12
 
-#: Role seniority, used only to stop an invitation granting more than the
-#: inviter holds. Deliberately not used for permission checks — those are
-#: explicit per-role sets, because a hierarchy silently grants future
-#: permissions (see auth/permissions.py).
+#: Role seniority, used only to cap invitations at the inviter's own role — never
+#: for permission checks (those are explicit per-role sets in auth/permissions.py).
 _RANK: dict[TenantRole, int] = {
     TenantRole.VIEWER: 0,
     TenantRole.MEMBER: 1,
@@ -55,28 +53,27 @@ _RANK: dict[TenantRole, int] = {
 
 
 class AuthError(Exception):
-    """Base class for authentication failures."""
+    pass
 
 
 class InvalidCredentialsError(AuthError):
-    """Login failed.
-
-    Deliberately identical whether the email is unknown or the password is
-    wrong. Distinguishing them turns the login form into an oracle for which
-    addresses have accounts.
-    """
+    """Login failed. Same error for unknown email or wrong password (no enumeration)."""
 
 
 class EmailAlreadyRegisteredError(AuthError):
-    """Signup attempted with an address that already has an account."""
+    pass
 
 
 class WeakPasswordError(AuthError):
-    """Password does not meet the minimum length."""
+    pass
 
 
 class InvitationError(AuthError):
-    """An invitation could not be accepted."""
+    pass
+
+
+class EmailNotVerifiedError(AuthError):
+    """An action requires proof of address control and the account has none."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,21 +82,19 @@ class SignupResult:
     tenant: Tenant
     membership: Membership
 
+    #: The plaintext exists exactly once, here — only the caller can deliver it.
+    verification: IssuedVerification
+
 
 def _normalize_email(email: str) -> str:
-    """Lower-case and strip.
-
-    Case-insensitive matching is enforced by a database index too, but doing it
-    here means the stored value is canonical rather than merely unique — so
-    "Ali@Acme.com" and "ali@acme.com" are one person throughout the system, not
-    two records that happen to collide.
-    """
+    """Lower-case and strip so "Ali@Acme.com" and "ali@acme.com" are one person."""
     return email.strip().lower()
 
 
 async def _find_user_by_email(session: AsyncSession, email: str) -> User | None:
+    """Filters on ``lower(email)`` to match the expression index."""
     result: User | None = await session.scalar(
-        select(User).where(User.email == _normalize_email(email))
+        select(User).where(func.lower(User.email) == _normalize_email(email))
     )
     return result
 
@@ -113,17 +108,9 @@ async def sign_up(
     workspace_slug: str,
     display_name: str | None = None,
 ) -> SignupResult:
-    """Create a user, a workspace, and the owner membership joining them.
-
-    All three or none. A partial signup — a user with no workspace, or a
-    workspace with no owner — leaves an account that cannot do anything and
-    cannot be recovered without manual intervention. The caller's transaction
-    provides the atomicity; this function never commits.
-
-    Raises:
-        WeakPasswordError: Password below the minimum length.
-        EmailAlreadyRegisteredError: The address already has an account.
-    """
+    """Create a user, a workspace, and the owner membership joining them. All
+    three or none — the caller's transaction provides atomicity; this function
+    never commits."""
     if len(password) < MIN_PASSWORD_LENGTH:
         msg = f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
         raise WeakPasswordError(msg)
@@ -132,69 +119,61 @@ async def sign_up(
     if await _find_user_by_email(session, normalized) is not None:
         raise EmailAlreadyRegisteredError(normalized)
 
+    # The check above is advisory; the unique index is the real guard.
+    password_hash = await hash_password_async(password)
     user = User(email=normalized, display_name=display_name)
-    session.add(user)
-    await session.flush()
+    try:
+        async with session.begin_nested():
+            session.add(user)
+            await session.flush()
+    except IntegrityError as exc:
+        raise EmailAlreadyRegisteredError(normalized) from exc
 
-    session.add(PasswordCredential(user_id=user.id, password_hash=hash_password(password)))
+    session.add(PasswordCredential(user_id=user.id, password_hash=password_hash))
 
     tenant = Tenant(name=workspace_name, slug=workspace_slug.strip().lower())
     session.add(tenant)
     await session.flush()
 
-    # The person who creates a workspace owns it. Notification is not set here:
-    # the owner is told what CAIRN does during onboarding, and every *other*
-    # member must be notified before any capture begins (md/05 §B.3.5).
+    # Every *other* member must be notified before capture begins (md/05 §B.3.5).
     membership = Membership(tenant_id=tenant.id, user_id=user.id, role=TenantRole.OWNER)
     session.add(membership)
     await session.flush()
 
-    return SignupResult(user=user, tenant=tenant, membership=membership)
+    # Signup does not require verification; it instead gates claiming an invitation.
+    verification = await issue_email_verification(session, user=user)
+
+    return SignupResult(user=user, tenant=tenant, membership=membership, verification=verification)
 
 
 async def authenticate(session: AsyncSession, *, email: str, password: str) -> User:
-    """Verify an email and password, returning the user.
-
-    Raises:
-        InvalidCredentialsError: Whatever went wrong. The failure is
-            deliberately indistinguishable between "no such account" and "wrong
-            password".
-    """
+    """Verify an email and password, returning the user."""
     user = await _find_user_by_email(session, email)
     if user is None:
-        # Hash anyway, so a request for a non-existent account takes about as
-        # long as one for a real account. Returning early here would leak
-        # account existence through response time alone.
-        hash_password(password)
+        # Hash anyway so response time doesn't leak account existence.
+        await hash_password_async(password)
         raise InvalidCredentialsError
 
     credential = await session.scalar(
         select(PasswordCredential).where(PasswordCredential.user_id == user.id)
     )
     if credential is None:
-        # OAuth-only account. Hash anyway: returning here without the ~50-100ms
-        # Argon2 cost makes response time distinguish "exists, uses OAuth" from
-        # "does not exist" — reintroducing the enumeration oracle the branch
-        # above works to close.
-        hash_password(password)
+        # OAuth-only account; hash anyway for the same timing reason.
+        await hash_password_async(password)
         raise InvalidCredentialsError
 
-    if not verify_password(password, credential.password_hash):
+    if not await verify_password_async(password, credential.password_hash):
         raise InvalidCredentialsError
 
     if needs_rehash(credential.password_hash):
-        credential.password_hash = hash_password(password)
+        credential.password_hash = await hash_password_async(password)
 
     return user
 
 
 @dataclass(frozen=True, slots=True)
 class IssuedSession:
-    """A new session, plus the token to return to the client.
-
-    The token appears exactly once, here. Only its hash is persisted, so it
-    cannot be recovered afterwards — including by us.
-    """
+    """A new session, plus the token to return to the client (only its hash is persisted)."""
 
     session_row: Session
     token: str
@@ -214,19 +193,22 @@ async def create_session(session: AsyncSession, *, user: User) -> IssuedSession:
 
 
 async def resolve_session(session: AsyncSession, *, token: str) -> User | None:
-    """Return the user for a session token, or ``None``.
-
-    Returns ``None`` for expired and revoked sessions alike. The caller does not
-    need to distinguish them, and a message that did would tell an attacker
-    whether a token was ever valid.
-    """
+    """Return the user for a session token, or ``None`` — for expired and revoked
+    sessions alike, so no response reveals whether a token was ever valid."""
     row = await session.scalar(select(Session).where(Session.token_hash == hash_token(token)))
     if row is None or row.revoked_at is not None:
         return None
-    if row.expires_at <= datetime.now(UTC):
+    now = datetime.now(UTC)
+    if row.expires_at <= now:
         return None
 
-    row.last_used_at = datetime.now(UTC)
+    # Falls back to `created_at` so a session issued and never used still ages out.
+    last_active = row.last_used_at or row.created_at
+    if now - last_active > SESSION_IDLE_TIMEOUT:
+        row.revoked_at = now
+        return None
+
+    row.last_used_at = now
     return await session.get(User, row.user_id)
 
 
@@ -237,6 +219,32 @@ async def revoke_session(session: AsyncSession, *, token: str) -> bool:
         return False
     row.revoked_at = datetime.now(UTC)
     return True
+
+
+async def revoke_all_sessions_for_user(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    except_session_id: uuid.UUID | None = None,
+) -> int:
+    """Revoke every live session for a user. Returns how many were ended.
+
+    The account-recovery primitive: every other revocation path requires
+    presenting the session token, which a compromised-account holder doesn't have.
+    ``except_session_id`` keeps the caller's own session alive for "sign out
+    everywhere else"; pass it too after a password change.
+    """
+    statement = (
+        update(Session)
+        .where(Session.user_id == user_id, Session.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(UTC))
+    )
+    if except_session_id is not None:
+        statement = statement.where(Session.id != except_session_id)
+    # Bulk UPDATE bypasses the identity map by default; keep loaded objects consistent.
+    statement = statement.execution_options(synchronize_session="fetch")
+    result = await session.execute(statement)
+    return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,34 +262,15 @@ async def invite_to_workspace(
 ) -> IssuedInvitation:
     """Create an invitation to the inviter's workspace.
 
-    Takes the inviter's ``Membership`` rather than a bare user ID and tenant ID.
-    That is deliberate: a membership *is* the proof that this person belongs to
-    this workspace in this role, so the three facts cannot disagree. An earlier
-    signature accepted ``tenant_id`` and ``invited_by`` separately and checked
-    neither, which meant any caller could invite themselves into any workspace
-    at any role.
-
-    Two escalation paths are closed here:
-
-    - **Member to Owner.** Nothing previously required ``MEMBERS_INVITE``, so a
-      Member could invite an address they controlled as ``OWNER`` and redeem it.
-    - **Admin to Owner.** An Admin legitimately holds ``MEMBERS_INVITE``, so a
-      permission check alone is not enough: without the rank rule below, an
-      Admin could still mint an Owner invitation and acquire the billing,
-      deletion and transfer rights the Owner/Admin split exists to withhold
-      (md/15 §2.2).
-
-    Raises:
-        PermissionDeniedError: The inviter may not invite.
-        InvitationError: The role outranks the inviter, or the address is
-            already a member. Re-inviting an existing member is almost always a
-            mistake, and silently succeeding would suggest something happened
-            when nothing did.
+    Takes the inviter's ``Membership``, not a bare user/tenant ID pair, so
+    person/workspace/role cannot disagree. Closes two escalation paths: a
+    Member self-inviting as Owner (permission check), and an Admin minting an
+    Owner invitation for billing/deletion/transfer rights (rank check below;
+    md/15 §2.2).
     """
     require(inviter.role, Permission.MEMBERS_INVITE)
 
-    # Nobody may grant a role above their own. Ownership moves through an
-    # explicit transfer, which is a separate, deliberate act.
+    # Nobody may grant a role above their own; ownership moves only via explicit transfer.
     if _RANK[role] > _RANK[inviter.role]:
         msg = (
             f"A {inviter.role} cannot invite someone as {role}. "
@@ -304,13 +293,32 @@ async def invite_to_workspace(
             msg = f"{normalized} is already a member of this workspace"
             raise InvitationError(msg)
 
+    now = datetime.now(UTC)
+
+    # Supersede any outstanding invitation first (else it blocks re-invitation
+    # forever via the partial unique index). `FOR UPDATE` serialises concurrent
+    # invites so the second supersedes the first instead of dying on that index.
+    outstanding = await session.scalar(
+        select(Invitation)
+        .where(
+            Invitation.tenant_id == tenant_id,
+            Invitation.email == normalized,
+            Invitation.accepted_at.is_(None),
+            Invitation.superseded_at.is_(None),
+        )
+        .with_for_update()
+    )
+    if outstanding is not None:
+        outstanding.superseded_at = now
+        await session.flush()
+
     token = generate_token()
     invitation = Invitation(
         tenant_id=tenant_id,
         email=normalized,
         role=role,
         token_hash=hash_token(token),
-        expires_at=datetime.now(UTC) + INVITATION_LIFETIME,
+        expires_at=now + INVITATION_LIFETIME,
         invited_by_user_id=inviter.user_id,
     )
     session.add(invitation)
@@ -328,24 +336,14 @@ async def accept_invitation(
 ) -> Membership:
     """Join the workspace an invitation belongs to.
 
-    **The invited person joins the existing tenant.** No workspace is created.
-    That is the entire point of this function, and the mistake it exists to
-    prevent: a signup path that creates a workspace for every new account turns
-    one team into several isolated single-person workspaces, each showing an
-    empty brief. Everyone can log in, so it looks like it works.
-
-    An account is created if the person does not have one; otherwise the
-    existing account is used, so someone already in another workspace keeps one
-    identity rather than acquiring a second (md/15 §3).
-
-    Raises:
-        InvitationError: Unknown, expired, already-accepted, or addressed to a
-            different person.
-        WeakPasswordError: A new account was required and the password is too
-            short.
+    **The invited person joins the existing tenant** — no workspace is created
+    (md/15 §3). An account is created if the person doesn't have one;
+    otherwise the existing account is used.
     """
+    # `FOR UPDATE`: check-then-act below. Without the lock, a double-click
+    # redemption inserts two memberships on a row meant to be single-use.
     invitation = await session.scalar(
-        select(Invitation).where(Invitation.token_hash == hash_token(token))
+        select(Invitation).where(Invitation.token_hash == hash_token(token)).with_for_update()
     )
     if invitation is None:
         msg = "Invitation not found"
@@ -353,14 +351,18 @@ async def accept_invitation(
     if invitation.accepted_at is not None:
         msg = "Invitation has already been accepted"
         raise InvitationError(msg)
+    if invitation.superseded_at is not None:
+        # Distinguished from expiry: the remedy differs (find the newer email vs. ask for another).
+        msg = "Invitation has been replaced by a more recent one"
+        raise InvitationError(msg)
     if invitation.expires_at <= datetime.now(UTC):
         msg = "Invitation has expired"
         raise InvitationError(msg)
 
     normalized = _normalize_email(email)
     if normalized != invitation.email:
-        # An invitation is addressed to a person, not a bearer token. Without
-        # this check, a forwarded link would let anyone join the workspace.
+        # An invitation is addressed to a person, not a bearer token — else a
+        # forwarded link would let anyone join.
         msg = "Invitation was issued to a different email address"
         raise InvitationError(msg)
 
@@ -372,17 +374,112 @@ async def accept_invitation(
         user = User(email=normalized, display_name=display_name)
         session.add(user)
         await session.flush()
-        session.add(PasswordCredential(user_id=user.id, password_hash=hash_password(password)))
+        session.add(
+            PasswordCredential(user_id=user.id, password_hash=await hash_password_async(password))
+        )
+        # Redeeming an invitation is proof of address control, so the new account
+        # is verified immediately.
+        user.email_verified_at = datetime.now(UTC)
+    elif not user.email_is_verified:
+        # Blocks pre-registration hijack: someone registers victim@company.com
+        # unverified and waits for an invitation to squat on. Only blocks
+        # existing unverified accounts — first-time invitees are unaffected.
+        msg = (
+            "An unverified account already exists for this address. "
+            "Verify it from the email we sent before accepting an invitation."
+        )
+        raise EmailNotVerifiedError(msg)
 
-    # Joining the tenant the invitation names — not a new one.
     membership = Membership(
         tenant_id=invitation.tenant_id,
         user_id=user.id,
         role=invitation.role,
     )
-    session.add(membership)
+    try:
+        async with session.begin_nested():
+            session.add(membership)
+            await session.flush()
+    except IntegrityError as exc:
+        # Already a member (e.g. added directly since) — desired end state already holds.
+        msg = "You are already a member of this workspace"
+        raise InvitationError(msg) from exc
 
     invitation.accepted_at = datetime.now(UTC)
     await session.flush()
 
     return membership
+
+
+# ---------------------------------------------------------------------------
+# Email verification
+# ---------------------------------------------------------------------------
+
+#: Longer than an invitation (verification often happens later the same day),
+#: but short enough that an archived link isn't a standing grant.
+VERIFICATION_LIFETIME = timedelta(hours=48)
+
+
+@dataclass(frozen=True, slots=True)
+class IssuedVerification:
+    """A verification token, plus the row recording it (token appears only here)."""
+
+    verification: EmailVerification
+    token: str
+
+
+async def issue_email_verification(session: AsyncSession, *, user: User) -> IssuedVerification:
+    """Create a verification token; consumes any outstanding one first so an
+    older forwarded/intercepted link stops working."""
+    now = datetime.now(UTC)
+    await session.execute(
+        update(EmailVerification)
+        .where(
+            EmailVerification.user_id == user.id,
+            EmailVerification.consumed_at.is_(None),
+        )
+        .values(consumed_at=now)
+        .execution_options(synchronize_session="fetch")
+    )
+
+    token = generate_token()
+    verification = EmailVerification(
+        user_id=user.id,
+        email=user.email,
+        token_hash=hash_token(token),
+        expires_at=now + VERIFICATION_LIFETIME,
+    )
+    session.add(verification)
+    await session.flush()
+    return IssuedVerification(verification=verification, token=token)
+
+
+async def verify_email(session: AsyncSession, *, token: str) -> User:
+    """Redeem a verification token. One error for all failure cases (unknown,
+    expired, used, or address changed) so a response never reveals whether a
+    token was ever valid."""
+    verification = await session.scalar(
+        select(EmailVerification)
+        .where(EmailVerification.token_hash == hash_token(token))
+        .with_for_update()
+    )
+    now = datetime.now(UTC)
+
+    if (
+        verification is None
+        or verification.consumed_at is not None
+        or verification.expires_at <= now
+    ):
+        msg = "Verification link is not valid"
+        raise InvitationError(msg)
+
+    user = await session.get(User, verification.user_id)
+    if user is None or user.email != verification.email:
+        # Address changed since issue — else this proves the new address via a
+        # link sent to the old one (a takeover primitive).
+        msg = "Verification link is not valid"
+        raise InvitationError(msg)
+
+    verification.consumed_at = now
+    user.email_verified_at = now
+    await session.flush()
+    return user

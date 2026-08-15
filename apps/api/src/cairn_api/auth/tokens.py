@@ -1,20 +1,11 @@
 """Token generation, hashing and password handling.
 
-Two different problems, deliberately solved differently.
-
-**Session and invitation tokens** are 256 bits of entropy that we generate.
-There is nothing for an attacker to guess, so they are stored as a plain
-SHA-256 — fast, because it runs on every authenticated request, and sufficient,
-because brute-forcing 2^256 is not a threat model.
-
-**Passwords** are human-chosen and therefore guessable, so they get Argon2id,
-which is deliberately slow and memory-hard. Using a fast hash here would be a
-serious defect; using a slow hash for session tokens would be a needless cost on
-every request. The distinction matters and is easy to get backwards.
+Tokens are 256-bit random, stored as plain SHA-256; passwords use Argon2id (slow, memory-hard). Do not swap the two.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import secrets
@@ -22,61 +13,56 @@ import secrets
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 
-#: 32 bytes → 43 URL-safe characters. Comfortably beyond guessing.
 TOKEN_BYTES = 32
 
-#: Argon2id with the reference parameters. `time_cost` and `memory_cost` are the
-#: knobs to raise as hardware improves; because the parameters are encoded in
-#: the hash string, existing hashes remain verifiable and are upgraded on the
-#: user's next successful login.
+#: Params are encoded in the hash string, so raising them later doesn't invalidate existing hashes.
 _hasher = PasswordHasher(
     time_cost=3,
-    memory_cost=65536,  # 64 MiB
+    memory_cost=65536,
     parallelism=4,
 )
 
 
 def generate_token() -> str:
-    """Return a new URL-safe secret token.
-
-    ``secrets`` rather than ``random``: the latter is a Mersenne Twister seeded
-    predictably enough that observing a few outputs reveals the rest, which is
-    fine for shuffling a list and catastrophic for a session token.
-    """
+    """Via ``secrets`` (CSPRNG, unlike ``random``)."""
     return secrets.token_urlsafe(TOKEN_BYTES)
 
 
 def hash_token(token: str) -> str:
-    """Hash a token for storage.
-
-    Returns a hex SHA-256 digest. Deterministic, so a lookup can find the row by
-    hashing the presented token — which a salted hash would not permit.
-    """
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def tokens_match(presented: str, stored_hash: str) -> bool:
-    """Compare a presented token against a stored hash in constant time.
-
-    ``compare_digest`` rather than ``==``: a plain comparison returns as soon as
-    it finds a differing byte, and that timing difference is measurable enough
-    to let an attacker recover a token one character at a time.
-    """
+    """Compare a presented token against a stored hash in constant time."""
     return hmac.compare_digest(hash_token(presented), stored_hash)
 
 
+#: Cap on password length (CPU-amplification vector otherwise); use the ``_async`` wrappers.
+MAX_PASSWORD_BYTES = 1024
+
+
 def hash_password(password: str) -> str:
-    """Hash a password with Argon2id."""
+    """Blocking — prefer :func:`hash_password_async`."""
+    _reject_oversized(password)
     return _hasher.hash(password)
 
 
-def verify_password(password: str, stored_hash: str) -> bool:
-    """Verify a password against its stored hash.
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
 
-    Returns ``False`` rather than raising on a malformed hash. A corrupted row
-    should deny access, not produce a 500 that tells an attacker their input
-    reached something unusual.
-    """
+
+async def verify_password_async(password: str, stored_hash: str) -> bool:
+    return await asyncio.to_thread(verify_password, password, stored_hash)
+
+
+def _reject_oversized(password: str) -> None:
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        msg = f"Password exceeds {MAX_PASSWORD_BYTES} bytes"
+        raise ValueError(msg)
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """Verify a password; returns ``False`` (not a raise) on a malformed hash."""
     try:
         return _hasher.verify(stored_hash, password)
     except (VerifyMismatchError, InvalidHashError):
@@ -84,12 +70,7 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 
 def needs_rehash(stored_hash: str) -> bool:
-    """Whether a hash was made with outdated parameters.
-
-    Checked after a successful login so that hardening the parameters upgrades
-    existing accounts naturally, rather than requiring a password reset for
-    everyone.
-    """
+    """Whether a hash used outdated params — checked post-login to upgrade in place."""
     try:
         return _hasher.check_needs_rehash(stored_hash)
     except InvalidHashError:

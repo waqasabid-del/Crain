@@ -91,3 +91,39 @@ def as_tenant_id(value: str) -> TenantId:
         msg = "Tenant ID cannot be empty"
         raise ValueError(msg)
     return TenantId(value)
+
+
+#: The one place the certainty tiers are ordered.
+#:
+#: Three modules in the pipeline each carried a private copy of this mapping.
+#: They agreed, which is the dangerous kind of duplication — a fourth copy would
+#: also agree, right up until someone edited one of them and a claim quietly
+#: started outranking its own evidence.
+#:
+#: Deliberately not `IntEnum` on `Certainty` itself: an ordered enum invites
+#: arithmetic, and "certainty * 0.9" is how a categorical scale becomes the
+#: numeric confidence the interface is forbidden to display (md/05 §A.2.1).
+CERTAINTY_RANK: dict[Certainty, int] = {
+    Certainty.SUGGESTED: 0,
+    Certainty.OBSERVED: 1,
+    Certainty.VERIFIED: 2,
+}
+
+
+def strongest_certainty(*values: Certainty) -> Certainty:
+    """The most confident tier among several.
+
+    What a fact corroborated by two sources is entitled to.
+    """
+    return max(values, key=lambda value: CERTAINTY_RANK[value])
+
+
+def weakest_certainty(*values: Certainty) -> Certainty:
+    """The least confident tier among several.
+
+    What a claim resting on several facts is entitled to. Taking the strongest
+    would let one verified fact launder a meeting inference into a flat
+    assertion — the overconfidence the tiers exist to prevent, arriving through
+    the citation list.
+    """
+    return min(values, key=lambda value: CERTAINTY_RANK[value])

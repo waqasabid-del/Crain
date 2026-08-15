@@ -47,13 +47,17 @@ async def two_tenants(platform: AsyncSession) -> AsyncIterator[tuple[Tenant, Ten
     done from a scoped session. The data is committed so that the separate,
     RLS-subject application session can see it.
     """
-    acme = Tenant(name="Acme", slug="acme")
-    globex = Tenant(name="Globex", slug="globex")
+    # Unique per run. Fixed slugs collide with any other module that also
+    # committed an "acme", and the symptom is a unique-violation at the setup of
+    # whichever test happens to run second.
+    suffix = uuid.uuid4().hex[:8]
+    acme = Tenant(name="Acme", slug=f"acme-{suffix}")
+    globex = Tenant(name="Globex", slug=f"globex-{suffix}")
     platform.add_all([acme, globex])
     await platform.flush()
 
-    acme_user = User(email="ali@acme.test", display_name="Ali")
-    globex_user = User(email="ali@globex.test", display_name="Ali")
+    acme_user = User(email=f"ali-{suffix}@acme.test", display_name="Ali")
+    globex_user = User(email=f"ali-{suffix}@globex.test", display_name="Ali")
     platform.add_all([acme_user, globex_user])
     await platform.flush()
 
@@ -69,9 +73,18 @@ async def two_tenants(platform: AsyncSession) -> AsyncIterator[tuple[Tenant, Ten
 
     # The application session runs on its own connection, so this data is not
     # covered by that session's rollback and must be removed explicitly.
-    await platform.execute(delete(Membership))
-    await platform.execute(delete(User))
-    await platform.execute(delete(Tenant))
+    ids = [acme.id, globex.id]
+    user_ids = [acme_user.id, globex_user.id]
+    # Scoped to what this fixture created.
+    #
+    # It used to be `DELETE FROM tenants` with no predicate, which removed every
+    # workspace in the database — including ones another module had committed
+    # and was still using. That is invisible while one file runs at a time and
+    # produces "duplicate key" errors at *setup* of an unrelated test as soon as
+    # two files share a session, which is the hardest kind of failure to place.
+    await platform.execute(delete(Membership).where(Membership.tenant_id.in_(ids)))
+    await platform.execute(delete(User).where(User.id.in_(user_ids)))
+    await platform.execute(delete(Tenant).where(Tenant.id.in_(ids)))
     await platform.commit()
 
 
@@ -108,7 +121,12 @@ class TestRowLevelSecurity:
 
         emails = set((await session.scalars(select(User.email))).all())
 
-        assert emails == {"ali@acme.test"}
+        # Asserted by shape rather than by literal, because the fixture's
+        # addresses are now unique per run — a fixed literal here would be a
+        # second place the suffix has to be kept in step, and the property under
+        # test is "exactly one user, the one who shares a workspace".
+        assert len(emails) == 1
+        assert next(iter(emails)).endswith("@acme.test")
 
     async def test_unscoped_session_sees_nothing(
         self,
@@ -123,14 +141,31 @@ class TestRowLevelSecurity:
         safe; returning every row is the failure this whole step exists to
         prevent.
         """
-        _ = two_tenants
+        acme, globex = two_tenants
+        ids = [acme.id, globex.id]
 
         # Positive control first. Without it, this test passes when RLS works
         # AND when the fixture wrote nothing at all — and "sees no rows" is
         # exactly what a broken fixture and working isolation look like from
         # here. Proving the data exists is what makes the zero below meaningful.
-        assert await platform.scalar(select(func.count()).select_from(Membership)) == 2
-        assert await platform.scalar(select(func.count()).select_from(Tenant)) == 2
+        #
+        # Counted over *this fixture's* rows rather than the whole table. The
+        # global count was only ever correct because every fixture used to
+        # `DELETE FROM tenants` with no predicate — and that blanket delete was
+        # itself the defect, since it removed workspaces another module was
+        # still using.
+        assert (
+            await platform.scalar(
+                select(func.count()).select_from(Membership).where(Membership.tenant_id.in_(ids))
+            )
+            == 2
+        )
+        assert (
+            await platform.scalar(
+                select(func.count()).select_from(Tenant).where(Tenant.id.in_(ids))
+            )
+            == 2
+        )
 
         assert await session.scalar(select(func.count()).select_from(Membership)) == 0
         assert await session.scalar(select(func.count()).select_from(Tenant)) == 0
@@ -281,6 +316,67 @@ class TestRowLevelSecurity:
             "memberships": {"SELECT", "UPDATE", "DELETE"},
             # Issued from a scoped session; accepted platform-side.
             "invitations": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            # Rate-limit token buckets. The one table here that is deliberately
+            # *not* tenant-scoped and therefore not under row-level security:
+            # rate limits apply to login, which runs before any tenant is known,
+            # so there is nothing to scope to.
+            #
+            # Safe because it holds no customer data — a key is a client address
+            # or an email, and the only values are a token count and a timestamp
+            # — and because a caller who could read it learns only how much
+            # allowance a key has left. DELETE is needed by the periodic sweep
+            # that stops the table growing by one row per scanner on the
+            # internet.
+            "rate_limit_buckets": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            # Read-only. The webhook handler resolves installation to tenant
+            # *before* any tenant context exists, so it writes platform-side.
+            # Granting INSERT here would let a scoped session register an
+            # installation and start receiving another organisation's activity.
+            "github_installations": {"SELECT"},
+            # SELECT so a worker can read the delivery it was given; UPDATE so it
+            # can mark it processed. No INSERT: a scoped session that could
+            # create a delivery could forge activity for its own workspace.
+            "webhook_deliveries": {"SELECT", "UPDATE"},
+            # Full DML, unlike the GitHub tables above. Attribution runs on a
+            # worker that already knows which workspace it is processing, so
+            # these are written from *within* tenant context — and the policy's
+            # WITH CHECK clause means a scoped session cannot write a row for
+            # another tenant even if it tried.
+            "people": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            "identities": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            # Same reasoning: a backfill worker runs inside tenant context, and
+            # the policy's WITH CHECK stops a scoped session writing a row for
+            # another workspace. DELETE so a disconnected integration's runs can
+            # be cleared with the rest of its data.
+            "backfill_runs": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            # No DELETE anywhere in the fact graph. Facts are superseded, never
+            # deleted (md/12 §6), and a privilege that is granted is a privilege
+            # something will eventually use — the first time under time
+            # pressure, to make a bad fact go away. Tenant removal still
+            # cascades, because referential actions run with the table owner's
+            # rights rather than the caller's.
+            "facts": {"SELECT", "INSERT", "UPDATE"},
+            "fact_sources": {"SELECT", "INSERT", "UPDATE"},
+            "fact_people": {"SELECT", "INSERT", "UPDATE"},
+            # Derived data, same reasoning and the same absent DELETE. A
+            # re-embed replaces a vector by UPDATE, and an edge whose facts were
+            # superseded is a validity question — destroying the row that
+            # explains a chain is not the answer to it.
+            "fact_edges": {"SELECT", "INSERT", "UPDATE"},
+            "fact_embeddings": {"SELECT", "INSERT", "UPDATE"},
+            # A brief is a record of what was said to a team, so the operation
+            # that makes an inconvenient one disappear is the one worth not
+            # having. Same absent DELETE as the fact graph, for a reason that is
+            # about the product rather than about the schema.
+            "briefs": {"SELECT", "INSERT", "UPDATE"},
+            "brief_claims": {"SELECT", "INSERT", "UPDATE"},
+            # The one table in this list with DELETE and without UPDATE, and
+            # both halves are deliberate. DELETE, because opting back in is a
+            # person withdrawing a decision about their own record and a
+            # tombstone of a withdrawn privacy choice is the wrong kind of
+            # memory. No UPDATE, because the row has no mutable state — the
+            # presence of the row is the choice.
+            "source_opt_outs": {"SELECT", "INSERT", "DELETE"},
         }
 
         assert actual == expected, (
@@ -378,6 +474,29 @@ class TestRowLevelSecurity:
                 """),
                 {"other": str(globex.id)},
             )
+
+    async def test_context_survives_a_commit_inside_the_block(
+        self, two_tenants: tuple[Tenant, Tenant]
+    ) -> None:
+        """A handler that commits mid-block must not silently lose its scope.
+
+        `SET LOCAL` dies with its transaction, so before the `after_begin`
+        listener a commit left every subsequent statement unscoped — reads
+        returning nothing, writes failing their WITH CHECK, and no error naming
+        the cause. The module docstring claimed this was impossible.
+        """
+        acme, _ = two_tenants
+
+        async with tenant_session(acme.id) as scoped:
+            assert await get_tenant_context(scoped) == acme.id
+
+            # Simulate a long-running job checkpointing its progress.
+            await scoped.commit()
+
+            assert await get_tenant_context(scoped) == acme.id, (
+                "Tenant context was lost after a commit inside the block"
+            )
+            assert await scoped.scalar(select(func.count()).select_from(Membership)) == 1
 
 
 class TestApplicationLayer:
