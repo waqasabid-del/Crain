@@ -31,7 +31,17 @@ from cairn_api.api.middleware import (
     SecurityHeadersMiddleware,
 )
 from cairn_api.api.ratelimit import InMemoryRateLimiter, PostgresRateLimiter, RateLimiter
-from cairn_api.api.routers import admin, auth, facts, health, me, onboarding, trust, workspaces
+from cairn_api.api.routers import (
+    admin,
+    auth,
+    facts,
+    health,
+    internal,
+    me,
+    onboarding,
+    trust,
+    workspaces,
+)
 from cairn_api.config import Settings, get_settings
 from cairn_api.db.preflight import run_preflight_checks
 from cairn_api.db.session import dispose_engines, platform_session
@@ -150,6 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(me.router, prefix=API_PREFIX)
     app.include_router(admin.router, prefix=API_PREFIX)
     app.include_router(trust.router, prefix=API_PREFIX)
+    app.include_router(internal.router, prefix=API_PREFIX)
     app.include_router(webhooks.router, prefix=API_PREFIX)
 
     return app

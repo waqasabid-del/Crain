@@ -229,6 +229,156 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/internal/audit": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * What staff have done
+     * @description The log, newest first, optionally for one workspace.
+     */
+    get: operations["read_audit_log_v1_internal_audit_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/audit/verify": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Check the audit chain end to end
+     * @description Walk every link and report the first break.
+     *
+     *     Exposed as an endpoint rather than left to a script because the question it
+     *     answers — "has this record been altered" — is one a customer may ask, and an
+     *     answer that requires database access is one only staff can produce.
+     */
+    get: operations["verify_audit_log_v1_internal_audit_verify_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/staff/{user_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Grant back-office access
+     * @description Make somebody staff.
+     *
+     *     The first staff member is created by a migration or by hand — deliberately,
+     *     since an endpoint that can bootstrap the first one is an endpoint that can
+     *     bootstrap an attacker.
+     */
+    post: operations["grant_staff_v1_internal_staff__user_id__post"];
+    /**
+     * Revoke back-office access
+     * @description Revoke access, keeping the row.
+     *
+     *     "Was this person staff in March" is a question an audit asks, and a deleted
+     *     row cannot answer it.
+     */
+    delete: operations["revoke_staff_v1_internal_staff__user_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/tenants": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Every workspace, with its configuration and health
+     * @description List workspaces by name or slug.
+     *
+     *     Reads are not audited. An audit log that records every list view fills with
+     *     noise and buries the entries that matter — and a read of configuration is
+     *     not the thing md/15 §5 exists to constrain. Reading a customer's *work*
+     *     requires a support session, which is audited, approved and time-boxed.
+     */
+    get: operations["list_tenants_v1_internal_tenants_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/tenants/{tenant_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * One workspace: configuration, integrations, and ingestion health
+     * @description Everything an operator needs to diagnose a workspace, and nothing more.
+     *
+     *     Counts, timestamps and connection state — no statement, no brief, no
+     *     person's activity. The distinction is the product's central claim, so it is
+     *     enforced by what this response model can hold rather than by care.
+     */
+    get: operations["get_tenant_v1_internal_tenants__tenant_id__get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/tenants/{tenant_id}/subscription": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Billing state, read without touching the payment provider
+     * @description What CAIRN believes about this workspace's plan.
+     *
+     *     md/15 screen 31 exists so an operator answering "why were we charged this"
+     *     does not open Stripe and act on what they see there. Billing is not
+     *     implemented (Step 31), so this reports what is known — seats and the plan
+     *     CAIRN holds — and says plainly that no provider is connected, rather than
+     *     inventing a subscription to fill the screen.
+     */
+    get: operations["inspect_subscription_v1_internal_tenants__tenant_id__subscription_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/invitations/accept": {
     parameters: {
       query?: never;
@@ -1042,6 +1192,53 @@ export interface components {
       token: string;
     };
     /**
+     * AuditEntryResponse
+     * @description One recorded staff action.
+     *
+     *     `entryHash` is returned so a reader can verify the chain independently
+     *     rather than trusting the server's own verdict on itself.
+     */
+    AuditEntryResponse: {
+      /** Action */
+      action: string;
+      /**
+       * Actoruserid
+       * Format: uuid
+       */
+      actorUserId: string;
+      /** Checksum */
+      checksum: string;
+      /** Detail */
+      detail?: {
+        [key: string]: unknown;
+      };
+      /**
+       * Occurredat
+       * Format: date-time
+       */
+      occurredAt: string;
+      /** Reason */
+      reason: string;
+      /** Sequence */
+      sequence: number;
+      /** Tenantid */
+      tenantId?: string | null;
+    };
+    /**
+     * AuditVerification
+     * @description Whether the audit chain is intact.
+     */
+    AuditVerification: {
+      /** Brokenat */
+      brokenAt?: number | null;
+      /** Entries */
+      entries: number;
+      /** Intact */
+      intact: boolean;
+      /** Reason */
+      reason?: string | null;
+    };
+    /**
      * BriefArchive
      * @description A page of past briefs, newest first.
      */
@@ -1760,6 +1957,108 @@ export interface components {
       source: string;
     };
     /**
+     * StaffRole
+     * @description What a member of CAIRN staff may do in the back-office.
+     *
+     *     The four roles md/15 §6 defines, and no catch-all: least privilege applies
+     *     internally too, so a billing operator has no route to product data and a
+     *     support engineer has none to the audit log. None of them reaches customer
+     *     content — that needs an approved support session (Step 28), which no role
+     *     can grant itself.
+     * @enum {string}
+     */
+    StaffRole: "support" | "billing" | "engineering" | "security";
+    /**
+     * StaffTenantDetail
+     * @description One workspace in enough detail to diagnose it.
+     *
+     *     Ingestion health is reported as counts and timestamps. An operator can see
+     *     that deliveries stopped four days ago without seeing what any of them said.
+     */
+    StaffTenantDetail: {
+      /**
+       * Createdat
+       * Format: date-time
+       */
+      createdAt: string;
+      /** Githubconnected */
+      githubConnected: number;
+      /** Githubdisconnected */
+      githubDisconnected: number;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Ingestionstale */
+      ingestionStale: boolean;
+      /** Lastdeliveryat */
+      lastDeliveryAt?: string | null;
+      /** Membercount */
+      memberCount: number;
+      /** Name */
+      name: string;
+      region: components["schemas"]["Region"];
+      /** Retentiondays */
+      retentionDays: number;
+      /** Runningbackfills */
+      runningBackfills: number;
+      /** Slug */
+      slug: string;
+      /** Unprocesseddeliveries */
+      unprocessedDeliveries: number;
+    };
+    /**
+     * StaffTenantSummary
+     * @description One workspace as the back-office lists it.
+     *
+     *     Configuration and size. No activity, no counts of work, nothing about a
+     *     person — the fields this model does not have are what keeps staff out of
+     *     customer content (md/15 §5.2).
+     */
+    StaffTenantSummary: {
+      /**
+       * Createdat
+       * Format: date-time
+       */
+      createdAt: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Membercount */
+      memberCount: number;
+      /** Name */
+      name: string;
+      region: components["schemas"]["Region"];
+      /** Slug */
+      slug: string;
+    };
+    /**
+     * SubscriptionInspection
+     * @description Billing state as CAIRN holds it.
+     *
+     *     md/15 screen 31: an operator answering "why were we charged this" should not
+     *     have to open the payment provider and act on what they see there. Billing is
+     *     not implemented, so this says so rather than inventing a subscription.
+     */
+    SubscriptionInspection: {
+      /** Note */
+      note: string;
+      /** Plan */
+      plan: string;
+      /** Providerconnected */
+      providerConnected: boolean;
+      /** Seatsinuse */
+      seatsInUse: number;
+      /**
+       * Tenantid
+       * Format: uuid
+       */
+      tenantId: string;
+    };
+    /**
      * TenantRole
      * @description A person's role within one workspace. Deliberately four (md/15 §2.2).
      *     ``ADMIN`` governs configuration, never visibility depth.
@@ -2197,6 +2496,275 @@ export interface operations {
       };
       /** @description Unknown, expired, already-used or superseded link. */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  read_audit_log_v1_internal_audit_get: {
+    parameters: {
+      query?: {
+        tenant_id?: string | null;
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AuditEntryResponse"][];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  verify_audit_log_v1_internal_audit_verify_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AuditVerification"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  grant_staff_v1_internal_staff__user_id__post: {
+    parameters: {
+      query: {
+        role: components["schemas"]["StaffRole"];
+        /** @description Why this action is being taken. Recorded permanently. */
+        reason: string;
+      };
+      header?: never;
+      path: {
+        user_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Requires the admin staff role. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  revoke_staff_v1_internal_staff__user_id__delete: {
+    parameters: {
+      query: {
+        /** @description Why this action is being taken. Recorded permanently. */
+        reason: string;
+      };
+      header?: never;
+      path: {
+        user_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Requires the admin staff role. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not a staff member. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  list_tenants_v1_internal_tenants_get: {
+    parameters: {
+      query?: {
+        search?: string | null;
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["StaffTenantSummary"][];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_tenant_v1_internal_tenants__tenant_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenant_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["StaffTenantDetail"];
+        };
+      };
+      /** @description No such workspace. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  inspect_subscription_v1_internal_tenants__tenant_id__subscription_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tenant_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SubscriptionInspection"];
+        };
+      };
+      /** @description No such workspace. */
+      404: {
         headers: {
           [name: string]: unknown;
         };

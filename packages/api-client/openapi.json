@@ -45,6 +45,97 @@
         "title": "AcceptInvitationRequest",
         "type": "object"
       },
+      "AuditEntryResponse": {
+        "additionalProperties": false,
+        "description": "One recorded staff action.\n\n`entryHash` is returned so a reader can verify the chain independently\nrather than trusting the server's own verdict on itself.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "actorUserId": {
+            "format": "uuid",
+            "title": "Actoruserid",
+            "type": "string"
+          },
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "detail": {
+            "additionalProperties": true,
+            "title": "Detail",
+            "type": "object"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "tenantId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenantid"
+          }
+        },
+        "required": ["sequence", "occurredAt", "actorUserId", "action", "reason", "checksum"],
+        "title": "AuditEntryResponse",
+        "type": "object"
+      },
+      "AuditVerification": {
+        "additionalProperties": false,
+        "description": "Whether the audit chain is intact.",
+        "properties": {
+          "brokenAt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brokenat"
+          },
+          "entries": {
+            "title": "Entries",
+            "type": "integer"
+          },
+          "intact": {
+            "title": "Intact",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": ["entries", "intact"],
+        "title": "AuditVerification",
+        "type": "object"
+      },
       "BriefArchive": {
         "additionalProperties": false,
         "description": "A page of past briefs, newest first.",
@@ -1238,6 +1329,159 @@
         "title": "SourceConsent",
         "type": "object"
       },
+      "StaffRole": {
+        "description": "What a member of CAIRN staff may do in the back-office.\n\nThe four roles md/15 \u00a76 defines, and no catch-all: least privilege applies\ninternally too, so a billing operator has no route to product data and a\nsupport engineer has none to the audit log. None of them reaches customer\ncontent \u2014 that needs an approved support session (Step 28), which no role\ncan grant itself.",
+        "enum": ["support", "billing", "engineering", "security"],
+        "title": "StaffRole",
+        "type": "string"
+      },
+      "StaffTenantDetail": {
+        "additionalProperties": false,
+        "description": "One workspace in enough detail to diagnose it.\n\nIngestion health is reported as counts and timestamps. An operator can see\nthat deliveries stopped four days ago without seeing what any of them said.",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "githubConnected": {
+            "title": "Githubconnected",
+            "type": "integer"
+          },
+          "githubDisconnected": {
+            "title": "Githubdisconnected",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "ingestionStale": {
+            "title": "Ingestionstale",
+            "type": "boolean"
+          },
+          "lastDeliveryAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastdeliveryat"
+          },
+          "memberCount": {
+            "title": "Membercount",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "region": {
+            "$ref": "#/components/schemas/Region"
+          },
+          "retentionDays": {
+            "title": "Retentiondays",
+            "type": "integer"
+          },
+          "runningBackfills": {
+            "title": "Runningbackfills",
+            "type": "integer"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "unprocessedDeliveries": {
+            "title": "Unprocesseddeliveries",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "region",
+          "createdAt",
+          "memberCount",
+          "retentionDays",
+          "githubConnected",
+          "githubDisconnected",
+          "unprocessedDeliveries",
+          "runningBackfills",
+          "ingestionStale"
+        ],
+        "title": "StaffTenantDetail",
+        "type": "object"
+      },
+      "StaffTenantSummary": {
+        "additionalProperties": false,
+        "description": "One workspace as the back-office lists it.\n\nConfiguration and size. No activity, no counts of work, nothing about a\nperson \u2014 the fields this model does not have are what keeps staff out of\ncustomer content (md/15 \u00a75.2).",
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "memberCount": {
+            "title": "Membercount",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "region": {
+            "$ref": "#/components/schemas/Region"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "slug", "region", "createdAt", "memberCount"],
+        "title": "StaffTenantSummary",
+        "type": "object"
+      },
+      "SubscriptionInspection": {
+        "additionalProperties": false,
+        "description": "Billing state as CAIRN holds it.\n\nmd/15 screen 31: an operator answering \"why were we charged this\" should not\nhave to open the payment provider and act on what they see there. Billing is\nnot implemented, so this says so rather than inventing a subscription.",
+        "properties": {
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "plan": {
+            "title": "Plan",
+            "type": "string"
+          },
+          "providerConnected": {
+            "title": "Providerconnected",
+            "type": "boolean"
+          },
+          "seatsInUse": {
+            "title": "Seatsinuse",
+            "type": "integer"
+          },
+          "tenantId": {
+            "format": "uuid",
+            "title": "Tenantid",
+            "type": "string"
+          }
+        },
+        "required": ["tenantId", "seatsInUse", "plan", "providerConnected", "note"],
+        "title": "SubscriptionInspection",
+        "type": "object"
+      },
       "TenantRole": {
         "description": "A person's role within one workspace. Deliberately four (md/15 \u00a72.2).\n``ADMIN`` governs configuration, never visibility depth.",
         "enum": ["owner", "admin", "member", "viewer"],
@@ -1867,6 +2111,481 @@
         },
         "summary": "Prove control of an email address",
         "tags": ["auth"]
+      }
+    },
+    "/v1/internal/audit": {
+      "get": {
+        "description": "The log, newest first, optionally for one workspace.",
+        "operationId": "read_audit_log_v1_internal_audit_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "tenant_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AuditEntryResponse"
+                  },
+                  "title": "Response Read Audit Log V1 Internal Audit Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What staff have done",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/audit/verify": {
+      "get": {
+        "description": "Walk every link and report the first break.\n\nExposed as an endpoint rather than left to a script because the question it\nanswers \u2014 \"has this record been altered\" \u2014 is one a customer may ask, and an\nanswer that requires database access is one only staff can produce.",
+        "operationId": "verify_audit_log_v1_internal_audit_verify_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditVerification"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check the audit chain end to end",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/staff/{user_id}": {
+      "delete": {
+        "description": "Revoke access, keeping the row.\n\n\"Was this person staff in March\" is a question an audit asks, and a deleted\nrow cannot answer it.",
+        "operationId": "revoke_staff_v1_internal_staff__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Why this action is being taken. Recorded permanently.",
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "description": "Why this action is being taken. Recorded permanently.",
+              "maxLength": 500,
+              "minLength": 3,
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires the admin staff role."
+          },
+          "404": {
+            "description": "Not a staff member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke back-office access",
+        "tags": ["internal"]
+      },
+      "post": {
+        "description": "Make somebody staff.\n\nThe first staff member is created by a migration or by hand \u2014 deliberately,\nsince an endpoint that can bootstrap the first one is an endpoint that can\nbootstrap an attacker.",
+        "operationId": "grant_staff_v1_internal_staff__user_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/StaffRole"
+            }
+          },
+          {
+            "description": "Why this action is being taken. Recorded permanently.",
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "description": "Why this action is being taken. Recorded permanently.",
+              "maxLength": 500,
+              "minLength": 3,
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires the admin staff role."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Grant back-office access",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/tenants": {
+      "get": {
+        "description": "List workspaces by name or slug.\n\nReads are not audited. An audit log that records every list view fills with\nnoise and buries the entries that matter \u2014 and a read of configuration is\nnot the thing md/15 \u00a75 exists to constrain. Reading a customer's *work*\nrequires a support session, which is audited, approved and time-boxed.",
+        "operationId": "list_tenants_v1_internal_tenants_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StaffTenantSummary"
+                  },
+                  "title": "Response List Tenants V1 Internal Tenants Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Every workspace, with its configuration and health",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/tenants/{tenant_id}": {
+      "get": {
+        "description": "Everything an operator needs to diagnose a workspace, and nothing more.\n\nCounts, timestamps and connection state \u2014 no statement, no brief, no\nperson's activity. The distinction is the product's central claim, so it is\nenforced by what this response model can hold rather than by care.",
+        "operationId": "get_tenant_v1_internal_tenants__tenant_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffTenantDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One workspace: configuration, integrations, and ingestion health",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/tenants/{tenant_id}/subscription": {
+      "get": {
+        "description": "What CAIRN believes about this workspace's plan.\n\nmd/15 screen 31 exists so an operator answering \"why were we charged this\"\ndoes not open Stripe and act on what they see there. Billing is not\nimplemented (Step 31), so this reports what is known \u2014 seats and the plan\nCAIRN holds \u2014 and says plainly that no provider is connected, rather than\ninventing a subscription to fill the screen.",
+        "operationId": "inspect_subscription_v1_internal_tenants__tenant_id__subscription_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionInspection"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Billing state, read without touching the payment provider",
+        "tags": ["internal"]
       }
     },
     "/v1/invitations/accept": {

@@ -88,6 +88,15 @@ async def two_tenants(platform: AsyncSession) -> AsyncIterator[tuple[Tenant, Ten
     await platform.commit()
 
 
+#: Tables that carry a `tenant_id` and are deliberately not tenant-scoped.
+#:
+#: `internal_audit_log` records what CAIRN staff did, across every customer. A
+#: policy scoping it to one tenant would make "which workspaces did this person
+#: open" unanswerable, which is the question the log exists to answer. Its
+#: protection is the grant set instead: INSERT and SELECT, no UPDATE, no DELETE.
+NOT_TENANT_SCOPED = frozenset({"internal_audit_log"})
+
+
 class TestRowLevelSecurity:
     """Database-level isolation. The safety net."""
 
@@ -271,6 +280,16 @@ class TestRowLevelSecurity:
 
         assert rows, "Found no tenant-scoped tables — the discovery query is wrong"
         for name, enabled, forced in rows:
+            if name in NOT_TENANT_SCOPED:
+                # Named rather than skipped by a pattern: a table opting out of
+                # row-level security is a decision somebody has to make, and a
+                # rule like "tables starting with internal_" would let the next
+                # one opt out by being named carefully.
+                assert not enabled, (
+                    f"{name} is listed as deliberately unscoped but has RLS enabled. "
+                    "One of the two is wrong."
+                )
+                continue
             assert enabled, f"RLS not enabled on tenant-scoped table {name}"
             assert forced, f"RLS not FORCED on {name} — policies are inert for the owner"
 
@@ -377,6 +396,15 @@ class TestRowLevelSecurity:
             # memory. No UPDATE, because the row has no mutable state — the
             # presence of the row is the choice.
             "source_opt_outs": {"SELECT", "INSERT", "DELETE"},
+            # Staff identity. UPDATE so access can be revoked and a role
+            # changed; no DELETE, because "was this person staff in March" is
+            # what an audit asks and a deleted row cannot answer it.
+            "staff_members": {"SELECT", "INSERT", "UPDATE"},
+            # The one table in this schema that must survive a compromise of
+            # the application role. Append and read: with no UPDATE and no
+            # DELETE, an attacker inside the application can add to the record
+            # but never rewrite it (md/15 §5.2).
+            "internal_audit_log": {"SELECT", "INSERT"},
         }
 
         assert actual == expected, (

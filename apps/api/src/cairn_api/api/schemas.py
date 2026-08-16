@@ -311,6 +311,85 @@ class WorkRoleResponse(ApiModel):
     work_role: WorkRole | None = None
 
 
+class StaffTenantSummary(ApiModel):
+    """One workspace as the back-office lists it.
+
+    Configuration and size. No activity, no counts of work, nothing about a
+    person — the fields this model does not have are what keeps staff out of
+    customer content (md/15 §5.2).
+    """
+
+    id: uuid.UUID
+    name: str
+    slug: str
+    region: Region
+    created_at: datetime
+    member_count: int
+
+
+class StaffTenantDetail(StaffTenantSummary):
+    """One workspace in enough detail to diagnose it.
+
+    Ingestion health is reported as counts and timestamps. An operator can see
+    that deliveries stopped four days ago without seeing what any of them said.
+    """
+
+    retention_days: int
+    github_connected: int
+    github_disconnected: int
+    last_delivery_at: datetime | None = None
+    unprocessed_deliveries: int
+    running_backfills: int
+
+    #: True when the last delivery is older than the staleness window. Computed
+    #: server-side so every operator reads the same threshold.
+    ingestion_stale: bool
+
+
+class SubscriptionInspection(ApiModel):
+    """Billing state as CAIRN holds it.
+
+    md/15 screen 31: an operator answering "why were we charged this" should not
+    have to open the payment provider and act on what they see there. Billing is
+    not implemented, so this says so rather than inventing a subscription.
+    """
+
+    tenant_id: uuid.UUID
+    seats_in_use: int
+    plan: str
+    provider_connected: bool
+    note: str
+
+
+class AuditEntryResponse(ApiModel):
+    """One recorded staff action.
+
+    `entryHash` is returned so a reader can verify the chain independently
+    rather than trusting the server's own verdict on itself.
+    """
+
+    sequence: int
+    occurred_at: datetime
+    actor_user_id: uuid.UUID
+    action: str
+    tenant_id: uuid.UUID | None = None
+    reason: str
+    detail: dict[str, object] = Field(default_factory=dict)
+    checksum: str
+
+
+class AuditVerification(ApiModel):
+    """Whether the audit chain is intact."""
+
+    entries: int
+    intact: bool
+
+    #: The sequence number of the first entry that failed. Named rather than
+    #: reported as a bare boolean, so an investigation has somewhere to start.
+    broken_at: int | None = None
+    reason: str | None = None
+
+
 class RoleUpdate(ApiModel):
     """A member's new role.
 

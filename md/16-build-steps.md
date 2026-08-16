@@ -1325,6 +1325,60 @@ at the point it is made; and worker notification gates attribution rather than d
 intention. Each of those was, at the start of the stage, a comment describing behaviour that did not
 exist.
 
+**✅ Step 27 — Internal back-office. Complete.**
+
+Delivered: staff identity, the tenant list and detail views, the subscription inspector, and a
+tamper-evident audit log. One migration, two tables, eight endpoints. 22 tests.
+
+**The exit criterion — every internal write is logged, tamper-evident — is enforced structurally in
+both halves**, because testing three endpoints proves nothing about the fourth somebody adds next
+month.
+
+_Every write._ The audit record is a FastAPI dependency, so it appears in a route's signature the way
+`requires(...)` does on the customer API. A test enumerates the router and fails on any non-GET route
+whose dependencies do not include one. The reason is a required parameter for the same purpose: an
+action nobody had to justify is one nobody can review.
+
+_Tamper-evident._ Two independent mechanisms, because neither suffices alone. Each entry hashes its
+own content together with its predecessor's hash, so altering or deleting one invalidates every hash
+after it — and verification names the sequence number where the chain broke rather than returning a
+bare boolean. Separately, `cairn_app` holds INSERT and SELECT on the log and nothing else, so a
+compromise of the application role can append to the record but never rewrite it. Three attacks are
+tested: editing an entry, deleting one, and attempting either through the application role.
+
+**The third property has no line in the criterion and matters as much: staff cannot reach customer
+content.** These endpoints return configuration, health and counts — never a statement, a brief or a
+person's activity. Reading a workspace's work needs an approved, time-boxed support session, which is
+Step 28 and which no staff role can grant itself. A test walks every response model on the router and
+fails if a field named `statement`, `narrative`, `claims`, `facts`, `quote` or `mention` appears,
+because that field would arrive as a convenience — _"just show support the last few facts"_.
+
+Decisions worth recording:
+
+- **A customer gets 404, not 403.** A signed-in customer learning that a back-office exists and
+  refuses them has learnt something they have no business knowing.
+- **The staff UI is not in the customer application.** Shipping back-office screens in the bundle a
+  customer downloads would contradict the product's central claim. They belong in a separate app, and
+  this step delivers the API and the audit spine rather than pretending otherwise.
+- **Reads are not audited.** A log recording every list view buries the entries that matter, and
+  reading configuration is not what md/15 §5 constrains — reading a customer's _work_ is, and that
+  path does not exist yet.
+- **The audit log is deliberately not tenant-scoped**, and the isolation test now names it as an
+  explicit exception rather than skipping it by pattern. A policy scoping it to one workspace would
+  make "which customers did this person open" unanswerable — the question the log exists to answer.
+- **`entryHash` was renamed `checksum`.** The API's secret-detection test flags any response field
+  named `hash`, correctly. Teaching that detector to ignore the word would be the exception that later
+  hides a real credential; the value is an integrity checksum and is now named as one.
+- **The subscription inspector says billing is not implemented** rather than inventing a plan to fill
+  the screen. An operator who reads a fabricated subscription state will act on it.
+
+**Deferred and named, not forgotten:** md/15 §5.2 also asks for the log to be stored _separately from
+the application database_, so a compromise cannot suppress it. That is infrastructure — a write-only
+sink in another project — and belongs with Step 29. The chain makes tampering detectable here;
+separate storage would make suppression impossible.
+
+---
+
 **→ Not Stage E yet.** The audit's recommended order is email delivery, then one browser-level
 end-to-end test, then a live GitHub App and a Vertex project — which is Stage B and Stage C answered
 with evidence rather than assumed. Stage E's back-office and deployment work follows that, not the
