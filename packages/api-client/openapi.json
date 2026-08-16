@@ -1482,6 +1482,199 @@
         "title": "SubscriptionInspection",
         "type": "object"
       },
+      "SupportAccessEventResponse": {
+        "additionalProperties": false,
+        "description": "One thing CAIRN staff actually opened during a session.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "title": "Occurredat",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SupportScope"
+          }
+        },
+        "required": ["occurredAt", "scope", "description"],
+        "title": "SupportAccessEventResponse",
+        "type": "object"
+      },
+      "SupportDecision": {
+        "additionalProperties": false,
+        "description": "A workspace's answer to a support request.",
+        "properties": {
+          "approve": {
+            "title": "Approve",
+            "type": "boolean"
+          }
+        },
+        "required": ["approve"],
+        "title": "SupportDecision",
+        "type": "object"
+      },
+      "SupportScope": {
+        "description": "How far a support session reaches.\n\nA closed set, never a free string: a scope the database would accept but\nnobody decided on is an access level nobody approved.",
+        "enum": ["configuration_diagnostics", "activity_content"],
+        "title": "SupportScope",
+        "type": "string"
+      },
+      "SupportSessionRequest": {
+        "additionalProperties": false,
+        "description": "What CAIRN staff are asking for.\n\nNo expiry field: the duration is a number of minutes bounded server-side,\nbecause an expiry supplied by the person requesting access is one they chose.",
+        "properties": {
+          "minutes": {
+            "default": 60,
+            "maximum": 240.0,
+            "minimum": 1.0,
+            "title": "Minutes",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 10,
+            "title": "Reason",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/SupportScope",
+            "default": "configuration_diagnostics"
+          }
+        },
+        "required": ["reason"],
+        "title": "SupportSessionRequest",
+        "type": "object"
+      },
+      "SupportSessionResponse": {
+        "additionalProperties": false,
+        "description": "A request by CAIRN staff to look at this workspace.\n\nEverything md/15 \u00a75.2 requires the customer to be able to see: who asked,\nfor what, why, who decided, when it started, when it ends, whether it was\nbreak-glass, and what was actually opened.\n\nStaff are identified by their email rather than an opaque id: \"approved\naccess for someone\" is not an answer a person can act on.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "approvedScope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupportScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "breakGlass": {
+            "default": false,
+            "title": "Breakglass",
+            "type": "boolean"
+          },
+          "decidedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedat"
+          },
+          "decidedBy": {
+            "anyOf": [
+              {
+                "format": "email",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedby"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/SupportAccessEventResponse"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiresat"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "requestedAt": {
+            "format": "date-time",
+            "title": "Requestedat",
+            "type": "string"
+          },
+          "requestedBy": {
+            "format": "email",
+            "title": "Requestedby",
+            "type": "string"
+          },
+          "requestedMinutes": {
+            "title": "Requestedminutes",
+            "type": "integer"
+          },
+          "requestedScope": {
+            "$ref": "#/components/schemas/SupportScope"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revokedat"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SupportSessionStatus"
+          }
+        },
+        "required": [
+          "id",
+          "requestedBy",
+          "reason",
+          "requestedScope",
+          "status",
+          "active",
+          "requestedMinutes",
+          "requestedAt"
+        ],
+        "title": "SupportSessionResponse",
+        "type": "object"
+      },
+      "SupportSessionStatus": {
+        "description": "Where a request has got to.\n\nThere is deliberately no `expired` value. Expiry is a fact about the clock,\nand a stored status would be wrong between the moment a session lapses and\nwhatever job got around to updating it \u2014 during which `status == 'approved'`\nwould read as live access. `SupportSession.is_active` computes it instead.",
+        "enum": ["pending", "approved", "rejected", "revoked"],
+        "title": "SupportSessionStatus",
+        "type": "string"
+      },
       "TenantRole": {
         "description": "A person's role within one workspace. Deliberately four (md/15 \u00a72.2).\n``ADMIN`` governs configuration, never visibility depth.",
         "enum": ["owner", "admin", "member", "viewer"],
@@ -2385,6 +2578,58 @@
         "tags": ["internal"]
       }
     },
+    "/v1/internal/support-sessions": {
+      "get": {
+        "description": "Only the caller's own requests.\n\nThe minimum needed to act: whether the workspace said yes, and until when. A\nstaff member has no reason to read what a colleague asked another customer\nfor \u2014 that is the security role's view, through the audit log.",
+        "operationId": "my_support_sessions_v1_internal_support_sessions_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SupportSessionResponse"
+                  },
+                  "title": "Response My Support Sessions V1 Internal Support Sessions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The caller's own support requests and their status",
+        "tags": ["internal"]
+      }
+    },
     "/v1/internal/tenants": {
       "get": {
         "description": "List workspaces by name or slug.\n\nReads are not audited. An audit log that records every list view fills with\nnoise and buries the entries that matter \u2014 and a read of configuration is\nnot the thing md/15 \u00a75 exists to constrain. Reading a customer's *work*\nrequires a support session, which is audited, approved and time-boxed.",
@@ -2585,6 +2830,163 @@
           }
         },
         "summary": "Billing state, read without touching the payment provider",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/tenants/{tenant_id}/support-sessions": {
+      "post": {
+        "description": "Request access. Grants nothing.\n\nThe session is created `pending`. Only an Owner or Admin of that workspace\ncan make it live, which is the whole model: staff ask, customers decide\n(md/15 \u00a75.2).",
+        "operationId": "request_support_session_v1_internal_tenants__tenant_id__support_sessions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Why this action is being taken. Recorded permanently.",
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "description": "Why this action is being taken. Recorded permanently.",
+              "maxLength": 500,
+              "minLength": 3,
+              "title": "Reason",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires a support or engineering role."
+          },
+          "404": {
+            "description": "No such workspace."
+          },
+          "422": {
+            "description": "The requested duration is out of range."
+          }
+        },
+        "summary": "Ask a workspace for permission to look at it",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/tenants/{tenant_id}/support/activity": {
+      "get": {
+        "description": "The only path from staff to customer content, and it records itself.\n\nThe read happens through a tenant-scoped session, so row-level security\nstill decides what is visible \u2014 the approval decides whether the door opens,\nnot whether isolation applies.",
+        "operationId": "read_activity_under_support_v1_internal_tenants__tenant_id__support_activity_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FactResponse"
+                  },
+                  "title": "Response Read Activity Under Support V1 Internal Tenants  Tenant Id  Support Activity Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "No approved, unexpired content session."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read a workspace's activity under an approved content session",
         "tags": ["internal"]
       }
     },
@@ -4742,6 +5144,234 @@
         },
         "summary": "Search the facts CAIRN holds",
         "tags": ["facts"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/support-sessions": {
+      "get": {
+        "description": "The workspace's own support history, newest first.\n\nReadable by every member. Row-level security scopes it to this workspace, so\nthe isolation is the database's rather than this query's to remember.",
+        "operationId": "list_support_sessions_v1_workspaces__workspace_id__support_sessions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SupportSessionResponse"
+                  },
+                  "title": "Response List Support Sessions V1 Workspaces  Workspace Id  Support Sessions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Every time CAIRN staff asked to look at this workspace",
+        "tags": ["support"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/support-sessions/{session_id}/decision": {
+      "post": {
+        "description": "Let CAIRN staff in, or refuse.\n\nThe expiry is set here from the server clock, using the minutes the request\nasked for. Nothing a caller sends decides how long access lasts.",
+        "operationId": "decide_support_session_v1_workspaces__workspace_id__support_sessions__session_id__decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to decide support access."
+          },
+          "404": {
+            "description": "No such request in this workspace."
+          },
+          "422": {
+            "description": "The request has already been decided."
+          }
+        },
+        "summary": "Approve or reject a support request",
+        "tags": ["support"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/support-sessions/{session_id}/revoke": {
+      "post": {
+        "description": "Withdraw access before it expires.\n\nIdempotent, and available whatever the state: somebody ending access under\npressure should not have to read a status first.",
+        "operationId": "revoke_support_session_v1_workspaces__workspace_id__support_sessions__session_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to decide support access."
+          },
+          "404": {
+            "description": "No such request in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "End support access now",
+        "tags": ["support"]
       }
     },
     "/v1/workspaces/{workspace_id}/trust": {

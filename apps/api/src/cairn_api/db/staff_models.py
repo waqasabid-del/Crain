@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Index, String, func
+from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, Identity, Index, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,7 +53,18 @@ class StaffMember(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True
     )
 
-    role: Mapped[StaffRole] = mapped_column(String(32), nullable=False)
+    # Round-trips as the enum. Through a plain String this returned `str`, which
+    # made `member.role is StaffRole.SECURITY` silently false and disabled the
+    # last-security-account guard.
+    role: Mapped[StaffRole] = mapped_column(
+        Enum(
+            StaffRole,
+            native_enum=False,
+            length=32,
+            values_callable=lambda enum_class: [member.value for member in enum_class],
+        ),
+        nullable=False,
+    )
 
     #: Revoked rather than deleted, so "was this person staff in March" stays
     #: answerable after they leave.

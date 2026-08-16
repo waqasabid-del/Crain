@@ -1379,6 +1379,91 @@ separate storage would make suppression impossible.
 
 ---
 
+**✅ Step 28 — Support access model. Complete.**
+
+Delivered: consent-gated, time-boxed, scope-limited support sessions, the customer's own record of
+them, and the single audited path from staff to customer content. One migration, two tables, six
+endpoints, 34 API tests and 6 web tests.
+
+**The exit criterion, in three parts.** A session _requires approval_ — staff create a `pending`
+request and only an Owner or Admin of that workspace can make it live, on a different router, with a
+permission a staff account does not hold in somebody else's workspace. It _expires_ — the instant is
+computed at approval from the server clock, there is no field a caller can send, and `is_active` is
+derived from the clock rather than stored, so a lapsed session cannot be reported as live by a status
+column nobody has updated. It _appears in the customer's own audit log_ — a history readable by every
+member, naming who asked, for what, why, who decided, when it began, when it ends, and what was
+actually opened.
+
+**Scope does not widen.** A session approved for configuration cannot read a statement, a brief or a
+citation; that needs a second request for `activity_content` and a second approval. Approving grants
+exactly what was requested — a customer approves the words they read, never a category the server
+chose — and content sessions are capped at 60 minutes where configuration sessions may run to 240.
+
+**One gate, checking everything together.** `active_content_session` verifies the workspace, the
+requester, the approved scope, the revocation state and the clock in one place, because a gate that
+checks four of five is a gate that opens. Every actual read writes an access event: an approval is
+permission, and the customer's question is whether anybody used it.
+
+Decisions worth recording:
+
+- **The history needs no permission beyond membership.** Who looked at your workspace is not
+  administrative information, and a record only managers can read is one the people it concerns have
+  to take on trust. Deciding needs `SUPPORT_SESSION_DECIDE`, held by Owner and Admin.
+- **Status has no `expired` value.** Expiry is a fact about the clock; a stored status is wrong
+  between the moment a session lapses and whenever a job gets round to it, and during that window
+  `approved` reads as live access.
+- **Staff cannot create a session from inside a workspace.** The application role has no INSERT on
+  `support_sessions` — it could otherwise approve its own access — and no DELETE, because a session
+  that can be deleted cannot be evidenced.
+- **The content read still goes through a tenant-scoped session.** The approval decides whether the
+  door opens; row-level security still decides what is behind it. No broad "staff may read tenant
+  data" path was added.
+
+**A latent bug in Step 27 surfaced while building this.** `staff_members.role` and the new scope and
+status columns were plain `String`, so values returned as `str` and every `is` comparison against an
+enum member was silently false — which had quietly disabled the last-security-account guard added the
+day before. The columns now round-trip as enums (`native_enum=False`, so the database type and its
+CHECK are unchanged), and the guard has the regression test it should have had.
+
+**Break-glass is deferred, and deliberately not faked.** md/15 §5.2 permits access without prior
+approval in a genuine emergency on three conditions: immediate customer notification, security-team
+review, and a permanent record. Email exists now and the record would be straightforward, but there
+is no security-review workflow and no escalation path — and a break-glass route with two of its three
+conditions is an unapproved access path wearing a label. The `break_glass` column exists, is always
+false, and is shown to the customer, so the record can say "this was not break-glass" truthfully
+rather than leaving the question open.
+
+**Six gaps were closed in review after the first draft**, and one of them was serious enough to
+record on its own.
+
+**Configuration was not gated at all.** The first draft gated content and left settings, integration
+state and ingestion health readable by any staff role without anybody's consent — customer data
+behind a role check rather than an approval. Both per-tenant routes now require an approved
+`configuration_diagnostics` session, and each read appears in the customer's history.
+
+**A gate that was silently not installed.** `active_configuration_session` was defined _below_ the
+routes that referenced it. With postponed annotations the name could not resolve when FastAPI read
+the signatures, and it dropped the dependency without raising — leaving those routes with no gate
+whatsoever. Found by inspecting the dependency tree rather than by a test, which is the
+uncomfortable part: the recursive role test would have caught it, and had been written the day
+before. The gates now sit above their first use, with the reason recorded where somebody would
+otherwise move them back.
+
+The other four: every access now writes to the Step 27 hash chain as well as the customer-visible
+table, so neither record is the only one; decisions take a row lock, because two Owners deciding at
+once would otherwise both see `pending` and the second would overwrite the first's expiry; the
+access-event table carries a composite foreign key and a trigger, so an event cannot name another
+workspace's session, exceed the approved scope, or precede an approval, whatever the application
+does; and the Trust & Privacy Center gained the decision controls — Allow, Refuse and End access
+now — shown only to Owners and Admins, with the misleading "Ended by you" replaced by "Ended early",
+since the reader is often not the person who ended it.
+
+**Still deferred from Step 27:** the internal audit log lives in the application database. Until a
+separate append-only sink exists, a database-owner compromise can delete the whole record, so the
+"customer-verifiable audit" claim should not be made externally.
+
+---
+
 **→ Not Stage E yet.** The audit's recommended order is email delivery, then one browser-level
 end-to-end test, then a live GitHub App and a Vertex project — which is Stage B and Stage C answered
 with evidence rather than assumed. Stage E's back-office and deployment work follows that, not the

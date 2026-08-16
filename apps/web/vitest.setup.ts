@@ -3,10 +3,12 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
 
-// Testing Library waits 1s by default. Screens here render a provider tree and
-// several async reads, which under full-suite load has taken 1.4s on a cold
-// worker — a flake that reports as a missing element rather than as slowness.
-configure({ asyncUtilTimeout: 3_000 });
+// Testing Library waits 1s by default, which these screens exceed: each renders
+// a provider tree and several async reads. Raised to 8s after a full-suite run
+// failed a different test on each pass at ~3s, always passing in isolation.
+// Comfortably below vitest's 15s testTimeout, so a genuine failure still names
+// the element it could not find rather than reporting a timeout.
+configure({ asyncUtilTimeout: 8_000 });
 
 /**
  * Unmount between tests, and reset the two pieces of global state this app

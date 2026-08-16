@@ -50,6 +50,10 @@ export type Privacy =
 export type Notifications =
   paths["/v1/workspaces/{workspace_id}/notifications"]["get"]["responses"][200]["content"]["application/json"];
 
+/** Every time CAIRN staff asked to look at this workspace (md/15 §5.2). */
+export type SupportSession =
+  paths["/v1/workspaces/{workspace_id}/support-sessions"]["get"]["responses"][200]["content"]["application/json"][number];
+
 /** The Trust & Privacy Center for one workspace (md/05 §B.6). */
 export type Trust =
   paths["/v1/workspaces/{workspace_id}/trust"]["get"]["responses"][200]["content"]["application/json"];
@@ -237,6 +241,26 @@ export interface CairnClient {
   getNotifications(workspaceId: string, options?: RequestOptions): Promise<Notifications>;
   /** Readable by every member, deliberately (md/05 §B.6). */
   getTrust(workspaceId: string, options?: RequestOptions): Promise<Trust>;
+  /**
+   * The workspace's own support-access history.
+   *
+   * Readable by every member: who looked at your workspace is not
+   * administrative information (md/15 §5.2).
+   */
+  listSupportSessions(workspaceId: string, options?: RequestOptions): Promise<SupportSession[]>;
+  /** Approve or refuse a support request. Owner and Admin only. */
+  decideSupportSession(
+    workspaceId: string,
+    sessionId: string,
+    approve: boolean,
+    options?: RequestOptions,
+  ): Promise<SupportSession>;
+  /** End approved access now. */
+  revokeSupportSession(
+    workspaceId: string,
+    sessionId: string,
+    options?: RequestOptions,
+  ): Promise<SupportSession>;
   /** The caller and nobody else: there is deliberately no subject parameter, so
    * no administrator can label a colleague's role. */
   setWorkRole(
@@ -481,6 +505,35 @@ export function createClient(options: ClientOptions): CairnClient {
 
     getTrust: (workspaceId: string, options?: RequestOptions) =>
       request<Trust>("GET", `/v1/workspaces/${workspaceId}/trust`, undefined, options),
+
+    listSupportSessions: (workspaceId: string, options?: RequestOptions) =>
+      request<SupportSession[]>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/support-sessions`,
+        undefined,
+        options,
+      ),
+
+    decideSupportSession: (
+      workspaceId: string,
+      sessionId: string,
+      approve: boolean,
+      options?: RequestOptions,
+    ) =>
+      request<SupportSession>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/support-sessions/${sessionId}/decision`,
+        { approve },
+        options,
+      ),
+
+    revokeSupportSession: (workspaceId: string, sessionId: string, options?: RequestOptions) =>
+      request<SupportSession>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/support-sessions/${sessionId}/revoke`,
+        undefined,
+        options,
+      ),
 
     setWorkRole: (workspaceId: string, workRole: string | null, options?: RequestOptions) =>
       request<{ workRole?: string | null }>(

@@ -25,6 +25,7 @@ from cairn_api.auth.service import MIN_PASSWORD_LENGTH
 from cairn_api.auth.tokens import MAX_PASSWORD_BYTES
 from cairn_api.db.fact_models import FactOrigin
 from cairn_api.db.models import Region, TenantRole, WorkRole
+from cairn_api.db.support_models import SupportScope, SupportSessionStatus
 from cairn_api.domain import Certainty
 
 
@@ -309,6 +310,69 @@ class WorkRoleUpdate(ApiModel):
 
 class WorkRoleResponse(ApiModel):
     work_role: WorkRole | None = None
+
+
+class SupportAccessEventResponse(ApiModel):
+    """One thing CAIRN staff actually opened during a session."""
+
+    occurred_at: datetime
+    scope: SupportScope
+    description: str
+
+
+class SupportSessionResponse(ApiModel):
+    """A request by CAIRN staff to look at this workspace.
+
+    Everything md/15 §5.2 requires the customer to be able to see: who asked,
+    for what, why, who decided, when it started, when it ends, whether it was
+    break-glass, and what was actually opened.
+
+    Staff are identified by their email rather than an opaque id: "approved
+    access for someone" is not an answer a person can act on.
+    """
+
+    id: uuid.UUID
+    requested_by: EmailStr
+    reason: str
+    requested_scope: SupportScope
+    approved_scope: SupportScope | None = None
+    status: SupportSessionStatus
+
+    #: Computed from the clock rather than stored, so an expiry that has passed
+    #: is never reported as live access.
+    active: bool
+
+    requested_minutes: int
+    requested_at: datetime
+    decided_at: datetime | None = None
+    decided_by: EmailStr | None = None
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+    #: Always false today. No break-glass path exists, and the field says so
+    #: rather than leaving the question open — see md/16 Step 28.
+    break_glass: bool = False
+
+    #: An approval is permission; these are uses.
+    events: list[SupportAccessEventResponse] = Field(default_factory=list)
+
+
+class SupportSessionRequest(ApiModel):
+    """What CAIRN staff are asking for.
+
+    No expiry field: the duration is a number of minutes bounded server-side,
+    because an expiry supplied by the person requesting access is one they chose.
+    """
+
+    reason: str = Field(min_length=10, max_length=500)
+    scope: SupportScope = SupportScope.CONFIGURATION_DIAGNOSTICS
+    minutes: int = Field(default=60, ge=1, le=240)
+
+
+class SupportDecision(ApiModel):
+    """A workspace's answer to a support request."""
+
+    approve: bool
 
 
 class StaffTenantSummary(ApiModel):

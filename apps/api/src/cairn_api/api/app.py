@@ -39,6 +39,7 @@ from cairn_api.api.routers import (
     internal,
     me,
     onboarding,
+    support,
     trust,
     workspaces,
 )
@@ -160,6 +161,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(me.router, prefix=API_PREFIX)
     app.include_router(admin.router, prefix=API_PREFIX)
     app.include_router(trust.router, prefix=API_PREFIX)
+    app.include_router(support.router, prefix=API_PREFIX)
     app.include_router(internal.router, prefix=API_PREFIX)
     app.include_router(webhooks.router, prefix=API_PREFIX)
 

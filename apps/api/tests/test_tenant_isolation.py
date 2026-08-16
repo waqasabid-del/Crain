@@ -405,6 +405,15 @@ class TestRowLevelSecurity:
             # DELETE, an attacker inside the application can add to the record
             # but never rewrite it (md/15 §5.2).
             "internal_audit_log": {"SELECT", "INSERT"},
+            # Staff request platform-side, so no INSERT: an application role
+            # that could create a session could approve its own access from
+            # inside a workspace. UPDATE because approving, rejecting and
+            # revoking are the customer's own decisions. No DELETE — a support
+            # session that can be deleted cannot be evidenced.
+            "support_sessions": {"SELECT", "UPDATE"},
+            # Read-only. Every access event is written platform-side at the
+            # moment staff actually open something.
+            "support_access_events": {"SELECT"},
         }
 
         assert actual == expected, (

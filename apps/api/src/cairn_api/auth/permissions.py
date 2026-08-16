@@ -38,6 +38,13 @@ class Permission(enum.StrEnum):
     OWN_RECORD_CORRECT = "own_record.correct"
     """Never grantable over another person (md/05 §B.2)."""
 
+    SUPPORT_SESSION_DECIDE = "support_session.decide"
+    """Approve, reject or revoke CAIRN staff access to this workspace.
+
+    Owner and Admin only. Reading the support history needs no permission — every
+    member may see who looked at their workspace (md/15 §5.2).
+    """
+
 
 #: Explicit per-role sets, not a hierarchy — a hierarchy would silently grant
 #: Owners any future Admin permission.
@@ -56,6 +63,7 @@ _ROLE_PERMISSIONS: dict[TenantRole, frozenset[Permission]] = {
             Permission.PROJECTS_MANAGE,
             Permission.CONTENT_READ,
             Permission.OWN_RECORD_CORRECT,
+            Permission.SUPPORT_SESSION_DECIDE,
         }
     ),
     TenantRole.ADMIN: frozenset(
@@ -69,6 +77,7 @@ _ROLE_PERMISSIONS: dict[TenantRole, frozenset[Permission]] = {
             Permission.PROJECTS_MANAGE,
             Permission.CONTENT_READ,
             Permission.OWN_RECORD_CORRECT,
+            Permission.SUPPORT_SESSION_DECIDE,
         }
     ),
     TenantRole.MEMBER: frozenset(

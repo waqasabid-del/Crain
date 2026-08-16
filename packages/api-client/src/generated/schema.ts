@@ -304,6 +304,30 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/internal/support-sessions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The caller's own support requests and their status
+     * @description Only the caller's own requests.
+     *
+     *     The minimum needed to act: whether the workspace said yes, and until when. A
+     *     staff member has no reason to read what a colleague asked another customer
+     *     for — that is the security role's view, through the audit log.
+     */
+    get: operations["my_support_sessions_v1_internal_support_sessions_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/internal/tenants": {
     parameters: {
       query?: never;
@@ -371,6 +395,54 @@ export interface paths {
      *     inventing a subscription to fill the screen.
      */
     get: operations["inspect_subscription_v1_internal_tenants__tenant_id__subscription_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/tenants/{tenant_id}/support-sessions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ask a workspace for permission to look at it
+     * @description Request access. Grants nothing.
+     *
+     *     The session is created `pending`. Only an Owner or Admin of that workspace
+     *     can make it live, which is the whole model: staff ask, customers decide
+     *     (md/15 §5.2).
+     */
+    post: operations["request_support_session_v1_internal_tenants__tenant_id__support_sessions_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/tenants/{tenant_id}/support/activity": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Read a workspace's activity under an approved content session
+     * @description The only path from staff to customer content, and it records itself.
+     *
+     *     The read happens through a tenant-scoped session, so row-level security
+     *     still decides what is visible — the approval decides whether the door opens,
+     *     not whether isolation applies.
+     */
+    get: operations["read_activity_under_support_v1_internal_tenants__tenant_id__support_activity_get"];
     put?: never;
     post?: never;
     delete?: never;
@@ -1137,6 +1209,75 @@ export interface paths {
     get: operations["search_facts_v1_workspaces__workspace_id__search_get"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/support-sessions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Every time CAIRN staff asked to look at this workspace
+     * @description The workspace's own support history, newest first.
+     *
+     *     Readable by every member. Row-level security scopes it to this workspace, so
+     *     the isolation is the database's rather than this query's to remember.
+     */
+    get: operations["list_support_sessions_v1_workspaces__workspace_id__support_sessions_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/support-sessions/{session_id}/decision": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Approve or reject a support request
+     * @description Let CAIRN staff in, or refuse.
+     *
+     *     The expiry is set here from the server clock, using the minutes the request
+     *     asked for. Nothing a caller sends decides how long access lasts.
+     */
+    post: operations["decide_support_session_v1_workspaces__workspace_id__support_sessions__session_id__decision_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/support-sessions/{session_id}/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * End support access now
+     * @description Withdraw access before it expires.
+     *
+     *     Idempotent, and available whatever the state: somebody ending access under
+     *     pressure should not have to read a status first.
+     */
+    post: operations["revoke_support_session_v1_workspaces__workspace_id__support_sessions__session_id__revoke_post"];
     delete?: never;
     options?: never;
     head?: never;
@@ -2059,6 +2200,118 @@ export interface components {
       tenantId: string;
     };
     /**
+     * SupportAccessEventResponse
+     * @description One thing CAIRN staff actually opened during a session.
+     */
+    SupportAccessEventResponse: {
+      /** Description */
+      description: string;
+      /**
+       * Occurredat
+       * Format: date-time
+       */
+      occurredAt: string;
+      scope: components["schemas"]["SupportScope"];
+    };
+    /**
+     * SupportDecision
+     * @description A workspace's answer to a support request.
+     */
+    SupportDecision: {
+      /** Approve */
+      approve: boolean;
+    };
+    /**
+     * SupportScope
+     * @description How far a support session reaches.
+     *
+     *     A closed set, never a free string: a scope the database would accept but
+     *     nobody decided on is an access level nobody approved.
+     * @enum {string}
+     */
+    SupportScope: "configuration_diagnostics" | "activity_content";
+    /**
+     * SupportSessionRequest
+     * @description What CAIRN staff are asking for.
+     *
+     *     No expiry field: the duration is a number of minutes bounded server-side,
+     *     because an expiry supplied by the person requesting access is one they chose.
+     */
+    SupportSessionRequest: {
+      /**
+       * Minutes
+       * @default 60
+       */
+      minutes: number;
+      /** Reason */
+      reason: string;
+      /** @default configuration_diagnostics */
+      scope: components["schemas"]["SupportScope"];
+    };
+    /**
+     * SupportSessionResponse
+     * @description A request by CAIRN staff to look at this workspace.
+     *
+     *     Everything md/15 §5.2 requires the customer to be able to see: who asked,
+     *     for what, why, who decided, when it started, when it ends, whether it was
+     *     break-glass, and what was actually opened.
+     *
+     *     Staff are identified by their email rather than an opaque id: "approved
+     *     access for someone" is not an answer a person can act on.
+     */
+    SupportSessionResponse: {
+      /** Active */
+      active: boolean;
+      approvedScope?: components["schemas"]["SupportScope"] | null;
+      /**
+       * Breakglass
+       * @default false
+       */
+      breakGlass: boolean;
+      /** Decidedat */
+      decidedAt?: string | null;
+      /** Decidedby */
+      decidedBy?: string | null;
+      /** Events */
+      events?: components["schemas"]["SupportAccessEventResponse"][];
+      /** Expiresat */
+      expiresAt?: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Reason */
+      reason: string;
+      /**
+       * Requestedat
+       * Format: date-time
+       */
+      requestedAt: string;
+      /**
+       * Requestedby
+       * Format: email
+       */
+      requestedBy: string;
+      /** Requestedminutes */
+      requestedMinutes: number;
+      requestedScope: components["schemas"]["SupportScope"];
+      /** Revokedat */
+      revokedAt?: string | null;
+      status: components["schemas"]["SupportSessionStatus"];
+    };
+    /**
+     * SupportSessionStatus
+     * @description Where a request has got to.
+     *
+     *     There is deliberately no `expired` value. Expiry is a fact about the clock,
+     *     and a stored status would be wrong between the moment a session lapses and
+     *     whatever job got around to updating it — during which `status == 'approved'`
+     *     would read as live access. `SupportSession.is_active` computes it instead.
+     * @enum {string}
+     */
+    SupportSessionStatus: "pending" | "approved" | "rejected" | "revoked";
+    /**
      * TenantRole
      * @description A person's role within one workspace. Deliberately four (md/15 §2.2).
      *     ``ADMIN`` governs configuration, never visibility depth.
@@ -2667,6 +2920,37 @@ export interface operations {
       };
     };
   };
+  my_support_sessions_v1_internal_support_sessions_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SupportSessionResponse"][];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   list_tenants_v1_internal_tenants_get: {
     parameters: {
       query?: {
@@ -2765,6 +3049,100 @@ export interface operations {
       };
       /** @description No such workspace. */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  request_support_session_v1_internal_tenants__tenant_id__support_sessions_post: {
+    parameters: {
+      query: {
+        /** @description Why this action is being taken. Recorded permanently. */
+        reason: string;
+      };
+      header?: never;
+      path: {
+        tenant_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SupportSessionRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SupportSessionResponse"];
+        };
+      };
+      /** @description Requires a support or engineering role. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No such workspace. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description The requested duration is out of range. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  read_activity_under_support_v1_internal_tenants__tenant_id__support_activity_get: {
+    parameters: {
+      query?: {
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        tenant_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["FactResponse"][];
+        };
+      };
+      /** @description No approved, unexpired content session. */
+      403: {
         headers: {
           [name: string]: unknown;
         };
@@ -4066,6 +4444,146 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  list_support_sessions_v1_workspaces__workspace_id__support_sessions_get: {
+    parameters: {
+      query?: {
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SupportSessionResponse"][];
+        };
+      };
+      /** @description No such workspace, or you are not a member. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  decide_support_session_v1_workspaces__workspace_id__support_sessions__session_id__decision_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        session_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SupportDecision"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SupportSessionResponse"];
+        };
+      };
+      /** @description Requires permission to decide support access. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No such request in this workspace. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description The request has already been decided. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  revoke_support_session_v1_workspaces__workspace_id__support_sessions__session_id__revoke_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        session_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SupportSessionResponse"];
+        };
+      };
+      /** @description Requires permission to decide support access. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No such request in this workspace. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
       };
     };
   };

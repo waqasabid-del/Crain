@@ -77,6 +77,34 @@ async def as_staff(
     return actor
 
 
+async def with_configuration_session(staff: Actor, customer: Actor) -> None:
+    """Give this staff member an approved configuration session on this workspace.
+
+    Reading a workspace's settings and health is reading customer data, so
+    Step 28 puts it behind the same consent gate as content. These tests are
+    about what the screens show and who may see them, so they establish the
+    approval first rather than asserting the gate — `test_support_sessions.py`
+    asserts the gate.
+    """
+    requested = await staff.client.post(
+        f"/v1/internal/tenants/{customer.workspace_id}/support-sessions",
+        params={"reason": "diagnosing a reported problem"},
+        json={
+            "reason": "diagnosing a reported problem",
+            "scope": "configuration_diagnostics",
+            "minutes": 60,
+        },
+    )
+    assert requested.status_code == 201, requested.text
+
+    decided = await customer.client.post(
+        f"/v1/workspaces/{customer.workspace_id}/support-sessions/"
+        f"{requested.json()['id']}/decision",
+        json={"approve": True},
+    )
+    assert decided.status_code == 200, decided.text
+
+
 # --------------------------------------------------------------------------
 # Who may reach the back-office
 # --------------------------------------------------------------------------
@@ -153,21 +181,41 @@ class TestLeastPrivilege:
     #: Route and the roles that may reach it. Written out rather than derived
     #: from the router, so the test disagrees with the code when one of them is
     #: wrong instead of agreeing with whatever the code happens to say.
+    #: Route, the roles that may reach it, and whether it also needs an approved
+    #: support session. The per-tenant routes read customer configuration, so
+    #: Step 28 gates them by consent as well as by role.
     MATRIX = (
-        ("/v1/internal/tenants", {"support", "billing", "engineering", "security"}),
-        ("/v1/internal/tenants/{tenant_id}", {"support", "engineering"}),
-        ("/v1/internal/tenants/{tenant_id}/subscription", {"support", "billing"}),
-        ("/v1/internal/audit", {"security"}),
-        ("/v1/internal/audit/verify", {"security"}),
+        ("/v1/internal/tenants", {"support", "billing", "engineering", "security"}, False),
+        (
+            "/v1/internal/tenants/{tenant_id}",
+            {"support", "engineering", "billing"},
+            True,
+        ),
+        (
+            "/v1/internal/tenants/{tenant_id}/subscription",
+            {"support", "engineering", "billing"},
+            True,
+        ),
+        ("/v1/internal/audit", {"security"}, False),
+        ("/v1/internal/audit/verify", {"security"}, False),
     )
 
-    @pytest.mark.parametrize(("path", "allowed"), MATRIX)
+    @pytest.mark.parametrize(("path", "allowed", "needs_session"), MATRIX)
     @pytest.mark.parametrize("role", ["support", "billing", "engineering", "security"])
     async def test_each_route_admits_only_its_roles(
-        self, app: FastAPI, platform: AsyncSession, path: str, allowed: set[str], role: str
+        self,
+        app: FastAPI,
+        platform: AsyncSession,
+        path: str,
+        allowed: set[str],
+        needs_session: bool,
+        role: str,
     ) -> None:
         staff = await as_staff(platform, await signed_up(app), StaffRole(role))
         customer = await signed_up(app)
+
+        if needs_session and role in allowed:
+            await with_configuration_session(staff, customer)
 
         response = await staff.client.get(path.replace("{tenant_id}", customer.workspace_id))
 
@@ -178,19 +226,37 @@ class TestLeastPrivilege:
                 f"{role} reached {path} and should not have: {response.status_code}"
             )
 
-    async def test_billing_cannot_read_ingestion_health(
+    async def test_configuration_needs_consent_as_well_as_a_role(
         self, app: FastAPI, platform: AsyncSession
     ) -> None:
-        """The case md/15 §6 names outright: billing has no product data access."""
+        """Step 28 turned this from a role check into a role check plus consent.
+
+        Holding the right role is no longer enough to open a workspace's
+        settings: that workspace has to have approved it, and the approval
+        expires. md/15 §6's rule still holds underneath — billing reaches
+        configuration and never activity content, which the content gate
+        enforces separately.
+        """
         billing = await as_staff(platform, await signed_up(app), StaffRole.BILLING)
         customer = await signed_up(app)
 
-        assert (
-            await billing.client.get(f"/v1/internal/tenants/{customer.workspace_id}/subscription")
-        ).status_code == 200, "positive control: billing can inspect a subscription"
+        refused = await billing.client.get(
+            f"/v1/internal/tenants/{customer.workspace_id}/subscription"
+        )
+        assert refused.status_code == 403, "a role alone should not open a workspace"
 
-        response = await billing.client.get(f"/v1/internal/tenants/{customer.workspace_id}")
-        assert response.status_code == 403
+        await with_configuration_session(billing, customer)
+
+        allowed = await billing.client.get(
+            f"/v1/internal/tenants/{customer.workspace_id}/subscription"
+        )
+        assert allowed.status_code == 200, allowed.text
+
+        # Configuration consent never reaches content.
+        content = await billing.client.get(
+            f"/v1/internal/tenants/{customer.workspace_id}/support/activity"
+        )
+        assert content.status_code == 403
 
     async def test_support_cannot_read_the_audit_log(
         self, app: FastAPI, platform: AsyncSession
@@ -208,17 +274,27 @@ class TestLeastPrivilege:
         The matrix above covers the routes that exist; this fails when somebody
         adds one that checks membership and forgets the role.
         """
-        undeclared = []
 
-        for route in internal.router.routes:
-            if not isinstance(route, APIRoute):
-                continue
-            names = {
-                getattr(dependency.call, "__qualname__", "")
-                for dependency in route.dependant.dependencies
-            }
-            if not any("requires_staff" in name for name in names):
-                undeclared.append(route.path)
+        def declares_a_role(dependant: object) -> bool:
+            """Walk the whole dependency tree, not only the first level.
+
+            A route may reach its role check through another dependency — the
+            content route does, via `active_content_session` — and a check that
+            only looked one level deep would report a satisfied requirement as
+            missing.
+            """
+            for dependency in getattr(dependant, "dependencies", []):
+                if "requires_staff" in getattr(dependency.call, "__qualname__", ""):
+                    return True
+                if declares_a_role(dependency):
+                    return True
+            return False
+
+        undeclared = [
+            route.path
+            for route in internal.router.routes
+            if isinstance(route, APIRoute) and not declares_a_role(route.dependant)
+        ]
 
         assert not undeclared, f"routes with no staff-role requirement: {undeclared}"
 
@@ -238,8 +314,16 @@ class TestStaffCannotReachCustomerContent:
         """
         forbidden = {"statement", "statements", "narrative", "claims", "facts", "quote", "mention"}
 
+        # The one route that may return content, and only behind an approved,
+        # unexpired, content-scoped support session that the customer granted
+        # (Step 28). Named explicitly: a pattern-based exemption would let the
+        # next content route opt out by being called something similar.
+        content_under_support = "/internal/tenants/{tenant_id}/support/activity"
+
         for route in internal.router.routes:
             if not isinstance(route, APIRoute):
+                continue
+            if route.path == content_under_support:
                 continue
             model = route.response_model
             if model is None:
@@ -274,6 +358,7 @@ class TestStaffCannotReachCustomerContent:
             )
             await session.commit()
 
+        await with_configuration_session(staff, customer)
         response = await staff.client.get(f"/v1/internal/tenants/{customer.workspace_id}")
         assert response.status_code == 200, response.text
 
@@ -310,6 +395,8 @@ class TestTenantHealth:
         delivery.created_at = datetime.now(UTC) - timedelta(days=2)
         await platform.commit()
 
+        await with_configuration_session(staff, customer)
+
         body = (await staff.client.get(f"/v1/internal/tenants/{customer.workspace_id}")).json()
         assert body["ingestionStale"] is True
         assert body["unprocessedDeliveries"] == 1
@@ -340,6 +427,8 @@ class TestTenantHealth:
         )
         await platform.commit()
 
+        await with_configuration_session(staff, customer)
+
         body = (await staff.client.get(f"/v1/internal/tenants/{customer.workspace_id}")).json()
         assert body["githubConnected"] == 1
         assert body["githubDisconnected"] == 1
@@ -351,6 +440,8 @@ class TestTenantHealth:
         reads a fabricated subscription state will act on it."""
         staff = await as_staff(platform, await signed_up(app), StaffRole.SUPPORT)
         customer = await signed_up(app)
+
+        await with_configuration_session(staff, customer)
 
         body = (
             await staff.client.get(f"/v1/internal/tenants/{customer.workspace_id}/subscription")
@@ -397,6 +488,39 @@ class TestStaffManagementGuards:
         # would have to do it — themselves.
         response = await keeper.client.delete(
             f"/v1/internal/staff/{keeper.user_id}", params={"reason": "trying anyway"}
+        )
+        assert response.status_code == 422
+
+    async def test_the_last_security_account_survives_a_third_party_attempt(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """The guard that was silently disabled.
+
+        `member.role is StaffRole.SECURITY` compared an enum member against the
+        `str` a plain String column returns, so it was always false and this
+        path never fired. The column now round-trips as the enum; this asserts
+        the rule rather than the comparison.
+        """
+        keeper = await as_staff(platform, await signed_up(app))
+        second = await as_staff(platform, await signed_up(app))
+
+        # `second` may revoke `keeper` while two exist.
+        assert (
+            await second.client.delete(
+                f"/v1/internal/staff/{keeper.user_id}", params={"reason": "left the company"}
+            )
+        ).status_code == 204
+
+        # `second` is now the only one, and cannot be removed by anybody.
+        third = await as_staff(platform, await signed_up(app), StaffRole.SUPPORT)
+        assert (
+            await third.client.delete(
+                f"/v1/internal/staff/{second.user_id}", params={"reason": "trying"}
+            )
+        ).status_code == 403, "support has no staff-management route"
+
+        response = await second.client.delete(
+            f"/v1/internal/staff/{second.user_id}", params={"reason": "trying myself"}
         )
         assert response.status_code == 422
 

@@ -34,18 +34,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cairn_api.api.dependencies import CurrentUser, PlatformDb
 from cairn_api.api.errors import ProblemDetailError
+from cairn_api.api.routers.facts import _fact_response
 from cairn_api.api.schemas import (
     AuditEntryResponse,
     AuditVerification,
+    FactResponse,
     StaffTenantDetail,
     StaffTenantSummary,
     SubscriptionInspection,
+    SupportSessionRequest,
+    SupportSessionResponse,
 )
 from cairn_api.db.backfill_models import BackfillRun
+from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.github_models import GitHubInstallation, WebhookDelivery
 from cairn_api.db.models import Membership, Tenant, User
 from cairn_api.db.staff_models import InternalAuditEntry, StaffMember, StaffRole
-from cairn_api.internal import audit
+from cairn_api.db.support_models import SupportScope, SupportSession
+from cairn_api.db.tenancy import tenant_session
+from cairn_api.internal import audit, support
 
 logger = structlog.get_logger(__name__)
 
@@ -165,6 +172,77 @@ def audited(action: str) -> Callable[..., Coroutine[Any, Any, StaffContext]]:
 
 
 # --------------------------------------------------------------------------
+# Consent gates
+#
+# Defined before the routes that use them. Below their first use, the names
+# do not resolve when FastAPI reads the postponed annotations, and the
+# dependency is dropped silently — which removes the gate rather than
+# failing loudly.
+# --------------------------------------------------------------------------
+
+
+class GrantedAccess:
+    """An approved session and the person using it."""
+
+    __slots__ = ("session", "staff")
+
+    def __init__(self, session: SupportSession, staff: StaffContext) -> None:
+        self.session = session
+        self.staff = staff
+
+
+def _requires_session(scope: SupportScope, *roles: StaffRole) -> Callable[..., Any]:
+    """Build the gate for one scope.
+
+    Every condition is checked together — this workspace, this requester, this
+    approved scope, not revoked, not expired — because a gate that checks four of
+    five is a gate that opens. A `configuration_diagnostics` session never
+    satisfies the content gate: widening needs a second request and a second
+    approval (md/15 §5.2).
+    """
+
+    # Bound outside the signature deliberately. `from __future__ import
+    # annotations` makes every annotation a string, and a string containing
+    # `roles` cannot be resolved later — the closure's locals are not in module
+    # globals, so FastAPI fell back to treating `staff` as a query parameter.
+    role_check = requires_staff(*roles)
+
+    async def dependency(
+        tenant_id: uuid.UUID,
+        db: PlatformDb,
+        staff: StaffContext = Depends(role_check),
+    ) -> GrantedAccess:
+        session = await support.active_session_for(
+            db, tenant_id=tenant_id, staff_user_id=staff.user.id, scope=scope
+        )
+        if session is None:
+            raise ProblemDetailError(
+                status_code=status.HTTP_403_FORBIDDEN,
+                title="No approved support session",
+                detail=(
+                    f"This needs a support session approved for {scope.value} by that "
+                    "workspace, and it must not have expired."
+                ),
+                problem_type="support-session-required",
+            )
+        return GrantedAccess(session, staff)
+
+    return dependency
+
+
+active_content_session = _requires_session(
+    SupportScope.ACTIVITY_CONTENT, StaffRole.SUPPORT, StaffRole.ENGINEERING
+)
+
+active_configuration_session = _requires_session(
+    SupportScope.CONFIGURATION_DIAGNOSTICS,
+    StaffRole.SUPPORT,
+    StaffRole.ENGINEERING,
+    StaffRole.BILLING,
+)
+
+
+# --------------------------------------------------------------------------
 # Tenants
 # --------------------------------------------------------------------------
 
@@ -219,9 +297,7 @@ async def list_tenants(
 )
 async def get_tenant(
     tenant_id: uuid.UUID,
-    staff: Annotated[
-        StaffContext, Depends(requires_staff(StaffRole.SUPPORT, StaffRole.ENGINEERING))
-    ],
+    granted: Annotated[GrantedAccess, Depends(active_configuration_session)],
     db: PlatformDb,
 ) -> StaffTenantDetail:
     """Everything an operator needs to diagnose a workspace, and nothing more.
@@ -262,7 +338,15 @@ async def get_tenant(
     connected = [item for item in installations if item.uninstalled_at is None]
     stale = last_delivery is not None and datetime.now(UTC) - last_delivery > INGESTION_STALE_AFTER
 
-    _ = staff
+    await support.record_access(
+        db,
+        support_session=granted.session,
+        actor_user_id=granted.staff.user.id,
+        scope=SupportScope.CONFIGURATION_DIAGNOSTICS,
+        description="Read workspace settings and ingestion health",
+    )
+    await db.commit()
+
     return StaffTenantDetail(
         id=tenant.id,
         name=tenant.name,
@@ -288,7 +372,7 @@ async def get_tenant(
 )
 async def inspect_subscription(
     tenant_id: uuid.UUID,
-    staff: Annotated[StaffContext, Depends(requires_staff(StaffRole.SUPPORT, StaffRole.BILLING))],
+    granted: Annotated[GrantedAccess, Depends(active_configuration_session)],
     db: PlatformDb,
 ) -> SubscriptionInspection:
     """What CAIRN believes about this workspace's plan.
@@ -310,7 +394,15 @@ async def inspect_subscription(
 
     members = await _member_counts(db, [tenant_id])
 
-    _ = staff
+    await support.record_access(
+        db,
+        support_session=granted.session,
+        actor_user_id=granted.staff.user.id,
+        scope=SupportScope.CONFIGURATION_DIAGNOSTICS,
+        description="Read the subscription inspector",
+    )
+    await db.commit()
+
     return SubscriptionInspection(
         tenant_id=tenant_id,
         seats_in_use=members.get(tenant_id, 0),
@@ -390,6 +482,165 @@ async def verify_audit_log(
         intact=result.intact,
         broken_at=result.broken_at,
         reason=result.reason,
+    )
+
+
+# --------------------------------------------------------------------------
+# Support sessions
+# --------------------------------------------------------------------------
+
+
+@router.post(
+    "/tenants/{tenant_id}/support-sessions",
+    response_model=SupportSessionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ask a workspace for permission to look at it",
+    responses={
+        403: {"description": "Requires a support or engineering role."},
+        404: {"description": "No such workspace."},
+        422: {"description": "The requested duration is out of range."},
+    },
+)
+async def request_support_session(
+    tenant_id: uuid.UUID,
+    body: SupportSessionRequest,
+    db: PlatformDb,
+    staff: Annotated[
+        StaffContext,
+        Depends(requires_staff(StaffRole.SUPPORT, StaffRole.ENGINEERING, StaffRole.BILLING)),
+    ],
+    audited_by: Annotated[StaffContext, Depends(audited("support.requested"))],
+) -> SupportSessionResponse:
+    """Request access. Grants nothing.
+
+    The session is created `pending`. Only an Owner or Admin of that workspace
+    can make it live, which is the whole model: staff ask, customers decide
+    (md/15 §5.2).
+    """
+    tenant = await db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if tenant is None:
+        raise ProblemDetailError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            title="No such workspace",
+            detail="No workspace with that identifier.",
+            problem_type="tenant-not-found",
+        )
+
+    try:
+        row = await support.request_session(
+            db,
+            tenant_id=tenant_id,
+            requested_by_user_id=staff.user.id,
+            reason=body.reason,
+            scope=body.scope,
+            minutes=body.minutes,
+        )
+    except support.SupportError as error:
+        raise ProblemDetailError(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            title="That request cannot be made",
+            detail=error.message,
+            problem_type=error.problem_type,
+        ) from error
+
+    await db.commit()
+    _ = audited_by
+    return _support_response(row, requested_by=staff.user.email)
+
+
+@router.get(
+    "/support-sessions",
+    response_model=list[SupportSessionResponse],
+    summary="The caller's own support requests and their status",
+)
+async def my_support_sessions(
+    db: PlatformDb,
+    staff: Annotated[
+        StaffContext,
+        Depends(
+            requires_staff(
+                StaffRole.SUPPORT,
+                StaffRole.ENGINEERING,
+                StaffRole.BILLING,
+                StaffRole.SECURITY,
+            )
+        ),
+    ],
+) -> list[SupportSessionResponse]:
+    """Only the caller's own requests.
+
+    The minimum needed to act: whether the workspace said yes, and until when. A
+    staff member has no reason to read what a colleague asked another customer
+    for — that is the security role's view, through the audit log.
+    """
+    rows = list(
+        await db.scalars(
+            select(SupportSession)
+            .where(SupportSession.requested_by_user_id == staff.user.id)
+            .order_by(SupportSession.requested_at.desc())
+            .limit(MAX_PAGE)
+        )
+    )
+    return [_support_response(row, requested_by=staff.user.email) for row in rows]
+
+
+@router.get(
+    "/tenants/{tenant_id}/support/activity",
+    response_model=list[FactResponse],
+    summary="Read a workspace's activity under an approved content session",
+    responses={403: {"description": "No approved, unexpired content session."}},
+)
+async def read_activity_under_support(
+    tenant_id: uuid.UUID,
+    db: PlatformDb,
+    granted: Annotated[GrantedAccess, Depends(active_content_session)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> list[FactResponse]:
+    """The only path from staff to customer content, and it records itself.
+
+    The read happens through a tenant-scoped session, so row-level security
+    still decides what is visible — the approval decides whether the door opens,
+    not whether isolation applies.
+    """
+    async with tenant_session(tenant_id) as scoped:
+        rows = list(
+            await scoped.scalars(
+                select(FactRow)
+                .where(FactRow.tenant_id == tenant_id, FactRow.valid_until.is_(None))
+                .order_by(FactRow.occurred_at.desc().nullslast())
+                .limit(limit)
+            )
+        )
+        facts = [_fact_response(row) for row in rows]
+
+    await support.record_access(
+        db,
+        support_session=granted.session,
+        actor_user_id=granted.staff.user.id,
+        scope=SupportScope.ACTIVITY_CONTENT,
+        description=f"Read {len(facts)} recorded activity statements",
+    )
+    await db.commit()
+
+    return facts
+
+
+def _support_response(row: SupportSession, *, requested_by: str) -> SupportSessionResponse:
+    return SupportSessionResponse(
+        id=row.id,
+        requested_by=requested_by,
+        reason=row.reason,
+        requested_scope=row.requested_scope,
+        approved_scope=row.approved_scope,
+        status=row.status,
+        active=row.is_active(),
+        requested_minutes=row.requested_minutes,
+        requested_at=row.requested_at,
+        decided_at=row.decided_at,
+        expires_at=row.expires_at,
+        revoked_at=row.revoked_at,
+        break_glass=row.break_glass,
+        events=[],
     )
 
 

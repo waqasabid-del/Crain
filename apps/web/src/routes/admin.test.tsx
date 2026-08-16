@@ -1,4 +1,4 @@
-import type { Integration, Notifications, Privacy, Trust } from "@cairn/api-client";
+import type { Integration, Notifications, Privacy, SupportSession, Trust } from "@cairn/api-client";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -360,13 +360,27 @@ describe("the trust and privacy centre", () => {
     subprocessors: [{ title: "Google Cloud (Vertex AI)", detail: "Runs the models." }],
   };
 
-  function renderTrust(overrides = {}): ReturnType<typeof renderRoute> {
+  function renderTrust(
+    overrides = {},
+    role: "owner" | "admin" | "member" | "viewer" = "owner",
+  ): ReturnType<typeof renderRoute> {
+    // The reader's role decides which controls are offered, so it has to be
+    // settable per test. `SESSION` here is the harness's auth session, not the
+    // support-session fixture further down.
+    const authenticated = {
+      ...SESSION,
+      workspaces: [{ ...SESSION.workspaces[0]!, role }],
+    };
     return renderRoute(
       <AppLayout>
         <TrustPage />
       </AppLayout>,
       {
-        client: client({ getTrust: vi.fn(() => Promise.resolve(TRUST)), ...overrides }),
+        client: client({
+          getSession: vi.fn(() => Promise.resolve(authenticated)),
+          getTrust: vi.fn(() => Promise.resolve(TRUST)),
+          ...overrides,
+        }),
         route: "/trust",
       },
     );
@@ -427,5 +441,203 @@ describe("the trust and privacy centre", () => {
     await screen.findByRole("heading", { name: /what cairn reads/i });
 
     await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+  });
+
+  describe("when CAIRN staff have looked", () => {
+    const SUPPORT_SESSION: SupportSession = {
+      id: "44444444-4444-4444-4444-444444444444",
+      requestedBy: "sam@cairn.dev",
+      reason: "investigating an integration failure",
+      requestedScope: "configuration_diagnostics",
+      approvedScope: "configuration_diagnostics",
+      status: "approved",
+      active: false,
+      requestedMinutes: 40,
+      requestedAt: "2026-08-12T09:00:00Z",
+      decidedAt: "2026-08-12T09:04:00Z",
+      decidedBy: "ali@acme.example.com",
+      expiresAt: "2026-08-12T09:44:00Z",
+      revokedAt: null,
+      breakGlass: false,
+      events: [
+        {
+          occurredAt: "2026-08-12T09:05:00Z",
+          scope: "configuration_diagnostics",
+          description: "Read 3 recorded activity statements",
+        },
+      ],
+    };
+
+    it("says nobody has looked, rather than saying nothing", async () => {
+      // An absent section reads as an unanswered question. md/15 §5.2 wants the
+      // customer able to check, including when the answer is "never".
+      renderTrust();
+
+      expect(
+        await screen.findByText(/nobody at cairn has asked to look at this workspace/i),
+      ).toBeVisible();
+    });
+
+    it("names who asked, why, and who decided", async () => {
+      renderTrust({
+        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
+      });
+
+      expect(await screen.findByText(/sam@cairn.dev asked on/i)).toBeVisible();
+      expect(screen.getByText(/investigating an integration failure/i)).toBeVisible();
+      expect(screen.getByText(/decided .* by ali@acme.example.com/i)).toBeVisible();
+    });
+
+    it("lists what was actually opened, not only what was permitted", async () => {
+      // An approval is permission; the events are use. "Did they actually look"
+      // is the question a customer is asking.
+      renderTrust({
+        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
+      });
+
+      expect(await screen.findByText(/read 3 recorded activity statements/i)).toBeVisible();
+    });
+
+    it("distinguishes a live session from a finished one", async () => {
+      renderTrust({
+        listSupportSessions: vi.fn(() => Promise.resolve([{ ...SUPPORT_SESSION, active: true }])),
+      });
+
+      expect(await screen.findByText(/active now/i)).toBeVisible();
+    });
+
+    it("says a refusal was a refusal", async () => {
+      renderTrust({
+        listSupportSessions: vi.fn(() =>
+          Promise.resolve([{ ...SUPPORT_SESSION, status: "rejected" as const, active: false }]),
+        ),
+      });
+
+      expect(await screen.findByText(/^refused$/i)).toBeVisible();
+    });
+
+    it("shows an Owner the controls for a pending request", async () => {
+      renderTrust({
+        listSupportSessions: vi.fn(() =>
+          Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
+        ),
+      });
+
+      expect(await screen.findByRole("button", { name: /allow/i })).toBeVisible();
+      expect(screen.getByRole("button", { name: /refuse/i })).toBeVisible();
+    });
+
+    it("sends the decision", async () => {
+      const decideSupportSession = vi.fn(() => Promise.resolve(SUPPORT_SESSION));
+      renderTrust({
+        listSupportSessions: vi.fn(() =>
+          Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
+        ),
+        decideSupportSession,
+      });
+
+      await userEvent.click(await screen.findByRole("button", { name: /allow/i }));
+
+      expect(decideSupportSession).toHaveBeenCalledWith(WORKSPACE, SUPPORT_SESSION.id, true);
+    });
+
+    it("offers ending access while a session is live", async () => {
+      const revokeSupportSession = vi.fn(() => Promise.resolve(SUPPORT_SESSION));
+      renderTrust({
+        listSupportSessions: vi.fn(() => Promise.resolve([{ ...SUPPORT_SESSION, active: true }])),
+        revokeSupportSession,
+      });
+
+      await userEvent.click(await screen.findByRole("button", { name: /end access now/i }));
+
+      expect(revokeSupportSession).toHaveBeenCalledWith(WORKSPACE, SUPPORT_SESSION.id);
+    });
+
+    it.each(["member", "viewer"] as const)(
+      "shows a %s the record and no controls",
+      async (role) => {
+        // Every member can read who looked at their workspace; deciding is an
+        // Owner or Admin action, and a control that always fails teaches a
+        // reader the product is broken.
+        renderTrust(
+          {
+            listSupportSessions: vi.fn(() =>
+              Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
+            ),
+          },
+          role,
+        );
+
+        expect(await screen.findByText(/sam@cairn.dev asked on/i)).toBeVisible();
+        expect(screen.queryByRole("button", { name: /allow/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /refuse/i })).not.toBeInTheDocument();
+      },
+    );
+
+    it("does not claim a revocation was the reader's doing", async () => {
+      // "Ended by you" is false for every member who did not end it — including
+      // the colleague reading the record afterwards.
+      renderTrust({
+        listSupportSessions: vi.fn(() =>
+          Promise.resolve([
+            {
+              ...SESSION,
+              status: "revoked" as const,
+              active: false,
+              revokedAt: "2026-08-12T09:20:00Z",
+            },
+          ]),
+        ),
+      });
+
+      expect(await screen.findByText(/^ended early$/i)).toBeVisible();
+      expect(screen.queryByText(/ended by you/i)).not.toBeInTheDocument();
+    });
+
+    it("states the approved scope, expiry and break-glass state", async () => {
+      renderTrust({
+        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
+      });
+
+      const entry = await screen.findByText(/approved for settings and diagnostics/i);
+      expect(entry).toBeVisible();
+      expect(entry).toHaveTextContent(/ends /i);
+      // Break-glass is false, so the line must not appear at all rather than
+      // saying "not emergency access".
+      expect(screen.queryByText(/emergency access/i)).not.toBeInTheDocument();
+    });
+
+    it("says so when a decision cannot be recorded", async () => {
+      renderTrust({
+        listSupportSessions: vi.fn(() =>
+          Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
+        ),
+        decideSupportSession: vi.fn(() => Promise.reject(apiError(422))),
+      });
+
+      await userEvent.click(await screen.findByRole("button", { name: /allow/i }));
+
+      expect(await screen.findByRole("alert")).toBeVisible();
+    });
+
+    it("passes an axe audit with the controls on screen", async () => {
+      const { container } = renderTrust({
+        listSupportSessions: vi.fn(() =>
+          Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
+        ),
+      });
+      await screen.findByRole("button", { name: /allow/i });
+
+      await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+    });
+
+    it("passes an axe audit with sessions on screen", async () => {
+      const { container } = renderTrust({
+        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
+      });
+      await screen.findByRole("heading", { name: /when cairn staff have looked/i });
+
+      await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+    });
   });
 });

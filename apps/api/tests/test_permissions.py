@@ -145,6 +145,11 @@ class TestSymmetryInvariants:
             "members.",
             "integrations.",
             "projects.",
+            # Deciding whether CAIRN staff may open this workspace is a
+            # configuration power, not a visibility one: it grants an Owner
+            # nothing extra to see, and the record of what was decided is
+            # readable by every member including Viewers (md/15 §5.2).
+            "support_session.",
         )
         for permission in extra:
             assert permission.value.startswith(configuration_prefixes), (

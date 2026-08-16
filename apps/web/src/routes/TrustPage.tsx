@@ -1,11 +1,13 @@
 "use client";
 
-import type { Trust } from "@cairn/api-client";
+import type { SupportSession, Trust } from "@cairn/api-client";
 import Link from "next/link";
-import { useCallback, type ReactNode } from "react";
+import { Button } from "@cairn/ui";
+import { useCallback, useState, type ReactNode } from "react";
 
 import { useApiClient } from "../api/context.js";
 import { useAuth } from "../auth/context.js";
+import { describeError, type DescribedError } from "../errors.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { useAsync } from "../hooks/useAsync.js";
@@ -162,6 +164,8 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
         </dl>
       </section>
 
+      <SupportHistory workspaceId={workspaceId} />
+
       <section className={styles.section} aria-labelledby="subprocessors">
         <h2 className={styles.heading} id="subprocessors">
           Who else sees it
@@ -181,4 +185,224 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
       </section>
     </>
   );
+}
+
+/**
+ * Who at CAIRN has asked to look at this workspace, and what they opened.
+ *
+ * Queried records, never reassurance: a page that says "our staff cannot see
+ * your data" is worth less than one that lists the four times they asked and
+ * what the workspace said (md/15 §5.2).
+ *
+ * Visible to every member, including Viewers. A record only managers can read
+ * is one the people it concerns have to take on trust.
+ */
+function SupportHistory({ workspaceId }: { workspaceId: string }): ReactNode {
+  const client = useApiClient();
+  const load = useCallback(
+    (signal: AbortSignal): Promise<SupportSession[]> =>
+      client.listSupportSessions(workspaceId, { signal }),
+    [client, workspaceId],
+  );
+  const { state, reload } = useAsync(load, "load the support history");
+
+  if (state.status === "loading") return <LoadingState label="the support history" lines={2} />;
+  if (state.status === "failed") {
+    return (
+      <section className={styles.section} aria-labelledby="support">
+        <h2 className={styles.heading} id="support">
+          When CAIRN staff have looked
+        </h2>
+        <ErrorState
+          title="The support history could not be loaded"
+          error={state.error}
+          onRetry={reload}
+        />
+      </section>
+    );
+  }
+
+  const sessions = state.data;
+
+  return (
+    <section className={styles.section} aria-labelledby="support">
+      <h2 className={styles.heading} id="support">
+        When CAIRN staff have looked
+      </h2>
+
+      {sessions.length === 0 ? (
+        <p className={styles.lead}>
+          Nobody at CAIRN has asked to look at this workspace. If they ever do, they have to ask an
+          Owner or an Admin first, the access ends by itself, and it appears here whether or not you
+          approve it.
+        </p>
+      ) : (
+        <>
+          <p className={styles.lead}>
+            Every request is listed, approved or not. CAIRN staff cannot grant themselves access,
+            and access ends by itself.
+          </p>
+          <ul className={styles.sources}>
+            {sessions.map((session) => (
+              <li key={session.id} className={styles.source}>
+                <div className={styles.sourceHeader}>
+                  <span className={styles.sourceName}>{describe(session)}</span>
+                  <span className={session.active ? styles.on : styles.off}>
+                    {session.active ? "Active now" : outcome(session)}
+                  </span>
+                </div>
+                <p className={styles.sourceReads}>
+                  {session.requestedBy} asked on {formatDate(session.requestedAt)}. Reason:{" "}
+                  {session.reason}
+                  {session.decidedAt != null &&
+                    ` Decided ${formatDate(session.decidedAt)}${
+                      session.decidedBy != null ? ` by ${session.decidedBy}` : ""
+                    }.`}
+                  {session.approvedScope != null &&
+                    ` Approved for ${scopeName(session.approvedScope)}.`}
+                  {session.expiresAt != null && ` Ends ${formatDate(session.expiresAt)}.`}
+                  {session.revokedAt != null && ` Ended early on ${formatDate(session.revokedAt)}.`}
+                  {session.breakGlass && " This was emergency access."}
+                </p>
+
+                <Decision session={session} workspaceId={workspaceId} onChanged={reload} />
+                {(session.events ?? []).length > 0 && (
+                  <ul className={styles.refusals}>
+                    {(session.events ?? []).map((event, index) => (
+                      <li key={index}>
+                        {formatDate(event.occurredAt)} — {event.description}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** What was asked for, in the reader's terms rather than the enum's. */
+function describe(session: SupportSession): string {
+  return session.requestedScope === "activity_content"
+    ? "Access to your team's recorded work"
+    : "Access to settings and diagnostics";
+}
+
+/** The outcome, stated plainly. "Expired" is a fact about the clock, so it is
+ * derived here rather than read from a status that could be stale. */
+function outcome(session: SupportSession): string {
+  if (session.status === "pending") return "Waiting for a decision";
+  if (session.status === "rejected") return "Refused";
+  // Not "ended by you": an Owner or Admin ends access on the workspace's
+  // behalf, and the reader may be neither. Who did it is named in the line
+  // above, where it can be accurate.
+  if (session.status === "revoked") return "Ended early";
+  return "Ended";
+}
+
+function scopeName(scope: string): string {
+  return scope === "activity_content" ? "your team's recorded work" : "settings and diagnostics";
+}
+
+/**
+ * Approve, refuse, or end access.
+ *
+ * Shown only to a role that may actually decide. A control that always fails
+ * teaches a reader the product is broken; the API refuses regardless, so this
+ * is about not offering a dead end rather than about security.
+ */
+function Decision({
+  session,
+  workspaceId,
+  onChanged,
+}: {
+  session: SupportSession;
+  workspaceId: string;
+  onChanged: () => void;
+}): ReactNode {
+  const client = useApiClient();
+  const { activeRole } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<DescribedError | null>(null);
+
+  const mayDecide = activeRole === "owner" || activeRole === "admin";
+  const pending = session.status === "pending";
+  const live = session.active;
+
+  if (!mayDecide || (!pending && !live)) return null;
+
+  async function run(action: () => Promise<unknown>, verb: string): Promise<void> {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await action();
+      onChanged();
+    } catch (error: unknown) {
+      setProblem(describeError(error, verb));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={styles.decision}>
+      {pending ? (
+        <>
+          <Button
+            size="sm"
+            variant="primary"
+            loading={busy}
+            onClick={() => {
+              void run(
+                () => client.decideSupportSession(workspaceId, session.id, true),
+                "approve this request",
+              );
+            }}
+          >
+            Allow
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={busy}
+            onClick={() => {
+              void run(
+                () => client.decideSupportSession(workspaceId, session.id, false),
+                "refuse this request",
+              );
+            }}
+          >
+            Refuse
+          </Button>
+        </>
+      ) : (
+        <Button
+          size="sm"
+          variant="secondary"
+          loading={busy}
+          onClick={() => {
+            void run(() => client.revokeSupportSession(workspaceId, session.id), "end this access");
+          }}
+        >
+          End access now
+        </Button>
+      )}
+
+      {problem !== null && (
+        <p className={styles.problem} role="alert">
+          {problem.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function formatDate(value: string): string {
+  return new Date(value).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
