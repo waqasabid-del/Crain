@@ -21,12 +21,14 @@ interface, because a confirmation dialog is a suggestion and a 422 is not.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from cairn_api.api.dependencies import (
@@ -47,9 +49,10 @@ from cairn_api.api.schemas import (
     RoleUpdate,
 )
 from cairn_api.auth.permissions import Permission
+from cairn_api.db.connector_models import SourceConnection
 from cairn_api.db.consent_models import SourceOptOut
 from cairn_api.db.github_models import GitHubInstallation
-from cairn_api.db.models import Membership, Tenant, TenantRole
+from cairn_api.db.models import Membership, Tenant, TenantRole, User
 from cairn_api.pipeline import consent
 
 logger = structlog.get_logger(__name__)
@@ -282,17 +285,68 @@ async def list_integrations(context: CurrentMembership, db: TenantDb) -> list[In
         )
     )
 
-    return [
-        IntegrationResponse(
-            source="github",
-            account=installation.account_login,
-            installation_id=installation.installation_id,
-            connected_at=installation.created_at,
-            disconnected_at=installation.uninstalled_at,
-            suspended=installation.suspended_at is not None,
+    # The connector record, keyed by the provider's installation identifier.
+    # Read alongside rather than instead of the installation: the installation
+    # is still the authority on whether GitHub is connected, and the connector
+    # carries what Step 31 added on top — scopes, health, last successful sync,
+    # and who authorised it. Anything it does not know stays null, and the
+    # interface omits the row rather than inventing one.
+    connections = {
+        connection.installation_id: connection
+        for connection in await db.scalars(
+            select(SourceConnection).where(SourceConnection.tenant_id == context.tenant_id)
         )
-        for installation in installations
-    ]
+    }
+
+    authorisers = await _authoriser_emails(db, connections.values())
+
+    responses: list[IntegrationResponse] = []
+    for installation in installations:
+        connection = connections.get(str(installation.installation_id))
+        authorised_by = (
+            authorisers.get(connection.authorised_by_user_id)
+            if connection is not None and connection.authorised_by_user_id is not None
+            else None
+        )
+        responses.append(
+            IntegrationResponse(
+                source="github",
+                account=installation.account_login,
+                installation_id=installation.installation_id,
+                connected_at=installation.created_at,
+                disconnected_at=installation.uninstalled_at,
+                suspended=installation.suspended_at is not None,
+                scopes=list(connection.scopes) if connection is not None else [],
+                health=connection.health.value if connection is not None else None,
+                last_successful_sync_at=(
+                    connection.last_successful_sync_at if connection is not None else None
+                ),
+                authorised_by=authorised_by,
+                revoked_at=connection.revoked_at if connection is not None else None,
+            )
+        )
+    return responses
+
+
+async def _authoriser_emails(
+    db: AsyncSession, connections: Iterable[SourceConnection]
+) -> dict[uuid.UUID, str]:
+    """Name whoever authorised each connection.
+
+    Resolved in one query rather than per row, and only for connections that
+    actually record an authoriser — most do not yet, because the column is newer
+    than the installations it describes.
+    """
+    ids = {
+        connection.authorised_by_user_id
+        for connection in connections
+        if connection.authorised_by_user_id is not None
+    }
+    if not ids:
+        return {}
+
+    found = await db.execute(select(User.id, User.email).where(User.id.in_(ids)))
+    return {row[0]: row[1] for row in found.all()}
 
 
 @router.delete(

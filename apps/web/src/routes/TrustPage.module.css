@@ -78,6 +78,17 @@
   color: var(--fg-muted);
 }
 
+/* One card per connection, stacked. The catalogue above is a ruled list because
+   each entry is a sentence; a connection is an object with a record attached. */
+.connections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .refusals {
   margin: 0;
   padding-left: var(--space-5);

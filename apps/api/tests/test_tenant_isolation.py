@@ -363,6 +363,39 @@ class TestRowLevelSecurity:
             # can mark it processed. No INSERT: a scoped session that could
             # create a delivery could forge activity for its own workspace.
             "webhook_deliveries": {"SELECT", "UPDATE"},
+            # Read-only, for exactly the reason `github_installations` is.
+            # Every write is platform-side: the connect endpoint runs on the
+            # platform connection, and the trigger that projects an
+            # installation onto a connection runs inside that same statement.
+            # INSERT would let a scoped session register a connection and start
+            # receiving another organisation's activity; UPDATE would let it
+            # rewrite `installation_id` and take over an existing one — the
+            # same shape as the `memberships` INSERT that was revoked after it
+            # was shown to leak. Nothing in production performs a scoped write
+            # here, so any wider grant would be an unused privilege, and an
+            # unused privilege is the one an injection gets to use first.
+            "source_connections": {"SELECT"},
+            # SELECT, INSERT, DELETE — the `source_opt_outs` set, and chosen for
+            # the same reason. The presence of a row *is* the permission to read
+            # a Slack channel, so there is no mutable state to UPDATE:
+            # selecting inserts, deselecting deletes. Granting UPDATE would add
+            # a privilege nothing uses, and the one operation it would enable is
+            # rewriting `channel_id` on an existing row — turning a permission
+            # somebody granted for one conversation into a permission for
+            # another, with the consent columns still naming the person who
+            # never agreed to it.
+            #
+            # Both writes run from inside tenant context: an admin acting on
+            # their own workspace, where the policy's WITH CHECK stops a scoped
+            # session writing another tenant's row. That is what makes INSERT
+            # safe here where it is not on `source_connections` — those are
+            # written platform-side, before any tenant is known.
+            "slack_channel_selections": {"SELECT", "INSERT", "DELETE"},
+            #
+            # `slack_oauth_states` is deliberately **absent** from this list: it
+            # has no grant at all, and `test_the_slack_install_state_is_
+            # unreachable_from_the_application_role` below asserts that rather
+            # than leaving it as something a reader has to notice is missing.
             # Full DML, unlike the GitHub tables above. Attribution runs on a
             # worker that already knows which workspace it is processing, so
             # these are written from *within* tenant context — and the policy's
@@ -450,6 +483,72 @@ class TestRowLevelSecurity:
             with pytest.raises(DBAPIError):
                 await session.execute(text(f"SELECT count(*) FROM {table}"))  # noqa: S608
             await session.rollback()
+
+    async def test_the_slack_install_state_is_unreachable_from_the_application_role(
+        self, session: AsyncSession, two_tenants: tuple[Tenant, Tenant]
+    ) -> None:
+        """The OAuth nonce table is platform-only, like the auth tables.
+
+        Stated as its own test because "no grant" is invisible in the allow-list
+        above — a table with no privileges simply does not appear, which is
+        indistinguishable from a table somebody forgot to add. Here the absence
+        is asserted, so restoring a grant fails a test rather than passing
+        review.
+
+        Why it must stay platform-only: the Slack callback URL is registered once
+        and carries no workspace, so the row is read with no tenant context to
+        scope to. A scoped session that could **write** here would mint an
+        install state for its own workspace; one that could **update** here could
+        clear `consumed_at` and replay a callback, which is precisely the
+        single-use property the whole flow rests on. Row-level security is
+        enabled and forced on the table as well — the grant is the outer door,
+        the policy is the inner one.
+        """
+        acme, _ = two_tenants
+        await set_tenant_context(session, acme.id)
+
+        with pytest.raises(DBAPIError, match="permission denied"):
+            await session.execute(text("SELECT count(*) FROM slack_oauth_states"))
+        await session.rollback()
+
+        await set_tenant_context(session, acme.id)
+        with pytest.raises(DBAPIError, match="permission denied"):
+            await session.execute(
+                text(
+                    "INSERT INTO slack_oauth_states "
+                    "(tenant_id, initiated_by_user_id, state_hash, expires_at) "
+                    "VALUES (:t, :u, 'chosen-hash', now() + interval '10 minutes')"
+                ),
+                {"t": str(acme.id), "u": str(uuid.uuid4())},
+            )
+
+    async def test_cannot_plant_a_channel_selection_into_another_tenant(
+        self, session: AsyncSession, two_tenants: tuple[Tenant, Tenant]
+    ) -> None:
+        """A selection row is a permission to read a conversation.
+
+        Writing one into another workspace would let a session scoped to Tenant A
+        turn on Slack ingestion for Tenant B's channel — and the consent columns
+        would name whoever the attacker chose. The WITH CHECK clause is what
+        makes granting INSERT on this table safe at all, so it is asserted
+        directly rather than assumed from the policy's text.
+        """
+        acme, globex = two_tenants
+        await set_tenant_context(session, acme.id)
+
+        with pytest.raises(DBAPIError, match="row-level security"):
+            await session.execute(
+                text("""
+                    INSERT INTO slack_channel_selections
+                        (tenant_id, connection_id, channel_id, selected_by_user_id)
+                    VALUES (:other, :connection, 'C0VICTIM01', :user)
+                """),
+                {
+                    "other": str(globex.id),
+                    "connection": str(uuid.uuid4()),
+                    "user": str(uuid.uuid4()),
+                },
+            )
 
     async def test_cannot_graft_a_foreign_user_into_this_tenant(
         self, session: AsyncSession, two_tenants: tuple[Tenant, Tenant]

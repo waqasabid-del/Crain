@@ -34,6 +34,20 @@ DEPLOYED: dict[str, object] = {
 }
 
 
+#: Slack credentials present and nothing proven — the state the connector gate
+#: exists to refuse to call `passed`.
+#:
+#: `slack_redirect_uri` is https because a deployed `Settings` refuses anything
+#: else: the install code arrives on that URL and is exchangeable for a
+#: workspace's bot token by whoever sees it first.
+SLACK_CONFIGURED: dict[str, object] = {
+    "slack_client_id": "A0000000000",
+    "slack_client_secret": "not-a-real-secret",
+    "slack_signing_secret": "not-a-real-secret",
+    "slack_redirect_uri": "https://app.example.com/v1/integrations/slack/callback",
+}
+
+
 def deployed(**overrides: object) -> Settings:
     return Settings.model_validate({**DEPLOYED, **overrides})
 
@@ -75,7 +89,9 @@ class TestNothingExternalIsEverClaimedProven:
         assert gate.status is GateStatus.UNVERIFIED
         assert gate.blocks_release
 
-    @pytest.mark.parametrize("name", ["github", "model", "email", "telemetry", "queue"])
+    @pytest.mark.parametrize(
+        "name", ["github", "model", "email", "telemetry", "queue", "connectors"]
+    )
     def test_every_blocking_gate_names_its_next_step(
         self, name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -181,6 +197,42 @@ class TestTheAuditSinkStaysHonest:
 
         assert "immutable" in gate.next_step
         assert "customer-verifiable" in gate.next_step
+
+
+class TestTheConnectorGateCannotPass:
+    """Slack and Google Chat arrive in Step 32; this gate arrives first.
+
+    Written before the connectors so that the first thing anybody can say about
+    them is bounded by evidence. Every input the gate has is configuration — a
+    client id, a signing secret, a service account — and none of them is a
+    delivery, so `PASSED` is unreachable by construction rather than by accident.
+    The detailed assertions live in `test_connector_ops.py`; these two pin the
+    gate's place in the release list.
+    """
+
+    def test_it_is_evaluated_with_the_others(self) -> None:
+        assert "connectors" in {gate.name for gate in evaluate_release_gates(Settings())}
+
+    def test_no_configuration_makes_it_pass(self) -> None:
+        for settings in (Settings(), deployed(queue_backend="postgres")):
+            assert gate_named("connectors", settings).status is not GateStatus.PASSED
+
+    def test_configured_slack_is_manual_and_still_blocks(self) -> None:
+        """The Step 32 case, stated where the release list is assembled.
+
+        Three Slack environment variables can all be correct while the app is
+        not installed, while the Events API Request URL was never verified, or —
+        most often — while the bot has never been invited to a channel. Every
+        configuration check passes in that state and no event has ever arrived,
+        so `MANUAL` is the strongest honest answer and it blocks exactly as
+        firmly as `BLOCK`.
+        """
+        gate = gate_named("connectors", deployed(**SLACK_CONFIGURED))
+
+        assert gate.status is GateStatus.UNVERIFIED
+        assert gate.blocks_release
+        assert "slack" in gate.detail
+        assert "invite" in gate.next_step
 
 
 class TestTheHonestSummary:

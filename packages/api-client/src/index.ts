@@ -54,6 +54,21 @@ export type Notifications =
 export type SupportSession =
   paths["/v1/workspaces/{workspace_id}/support-sessions"]["get"]["responses"][200]["content"]["application/json"][number];
 
+/** Where to send a customer to authorise Slack, and when the link lapses. */
+export type SlackInstall =
+  paths["/v1/workspaces/{workspace_id}/integrations/slack/install"]["post"]["responses"][200]["content"]["application/json"];
+
+/** The public channels CAIRN could read, and which are already chosen. */
+export type SlackChannelList =
+  paths["/v1/workspaces/{workspace_id}/integrations/slack/channels"]["get"]["responses"][200]["content"]["application/json"];
+
+/** The selection the server confirmed — the only thing that may draw a tick. */
+export type SlackChannelSelection =
+  paths["/v1/workspaces/{workspace_id}/integrations/slack/channels"]["put"]["responses"][200]["content"]["application/json"];
+
+export type SlackDisconnect =
+  paths["/v1/workspaces/{workspace_id}/integrations/slack/disconnect"]["post"]["responses"][200]["content"]["application/json"];
+
 /**
  * How far a support session reaches.
  *
@@ -271,6 +286,33 @@ export interface CairnClient {
     sessionId: string,
     options?: RequestOptions,
   ): Promise<SupportSession>;
+
+  /** Begin connecting Slack. Returns where to send the customer.
+   *
+   * The API returns the authorise URL rather than redirecting, because the
+   * caller is a browser application making a credentialed request: a 302 to
+   * slack.com would be followed by `fetch`, not by the window, and the customer
+   * would never see the consent screen.
+   */
+  startSlackInstall(workspaceId: string, options?: RequestOptions): Promise<SlackInstall>;
+
+  /** The public channels CAIRN could read, and which are already chosen. */
+  listSlackChannels(workspaceId: string, options?: RequestOptions): Promise<SlackChannelList>;
+
+  /** Replace the whole selection.
+   *
+   * The full state, never a delta: a partial update makes "unselect everything"
+   * indistinguishable from "change nothing", and that is the direction where
+   * being wrong means reading a channel nobody chose.
+   */
+  setSlackChannels(
+    workspaceId: string,
+    channelIds: string[],
+    options?: RequestOptions,
+  ): Promise<SlackChannelSelection>;
+
+  /** Stop new collection and clear the stored credential. */
+  disconnectSlack(workspaceId: string, options?: RequestOptions): Promise<SlackDisconnect>;
   /** The caller and nobody else: there is deliberately no subject parameter, so
    * no administrator can label a colleague's role. */
   setWorkRole(
@@ -541,6 +583,38 @@ export function createClient(options: ClientOptions): CairnClient {
       request<SupportSession>(
         "POST",
         `/v1/workspaces/${workspaceId}/support-sessions/${sessionId}/revoke`,
+        undefined,
+        options,
+      ),
+
+    startSlackInstall: (workspaceId: string, options?: RequestOptions) =>
+      request<SlackInstall>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/integrations/slack/install`,
+        undefined,
+        options,
+      ),
+
+    listSlackChannels: (workspaceId: string, options?: RequestOptions) =>
+      request<SlackChannelList>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/integrations/slack/channels`,
+        undefined,
+        options,
+      ),
+
+    setSlackChannels: (workspaceId: string, channelIds: string[], options?: RequestOptions) =>
+      request<SlackChannelSelection>(
+        "PUT",
+        `/v1/workspaces/${workspaceId}/integrations/slack/channels`,
+        { channelIds },
+        options,
+      ),
+
+    disconnectSlack: (workspaceId: string, options?: RequestOptions) =>
+      request<SlackDisconnect>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/integrations/slack/disconnect`,
         undefined,
         options,
       ),

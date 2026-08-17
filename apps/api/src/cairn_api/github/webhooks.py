@@ -8,11 +8,22 @@ Delivery is not exactly-once — GitHub documents duplicates and gaps as
 normal — so the delivery ID is written with a unique constraint *before* the
 job is enqueued. The row is committed before enqueuing: acknowledging first
 would let a rollback erase work GitHub believes we already have.
+
+The ordering above is no longer GitHub's alone. It is the provider-neutral
+contract in `cairn_api.ingestion`, and this module is its first caller: the
+verifier, the account extractor and the delivery table below are the
+GitHub-specific parts, and everything between them — the size cap, the mint of a
+`VerifiedEvent`, the idempotency key, tenant resolution, the envelope, the
+correlation id — is shared with the Slack and Google Chat endpoints that arrive
+next. What is *not* shared is what a provider does with each refusal, which is
+why the responses are still assembled here.
 """
 
 from __future__ import annotations
 
+import json
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -32,13 +43,29 @@ from cairn_api.github.signatures import (
     SignatureError,
     verify,
 )
-from cairn_api.jobs.envelope import JobEnvelope
+from cairn_api.ingestion import (
+    IdempotencyKey,
+    InboundRequest,
+    Ingestor,
+    PayloadTooLargeError,
+    ResolvedTenant,
+    SourceMetadata,
+    SourceMetadataError,
+    UnknownAccountError,
+    VerificationError,
+    VerifiedEvent,
+    enqueue,
+    job_payload,
+    resolve_tenant,
+)
 from cairn_api.jobs.queue import Priority
-from cairn_api.telemetry import correlation
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+
+#: This provider's name in `SourceMetadata`, on spans, and in logs.
+PROVIDER = "github"
 
 #: GitHub caps payloads at 25 MB; capped lower here since an unauthenticated
 #: endpoint accepting the full 25 MB is an amplification vector and a
@@ -49,6 +76,114 @@ MAX_PAYLOAD_BYTES = 5 * 1024 * 1024
 #: decide whether *future* deliveries are processed, and deferring them would
 #: leave a window where a suspended installation's activity is still captured.
 LIFECYCLE_EVENTS = frozenset({"installation", "installation_repositories"})
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubInbound:
+    """GitHub's half of the ingestion contract: HMAC-SHA256, and two headers.
+
+    The whole provider-specific surface of this integration is here. Slack signs
+    a versioned string that includes a timestamp, and Google Chat sends a bearer
+    JWT — both are a different implementation of this same protocol, and neither
+    changes anything downstream of it.
+    """
+
+    secret: str
+
+    def verify(self, request: InboundRequest) -> None:
+        """Check the signature against the raw bytes."""
+        try:
+            verify(request.body, request.header(SIGNATURE_HEADER), self.secret)
+        except SignatureError as exc:
+            # Re-raised as the contract's error so the shared path does not
+            # import GitHub's exception type; the message is kept for the log.
+            raise VerificationError(str(exc)) from exc
+
+    def read_source(self, request: InboundRequest) -> SourceMetadata:
+        """Name the delivery, from headers only.
+
+        The account is not known yet: GitHub puts the installation id in the
+        body, which may only be read once the bytes above have verified. It is
+        attached in `_receive` via `VerifiedEvent.attributed_to`.
+        """
+        event_type = request.header(EVENT_HEADER)
+        delivery_id = request.header(DELIVERY_HEADER)
+        if not event_type or not delivery_id:
+            msg = "A delivery must carry both an event type and a delivery id"
+            raise SourceMetadataError(msg)
+
+        return SourceMetadata(
+            provider=PROVIDER, event_type=event_type, external_event_id=delivery_id
+        )
+
+    def idempotency_key(self, request: InboundRequest, source: SourceMetadata) -> IdempotencyKey:
+        """`X-GitHub-Delivery`, unchanged.
+
+        GitHub reuses the GUID on every retry of a delivery, which is exactly
+        the property an idempotency key needs, so nothing is derived. Providers
+        without one fall back to `IdempotencyKey.derive`.
+        """
+        if source.external_event_id is None:  # pragma: no cover - read_source guarantees it
+            msg = "A GitHub delivery must carry a delivery id"
+            raise SourceMetadataError(msg)
+        return IdempotencyKey.from_provider(source.external_event_id)
+
+
+class _InstallationResolver:
+    """Tenant from installation id, via the mapping the connect flow wrote.
+
+    The row is kept after resolution because a lifecycle event has to be applied
+    to an installation that is suspended, uninstalled, or otherwise not eligible
+    to have work enqueued for it — and looking it up twice inside a ten-second
+    budget is a cost with no benefit.
+    """
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+        self.installation: GitHubInstallation | None = None
+
+    async def resolve(self, source: SourceMetadata) -> ResolvedTenant | None:
+        if source.external_account_id is None:
+            return None
+
+        try:
+            installation_id = int(source.external_account_id)
+        except ValueError:  # pragma: no cover - only an int reaches this today
+            return None
+
+        self.installation = await self._db.scalar(
+            select(GitHubInstallation).where(GitHubInstallation.installation_id == installation_id)
+        )
+        if self.installation is None:
+            return None
+
+        return ResolvedTenant(
+            tenant_id=self.installation.tenant_id,
+            external_account_id=source.external_account_id,
+            active=self.installation.is_active,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _DeliveryLedger:
+    """GitHub's idempotency record — `webhook_deliveries` (md/01 §4.1)."""
+
+    db: AsyncSession
+    payload: dict[str, Any]
+    installation_id: int
+    status: DeliveryStatus = DeliveryStatus.ACCEPTED
+
+    async def claim(self, event: VerifiedEvent, tenant: ResolvedTenant) -> bool:
+        return await _record_delivery(
+            self.db,
+            tenant_id=tenant.tenant_id,
+            delivery_id=event.idempotency_key.value,
+            event_type=event.source.event_type,
+            action=_action_of(self.payload),
+            installation_id=self.installation_id,
+            payload=self.payload,
+            status=self.status,
+        )
 
 
 @router.post(
@@ -76,31 +211,31 @@ async def receive_github_webhook(
     Excluded from the OpenAPI schema: it's GitHub's interface, not the
     frontend's, and publishing it would put this unauthenticated write path
     into the generated client.
+
+    The headers are declared as parameters purely so the rejection path can name
+    the delivery that was refused; verification reads them from the raw request,
+    because a framework-coerced value is not what the signature covered.
     """
-    # The true entry point of everything that follows. Started here, before the
-    # signature check, so a rejected delivery is greppable too; bound into the
-    # logging context, inherited by the envelope published below, and carried
-    # from there through the queue into the worker and the brief. Unscoped is
-    # safe: `api/middleware.py` clears the logging context per request, and each
-    # request runs in its own task with its own copy of the context.
-    correlation.begin()
+    ingestor = Ingestor(
+        name=PROVIDER,
+        provider=GitHubInbound(secret=settings.github_webhook_secret),
+        max_body_bytes=MAX_PAYLOAD_BYTES,
+    )
 
-    body = await request.body()
+    inbound = InboundRequest(body=await request.body(), headers=dict(request.headers))
 
-    # Size check before signature: HMAC over an unbounded body is the
-    # amplification this check exists to prevent.
-    if len(body) > MAX_PAYLOAD_BYTES:
+    try:
+        # Correlation id, size cap and signature, in that order — see
+        # `ingestion/receipt.py`, where the order and its reasons live.
+        event = ingestor.accept(inbound)
+    except PayloadTooLargeError as exc:
         raise ProblemDetailError(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             title="Payload too large",
             detail=f"Webhook payloads are limited to {MAX_PAYLOAD_BYTES} bytes.",
             problem_type="payload-too-large",
-        )
-
-    # Verify before parsing: the signature covers these exact bytes.
-    try:
-        verify(body, signature, settings.github_webhook_secret)
-    except SignatureError as exc:
+        ) from exc
+    except VerificationError as exc:
         await logger.awarning(
             "github.webhook_rejected",
             reason=str(exc),
@@ -108,19 +243,35 @@ async def receive_github_webhook(
             delivery_id=delivery_id,  # GitHub's ID, safe to log; the payload isn't
         )
         raise _unauthorised() from exc
-
-    if not delivery_id or not event_type:
+    except SourceMetadataError as exc:
         # Rejected after verification, not before, so header absence can't be
         # used to probe.
-        raise _unauthorised()
+        raise _unauthorised() from exc
 
-    payload: dict[str, Any] = await request.json()
+    return await _receive(event, request=request, response=response, db=db)
+
+
+async def _receive(
+    event: VerifiedEvent, *, request: Request, response: Response, db: AsyncSession
+) -> dict[str, str]:
+    """Everything after verification: attribute, record, enqueue.
+
+    Split from the endpoint so the request-shaped concerns — headers, status
+    codes, problem documents — stay in one place and this reads as the sequence
+    md/01 §4.1 describes.
+    """
+    delivery_id = event.idempotency_key.value
+    event_type = event.source.event_type
 
     # `ping` arrives before any installation exists; answered before tenant
     # resolution so a correctly configured app doesn't show a failed test delivery.
     if event_type == "ping":
         await logger.ainfo("github.ping", delivery_id=delivery_id)
         return {"status": "pong"}
+
+    # Decoded only now, and only because verification has already passed on the
+    # exact bytes this parses.
+    payload: dict[str, Any] = json.loads(event.body)
 
     installation_id = _installation_id_from(payload)
     if installation_id is None:
@@ -132,60 +283,57 @@ async def receive_github_webhook(
         # 202, not an error: retrying wouldn't add an installation ID anyway.
         return {"status": "ignored"}
 
-    installation = await db.scalar(
-        select(GitHubInstallation).where(GitHubInstallation.installation_id == installation_id)
-    )
+    # The account identifier comes from the verified body's `installation.id`
+    # and is looked up against the mapping an authenticated connect flow wrote.
+    # Nothing else in the payload can influence which workspace this becomes:
+    # a body claiming `tenant_id`, `org` or `account` is data, not authority.
+    event = event.attributed_to(str(installation_id))
+    resolver = _InstallationResolver(db)
+    try:
+        tenant: ResolvedTenant | None = await resolve_tenant(resolver, event.source)
+    except UnknownAccountError:
+        # Refused rather than guessed: there is no default workspace, and
+        # picking one would bind a stranger's activity to a customer.
+        tenant = None
 
     if event_type in LIFECYCLE_EVENTS:
-        await _apply_lifecycle(db, installation, payload)
+        await _apply_lifecycle(db, resolver.installation, payload)
         await db.commit()
         return {"status": "accepted"}
 
-    if installation is None or not installation.is_active:
+    if tenant is None or not tenant.active:
         # Unknown, suspended or uninstalled: not enqueued, since capturing
         # activity for a switched-off integration is a consent problem.
         # Recorded only when there's a tenant to attribute the row to —
         # `tenant_id` is not nullable, so an unknown installation is just logged.
-        if installation is not None:
-            await _record_delivery(
-                db,
-                tenant_id=installation.tenant_id,
-                delivery_id=delivery_id,
-                event_type=event_type,
-                action=payload.get("action"),
-                installation_id=installation_id,
+        if tenant is not None:
+            ledger = _DeliveryLedger(
+                db=db,
                 payload=payload,
+                installation_id=installation_id,
                 status=DeliveryStatus.UNCLAIMED,
             )
+            await ledger.claim(event, tenant)
             await db.commit()
 
         await logger.ainfo(
             "github.delivery_unclaimed",
             installation_id=installation_id,
             event_type=event_type,
-            known=installation is not None,
-            recorded=installation is not None,
+            known=tenant is not None,
+            recorded=tenant is not None,
         )
         return {"status": "unclaimed"}
 
-    recorded = await _record_delivery(
-        db,
-        tenant_id=installation.tenant_id,
-        delivery_id=delivery_id,
-        event_type=event_type,
-        action=payload.get("action"),
-        installation_id=installation_id,
-        payload=payload,
-    )
-
-    if not recorded:
+    ledger = _DeliveryLedger(db=db, payload=payload, installation_id=installation_id)
+    if not await ledger.claim(event, tenant):
         # Unique constraint rejected it: a GitHub redelivery we already hold.
         # Acknowledge without re-enqueuing to avoid processing it twice.
         await logger.ainfo(
             "github.duplicate_delivery",
             delivery_id=delivery_id,
             event_type=event_type,
-            tenant_id=str(installation.tenant_id),
+            tenant_id=str(tenant.tenant_id),
         )
         response.status_code = status.HTTP_200_OK
         return {"status": "duplicate"}
@@ -193,13 +341,14 @@ async def receive_github_webhook(
     # Commit before enqueuing — GitHub never re-sends an acknowledged delivery.
     await db.commit()
 
-    queue = request.app.state.queue
-    await queue.publish(
-        JobEnvelope(
-            job_type=GITHUB_DELIVERY_JOB,
-            tenant_id=installation.tenant_id,
-            payload={"delivery_id": delivery_id},
-        ),
+    # The shared enqueue: one `JobEnvelope`, on the one queue, carrying the
+    # correlation id minted at receipt and the active trace.
+    await enqueue(
+        request.app.state.queue,
+        event,
+        tenant,
+        job_type=GITHUB_DELIVERY_JOB,
+        payload=job_payload(event),
         priority=Priority.STANDARD,
     )
 
@@ -207,8 +356,8 @@ async def receive_github_webhook(
         "github.delivery_accepted",
         delivery_id=delivery_id,
         event_type=event_type,
-        action=payload.get("action"),
-        tenant_id=str(installation.tenant_id),
+        action=_action_of(payload),
+        tenant_id=str(tenant.tenant_id),
     )
     return {"status": "accepted"}
 
@@ -222,6 +371,17 @@ def _unauthorised() -> ProblemDetailError:
         detail="The request signature could not be verified.",
         problem_type="invalid-signature",
     )
+
+
+def _action_of(payload: dict[str, Any]) -> str | None:
+    """The payload's `action`, if it has one and it is a string.
+
+    Type-checked rather than taken: it is written to a `String(64)` column and
+    logged, and a payload whose `action` is an object would fail the insert for
+    every delivery of that event type.
+    """
+    action = payload.get("action")
+    return action if isinstance(action, str) else None
 
 
 def _installation_id_from(payload: dict[str, Any]) -> int | None:

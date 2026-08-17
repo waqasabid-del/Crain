@@ -1,0 +1,204 @@
+/*
+ * Which channels CAIRN reads.
+ *
+ * Sits inside a connection card, so it borrows that card's spacing scale and
+ * marks itself off with a rule rather than a second border — a box inside a box
+ * reads as two separate records rather than as one with a detail attached.
+ */
+.picker {
+  padding-top: var(--space-4);
+  border-top: var(--border-thin) solid var(--border-subtle);
+}
+
+.heading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+/* The answer to "what is CAIRN reading", so it is set at full strength rather
+   than in the muted grey used for supporting prose. */
+.summary {
+  max-width: 62ch;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-default);
+}
+
+.trigger {
+  margin-top: var(--space-3);
+}
+
+.panel {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-thin) solid var(--border-interactive);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
+/*
+ * The invite rule and the no-history rule.
+ *
+ * Full-strength text, not a muted aside: without the first of these somebody
+ * selects four channels, sees nothing arrive and concludes the product is
+ * broken. It is the most load-bearing sentence in this component and it is not
+ * set in the quietest colour available.
+ */
+.rule {
+  max-width: 62ch;
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--fg-default);
+}
+
+.count {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+/* A fieldset with no chrome: the border and padding a browser puts on one would
+   draw a second box inside the panel, and the legend is visually hidden because
+   the heading above already names this list on screen. */
+.group {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.list {
+  /* Long workspaces scroll inside the panel rather than pushing the card's own
+     controls off the bottom of the screen. */
+  max-height: 22rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+/*
+ * One channel.
+ *
+ * A three-column grid so the note wraps under the name rather than under the
+ * checkbox, and `--min-target` on the row so the tap target clears 44px however
+ * short the name is (WCAG 2.5.8).
+ */
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 var(--space-3);
+  align-items: center;
+  min-height: var(--min-target);
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-thin) solid var(--border-subtle);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.checkbox {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0;
+  /* The control's own outline is information required to identify it, so WCAG
+     1.4.11 asks 3:1 of it — `--border-default` is deliberately below that and is
+     for decoration only. */
+  accent-color: var(--fg-default);
+}
+
+.channelName {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  /* A channel name can be a long unbroken string; at 320px it must wrap rather
+     than push the page sideways (WCAG 1.4.10). */
+  overflow-wrap: anywhere;
+  /* The whole row height is the label's hit area, not just the text. */
+  padding: var(--space-2) 0;
+  cursor: pointer;
+}
+
+/* Second row of the grid, under the name and clear of the checkbox column. */
+.rowNote {
+  grid-column: 2;
+  max-width: 62ch;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+
+.empty {
+  max-width: 62ch;
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+/* Read-only readers get the list itself. What CAIRN reads from their workspace
+   is a fact about their own messages, and a count they cannot expand is one they
+   have to take on trust. */
+.readOnlyList {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--fg-default);
+}
+
+.readOnly {
+  max-width: 62ch;
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+.problem {
+  margin-top: var(--space-3);
+}
+
+/* Loading ------------------------------------------------------------------ */
+
+/*
+ * The same height as the summary and trigger it stands in for, so the card does
+ * not resize under the reader's cursor when the channels land.
+ */
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 4.5rem;
+  padding-top: var(--space-4);
+  border-top: var(--border-thin) solid var(--border-subtle);
+}
+
+.skeletonLine {
+  height: 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+}
+
+.skeletonLine:nth-child(3) {
+  width: 42%;
+}
+
+/* A fade, not a travelling shimmer: motion across the viewport is precisely what
+   vestibular disorders react to. */
+@media (prefers-reduced-motion: no-preference) {
+  .skeletonLine {
+    animation: channel-pulse 1.6s var(--easing-standard) infinite;
+  }
+}
+
+@keyframes channel-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
+}

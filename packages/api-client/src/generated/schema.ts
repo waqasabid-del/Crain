@@ -229,6 +229,45 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/integrations/slack/callback": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Finish connecting a Slack workspace
+     * @description Where Slack sends the customer back.
+     *
+     *     **Any ``error`` parameter is a failed install.** Slack's documentation does
+     *     not state verbatim which value comes back when somebody presses Cancel, so
+     *     this does not compare against the literal ``access_denied`` — an equality
+     *     check that missed would fall through to "exchange the code" with no code, and
+     *     the customer would see a parse failure instead of "you declined". Presence is
+     *     the condition; the value is read for categorisation and then discarded.
+     *
+     *     The order of the checks is the security property. The state is claimed —
+     *     atomically, single-use — *before* anything is exchanged, so a replayed
+     *     callback fails on the second attempt whether or not the first one worked.
+     *     Then the caller is proved to still be a member of the state's workspace with
+     *     permission to connect, so a leaked state cannot be redeemed by anyone else.
+     *     Only then is the code sent to Slack.
+     *
+     *     Redirects rather than returning JSON, because the thing following this URL is
+     *     a browser mid-navigation, and the destination is built from
+     *     ``public_app_url`` rather than from the request — the same rule as
+     *     verification links, for the same reason.
+     */
+    get: operations["finish_install_v1_integrations_slack_callback_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/internal/audit": {
     parameters: {
       query?: never;
@@ -265,6 +304,36 @@ export interface paths {
      *     answer that requires database access is one only staff can produce.
      */
     get: operations["verify_audit_log_v1_internal_audit_verify_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/operations/connectors": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Whether each source is delivering
+     * @description Per-source health, answered without reading anything a source delivered.
+     *
+     *     Step 32 adds Slack and Google Chat, at which point "is ingestion working"
+     *     stops being one number and becomes a per-provider question. The tempting way
+     *     to answer it is to look at what came in; that is the one thing an operator
+     *     may never do, so every figure here is a count, an age or a category from a
+     *     closed set.
+     *
+     *     Platform-wide and naming no workspace, like the other operations surfaces.
+     *     A per-workspace view of what a customer is producing is a support session's
+     *     business, not a dashboard's.
+     */
+    get: operations["connector_health_v1_internal_operations_connectors_get"];
     put?: never;
     post?: never;
     delete?: never;
@@ -915,6 +984,117 @@ export interface paths {
      *     they had removed an access grant that is still live on GitHub's side.
      */
     delete: operations["disconnect_github_v1_workspaces__workspace_id__integrations_github__installation_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/integrations/slack/channels": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List public channels CAIRN could read
+     * @description The picker's contents: every non-archived public channel, and its state.
+     *
+     *     Gated on `INTEGRATIONS_CONNECT` — Owner and Admin — rather than on plain
+     *     membership. This is the one endpoint in the API that returns Slack channel
+     *     names, and the people who may see the list are the people who may change what
+     *     CAIRN reads. A Member gains nothing from a list they cannot act on.
+     *
+     *     ``bot_is_member`` is carried through untouched because it is the field that
+     *     makes the screen honest: selecting a channel the app has not been invited to
+     *     produces a permission that delivers nothing, forever, with no error anywhere.
+     */
+    get: operations["list_channels_v1_workspaces__workspace_id__integrations_slack_channels_get"];
+    /**
+     * Choose which public channels CAIRN may process
+     * @description Replace the selection with exactly these channels.
+     *
+     *     ``PUT`` rather than ``POST``, and a replace rather than a merge, because the
+     *     body is the full state of a set of checkboxes. A merge would make unchecking
+     *     a box do nothing — and the box being unchecked is somebody withdrawing
+     *     permission for CAIRN to read a conversation, which is the single operation on
+     *     this endpoint that must not silently fail.
+     *
+     *     An empty list is valid and means "process nothing", which is also the state a
+     *     freshly connected workspace is in.
+     *
+     *     Runs on the tenant-scoped session: the application role holds SELECT, INSERT
+     *     and DELETE here precisely because these writes happen from inside a
+     *     workspace, where the policy's WITH CHECK stops a row being written for
+     *     anybody else.
+     */
+    put: operations["save_channels_v1_workspaces__workspace_id__integrations_slack_channels_put"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/integrations/slack/disconnect": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Disconnect Slack and destroy the stored credential
+     * @description Stop collecting, and drop the bot token.
+     *
+     *     Both, in one call, with no option to do only the first. A disconnect that
+     *     leaves the credential behind keeps CAIRN holding a live grant to read a
+     *     customer's conversations after they asked it to stop — and from outside there
+     *     is no way to tell the two apart, which is exactly why the response says which
+     *     happened.
+     *
+     *     Runs on the platform connection because the application role holds SELECT
+     *     only on ``source_connections``.
+     *
+     *     **The response tells the truth about retention.** Disconnecting stops new
+     *     collection; it does not delete what was already recorded. Saying otherwise
+     *     would be the shorter sentence and a false one, and a product whose deletion
+     *     claims are approximate is one whose deletion claims are worthless.
+     */
+    post: operations["disconnect_slack_v1_workspaces__workspace_id__integrations_slack_disconnect_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/integrations/slack/install": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Begin connecting a Slack workspace
+     * @description Issue a one-time state and return the authorise URL.
+     *
+     *     Returns the URL rather than redirecting. The caller is a browser application
+     *     doing this from a settings screen, and a 302 out of an XHR is either followed
+     *     invisibly or blocked — neither of which lets the interface warn about the
+     *     ``/invite`` step before the customer is standing on Slack's consent screen.
+     *
+     *     Runs on the platform connection because ``slack_oauth_states`` is
+     *     deliberately unreachable from the application role: the callback has to read
+     *     the row with no tenant context to scope to, so every statement against that
+     *     table is platform-side and the grant set says so.
+     */
+    post: operations["begin_install_v1_workspaces__workspace_id__integrations_slack_install_post"];
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -1676,6 +1856,82 @@ export interface components {
       repositories?: string[];
     };
     /**
+     * ConnectorFleetView
+     * @description Every source at one moment, and the numbers worth alerting on.
+     */
+    ConnectorFleetView: {
+      /**
+       * Measuredat
+       * Format: date-time
+       */
+      measuredAt: string;
+      /** Oldestunsuccessfulsyncminutes */
+      oldestUnsuccessfulSyncMinutes?: number | null;
+      /** Providers */
+      providers?: components["schemas"]["ConnectorHealthView"][];
+      /**
+       * Providersconfiguredbutunverified
+       * @default 0
+       */
+      providersConfiguredButUnverified: number;
+      /**
+       * Workspacesfailing
+       * @default 0
+       */
+      workspacesFailing: number;
+      /**
+       * Workspacesinerror
+       * @default 0
+       */
+      workspacesInError: number;
+    };
+    /**
+     * ConnectorHealthView
+     * @description One source, as far as it can be seen without reading what it carried.
+     *
+     *     Every field is a count, an age, a flag, or a mapping keyed by a closed enum.
+     *     There is nowhere here to put a channel name, a message, a repository or a
+     *     person — reaching any of those needs the consent-gated support session in
+     *     md/15 §5.2, never an operations screen.
+     */
+    ConnectorHealthView: {
+      /** Credentialsconfigured */
+      credentialsConfigured: boolean;
+      /** Deliverieslasthour */
+      deliveriesLastHour?: number | null;
+      /** Deliveriestotal */
+      deliveriesTotal?: number | null;
+      /** Deliveriesunobservablereason */
+      deliveriesUnobservableReason?: string | null;
+      /** Errorsbycategory */
+      errorsByCategory?: {
+        [key: string]: number;
+      };
+      /** Failureslasthour */
+      failuresLastHour?: number | null;
+      /**
+       * Inboundverified
+       * @default false
+       */
+      inboundVerified: boolean;
+      /** Oldestunsuccessfulsyncminutes */
+      oldestUnsuccessfulSyncMinutes?: number | null;
+      /** Provider */
+      provider: string;
+      /** Workspacesbyhealth */
+      workspacesByHealth?: {
+        [key: string]: number;
+      };
+      /** Workspacesbystate */
+      workspacesByState?: {
+        [key: string]: number;
+      };
+      /** Workspacesconnected */
+      workspacesConnected: number;
+      /** Workspaceseversynced */
+      workspacesEverSynced: number;
+    };
+    /**
      * ConsentResponse
      * @description What CAIRN may attribute to the caller, and what it never does.
      *
@@ -1946,6 +2202,8 @@ export interface components {
     IntegrationResponse: {
       /** Account */
       account: string;
+      /** Authorisedby */
+      authorisedBy?: string | null;
       /**
        * Connectedat
        * Format: date-time
@@ -1953,8 +2211,16 @@ export interface components {
       connectedAt: string;
       /** Disconnectedat */
       disconnectedAt?: string | null;
+      /** Health */
+      health?: string | null;
       /** Installationid */
       installationId: number;
+      /** Lastsuccessfulsyncat */
+      lastSuccessfulSyncAt?: string | null;
+      /** Revokedat */
+      revokedAt?: string | null;
+      /** Scopes */
+      scopes?: string[];
       /** Source */
       source: string;
       /**
@@ -2361,6 +2627,85 @@ export interface components {
       workspaceName: string;
       /** Workspaceslug */
       workspaceSlug: string;
+    };
+    /**
+     * SlackChannelListResponse
+     * @description The picker's contents.
+     */
+    SlackChannelListResponse: {
+      /** Channels */
+      channels?: components["schemas"]["SlackChannelResponse"][];
+      /** Notice */
+      notice: string;
+    };
+    /**
+     * SlackChannelResponse
+     * @description One public channel the workspace could select.
+     */
+    SlackChannelResponse: {
+      /** Botismember */
+      botIsMember: boolean;
+      /** Id */
+      id: string;
+      /** Name */
+      name: string;
+      /** Selected */
+      selected: boolean;
+    };
+    /**
+     * SlackChannelSelectionRequest
+     * @description The full state of the picker, not a delta.
+     *
+     *     A replace rather than a merge: unchecking a box has to mean something, and
+     *     the something it means is withdrawing permission to read a channel.
+     */
+    SlackChannelSelectionRequest: {
+      /** Channelids */
+      channelIds?: string[];
+    };
+    /**
+     * SlackChannelSelectionResponse
+     * @description What CAIRN may now process. IDs only — deliberately no names.
+     */
+    SlackChannelSelectionResponse: {
+      /** Channelids */
+      channelIds?: string[];
+      /** Notice */
+      notice: string;
+    };
+    /**
+     * SlackDisconnectResponse
+     * @description What disconnecting did, stated precisely enough to be trusted.
+     */
+    SlackDisconnectResponse: {
+      /** Credentialcleared */
+      credentialCleared: boolean;
+      /**
+       * Disconnectedat
+       * Format: date-time
+       */
+      disconnectedAt: string;
+      /** Retentionnotice */
+      retentionNotice: string;
+      /** State */
+      state: string;
+    };
+    /**
+     * SlackInstallResponse
+     * @description Where to send the customer, and what they are about to be asked.
+     */
+    SlackInstallResponse: {
+      /** Authorizeurl */
+      authorizeUrl: string;
+      /**
+       * Expiresat
+       * Format: date-time
+       */
+      expiresAt: string;
+      /** Notice */
+      notice: string;
+      /** Requestedscopes */
+      requestedScopes?: string[];
     };
     /**
      * SloObjective
@@ -3106,6 +3451,46 @@ export interface operations {
       };
     };
   };
+  finish_install_v1_integrations_slack_callback_get: {
+    parameters: {
+      query?: {
+        code?: string | null;
+        state?: string | null;
+        error?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Back to the workspace's integration settings. */
+      303: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Successful Response */
+      307: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   read_audit_log_v1_internal_audit_get: {
     parameters: {
       query?: {
@@ -3158,6 +3543,37 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["AuditVerification"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  connector_health_v1_internal_operations_connectors_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ConnectorFleetView"];
         };
       };
       /** @description Validation Error */
@@ -4213,6 +4629,203 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["HTTPValidationError"];
         };
+      };
+    };
+  };
+  list_channels_v1_workspaces__workspace_id__integrations_slack_channels_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SlackChannelListResponse"];
+        };
+      };
+      /** @description Requires permission to connect integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No Slack workspace is connected. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+      /** @description Slack could not be reached. */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  save_channels_v1_workspaces__workspace_id__integrations_slack_channels_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SlackChannelSelectionRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SlackChannelSelectionResponse"];
+        };
+      };
+      /** @description Requires permission to connect integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No Slack workspace is connected. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description A value was not a Slack channel ID. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  disconnect_slack_v1_workspaces__workspace_id__integrations_slack_disconnect_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SlackDisconnectResponse"];
+        };
+      };
+      /** @description Requires permission to disconnect integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No Slack workspace is connected. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  begin_install_v1_workspaces__workspace_id__integrations_slack_install_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SlackInstallResponse"];
+        };
+      };
+      /** @description Requires permission to connect integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+      /** @description Slack is not configured on this deployment. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };

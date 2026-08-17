@@ -1,0 +1,302 @@
+/*
+ * One connection, as a bordered record.
+ *
+ * Bordered rather than ruled: a connection is a self-contained object with an
+ * action attached, and the flat rules used for the member list stopped reading
+ * as one thing per row once each row carried a heading, a state, a definition
+ * list and a confirmation.
+ */
+.card {
+  padding: var(--space-5);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-default);
+}
+
+/* The card is a focus fallback for the moment a disconnect removes the control
+   the reader was standing on. It is not in the tab order — `tabindex="-1"` —
+   and it must still show a ring when focus is placed on it programmatically. */
+.card:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.name {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  /* An account name can be a long unbroken string; at 320px it must wrap rather
+     than push the page sideways (WCAG 1.4.10). */
+  overflow-wrap: anywhere;
+}
+
+.account {
+  font-weight: var(--weight-normal);
+  color: var(--fg-muted);
+}
+
+/*
+ * The state, as a word.
+ *
+ * No colour carries it and no icon replaces it: the palette is monochrome by
+ * design, and "connected" and "not working" have to be distinguishable to a
+ * reader who cannot tell two greys apart (WCAG 1.4.1).
+ */
+.state {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-default);
+}
+
+.detail,
+.reads {
+  max-width: 62ch;
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-5);
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-sm);
+}
+
+.factRow {
+  display: contents;
+}
+
+.facts dt {
+  color: var(--fg-subtle);
+}
+
+.facts dd {
+  max-width: 62ch;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A `max-content` label column cannot reflow, so it stacks before it can force
+   the viewport wider than 320px. */
+@media (width <= 40rem) {
+  .facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .factRow {
+    display: block;
+    margin-bottom: var(--space-3);
+  }
+}
+
+/* The OAuth outcome, sat directly under the state it explains. */
+.return {
+  margin-top: var(--space-4);
+}
+
+/*
+ * The one sentence the reader has to have read.
+ *
+ * Full-strength `--fg-default` rather than the muted grey the other prose uses:
+ * this is not an aside, and a caveat set in the quietest colour on the card is
+ * one the eye skips on its way to the button.
+ */
+.notice {
+  max-width: 62ch;
+  margin: var(--space-4) 0 0;
+  padding-left: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--fg-default);
+  border-left: var(--border-thick) solid var(--border-strong);
+}
+
+.block {
+  margin-top: var(--space-5);
+}
+
+.blockHeading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+.scopes {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.scopeRow {
+  display: contents;
+}
+
+.scopes dd {
+  max-width: 62ch;
+  margin: 0;
+}
+
+/* Monospace, because it is a literal string somebody may have to compare
+   character for character against Slack's own consent screen. */
+.scopeName {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-default);
+  overflow-wrap: anywhere;
+}
+
+/* A `max-content` first column cannot reflow, so it stacks before it can push
+   the viewport past 320px (WCAG 1.4.10). */
+@media (width <= 40rem) {
+  .scopes {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .scopeRow {
+    display: block;
+    margin-bottom: var(--space-3);
+  }
+}
+
+.refusals {
+  max-width: 62ch;
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+.refusals li {
+  margin-bottom: var(--space-2);
+}
+
+.extra {
+  margin-top: var(--space-5);
+}
+
+.controls {
+  margin-top: var(--space-4);
+}
+
+.confirm {
+  padding: var(--space-3);
+  border: var(--border-thin) solid var(--border-interactive);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
+/* The group takes focus when it opens so the consequence is announced before a
+   key is pressed; it is not a tab stop, so it needs its own visible ring. */
+.confirm:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.confirmText {
+  max-width: 62ch;
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* Shown in place of a control the reader's role would be refused. Present, not
+   absent: silence leaves a Viewer unable to tell "not mine to do" from "nobody
+   has done it". */
+.readOnly {
+  max-width: 62ch;
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+.problem {
+  margin-top: var(--space-4);
+}
+
+/* Loading ------------------------------------------------------------------ */
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/*
+ * The same box as the real card, so nothing moves when the list lands.
+ *
+ * `min-height` rather than a fixed one: a card whose account name wraps is
+ * taller, and a placeholder that is exactly wrong in the other direction is no
+ * better than one that is too short.
+ */
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 8.5rem;
+  padding: var(--space-5);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.skeletonLine {
+  height: 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+}
+
+.skeletonLine:nth-child(2) {
+  width: 78%;
+}
+
+.skeletonLine:nth-child(3) {
+  width: 56%;
+}
+
+/*
+ * A fade, not a travelling shimmer: motion across the viewport is precisely what
+ * vestibular disorders react to. The global reduce rule in @cairn/ui already
+ * collapses this, and the guard is repeated here so the behaviour is legible
+ * without opening another package.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .skeletonLine {
+    animation: connection-pulse 1.6s var(--easing-standard) infinite;
+  }
+}
+
+@keyframes connection-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
+}

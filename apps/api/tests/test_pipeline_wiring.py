@@ -213,6 +213,108 @@ class TestTheChainIsConnected:
             assert fact.valid_from is not None
             assert fact.valid_until is None
 
+    async def test_a_slack_message_becomes_a_fact_cited_to_slack(
+        self,
+        platform: AsyncSession,
+        workspace: tuple[Tenant, GitHubInstallation],
+        providers: Providers,
+    ) -> None:
+        """The gap between "ingested" and "in a brief".
+
+        The evidence reader was GitHub-shaped, so a Slack delivery reaching the
+        understanding job found nothing to cite and produced no facts — silently,
+        with no error anywhere. A connector that receives messages and never
+        reaches a brief is the failure the vertical-slice rule exists to catch.
+
+        The source label matters as much as the fact: it was hardcoded to
+        "github", which would file every Slack message as a commit on the Trust
+        page and in the per-source opt-out — the one place a reader checks
+        whether a statement came from somewhere they agreed to.
+        """
+        tenant, _ = workspace
+        payload = {
+            "type": "event_callback",
+            "team_id": "T-ACME",
+            "event_id": f"Ev{uuid.uuid4().hex[:10]}",
+            "event": {
+                "type": "message",
+                "channel": "C-DELIVERY",
+                "channel_type": "channel",
+                "user": "U-PRIYA",
+                "text": "Shipped the payments migration to production this morning.",
+                "ts": "1786900000.000100",
+            },
+        }
+        delivery_id = await store_delivery(platform, tenant, payload)
+
+        handler = make_handler(providers=providers)
+        async with tenant_session(tenant.id) as session:
+            await handler(
+                session,
+                JobEnvelope(
+                    job_type=UNDERSTAND_JOB,
+                    tenant_id=tenant.id,
+                    payload={"delivery_id": delivery_id},
+                ),
+            )
+            await session.commit()
+
+        async with tenant_session(tenant.id) as session:
+            facts = list(await session.scalars(select(FactRow)))
+
+        assert facts, "a Slack message produced no facts"
+        cited = [ref for fact in facts for ref in fact.sources]
+        assert cited, "a Slack fact reached the store with no source"
+        assert all(ref.source == "slack" for ref in cited), (
+            "a Slack statement was filed as another source"
+        )
+        assert all(ref.evidence_id.startswith("slack:message:T-ACME:C-DELIVERY:") for ref in cited)
+
+    async def test_a_deleted_slack_message_cites_nothing(
+        self,
+        platform: AsyncSession,
+        workspace: tuple[Tenant, GitHubInstallation],
+        providers: Providers,
+    ) -> None:
+        """A deletion must not leave a statement standing as current.
+
+        The citation stops resolving rather than the text being re-read from a
+        payload that no longer represents anything — Slack's own docs note the
+        message will not return in history either.
+        """
+        tenant, _ = workspace
+        payload = {
+            "type": "event_callback",
+            "team_id": "T-ACME",
+            "event_id": f"Ev{uuid.uuid4().hex[:10]}",
+            "event": {
+                "type": "message",
+                "subtype": "message_deleted",
+                "channel": "C-DELIVERY",
+                "channel_type": "channel",
+                "ts": "1786900100.000200",
+                "deleted_ts": "1786900000.000100",
+            },
+        }
+        delivery_id = await store_delivery(platform, tenant, payload)
+
+        handler = make_handler(providers=providers)
+        async with tenant_session(tenant.id) as session:
+            await handler(
+                session,
+                JobEnvelope(
+                    job_type=UNDERSTAND_JOB,
+                    tenant_id=tenant.id,
+                    payload={"delivery_id": delivery_id},
+                ),
+            )
+            await session.commit()
+
+        async with tenant_session(tenant.id) as session:
+            facts = list(await session.scalars(select(FactRow)))
+
+        assert facts == [], "a deleted message was written as a current statement"
+
     async def test_reprocessing_the_same_delivery_does_not_duplicate_facts(
         self,
         platform: AsyncSession,

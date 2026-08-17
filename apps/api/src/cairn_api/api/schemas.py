@@ -671,6 +671,81 @@ class IntegrationResponse(ApiModel):
     #: quiet and not a cosmetic flag.
     suspended: bool = False
 
+    # -- From the connector record (Step 31) -------------------------------
+    #
+    # Every field below is optional and stays null until the connector actually
+    # knows. That is the contract the interface is built on: it renders a fact
+    # or omits the row, and never fills a gap with something plausible. A
+    # "Last synced 4 minutes ago" invented from `connected_at` would discredit
+    # every other number on the Trust page, which is the one page whose entire
+    # claim is that its figures are read from the workspace.
+
+    #: What the provider actually granted. A missing capability is then
+    #: diagnosable as "we were never given this" rather than as an empty feed.
+    scopes: list[str] = Field(default_factory=list)
+
+    #: Whether data is arriving, which is not the same question as whether the
+    #: connection is authorised — a live installation that has failed every
+    #: sync for a week is `connected` and unhealthy.
+    health: str | None = None
+
+    #: The one number a stalled-but-authorised connection cannot fake.
+    last_successful_sync_at: datetime | None = None
+
+    #: Who pressed connect. Null for connections made before CAIRN recorded it;
+    #: an honest blank rather than a guessed identity.
+    authorised_by: EmailStr | None = None
+
+    #: Set when the provider withdrew access rather than the workspace choosing
+    #: to disconnect. `disconnected_at` alone cannot tell those apart, and the
+    #: remedy differs: one is a click, the other a fresh authorisation.
+    revoked_at: datetime | None = None
+
+
+class ConnectorHealthView(ApiModel):
+    """One source, as far as it can be seen without reading what it carried.
+
+    Every field is a count, an age, a flag, or a mapping keyed by a closed enum.
+    There is nowhere here to put a channel name, a message, a repository or a
+    person — reaching any of those needs the consent-gated support session in
+    md/15 §5.2, never an operations screen.
+    """
+
+    provider: str
+    credentials_configured: bool
+    workspaces_connected: int
+    workspaces_ever_synced: int
+    workspaces_by_state: dict[str, int] = Field(default_factory=dict)
+    workspaces_by_health: dict[str, int] = Field(default_factory=dict)
+    errors_by_category: dict[str, int] = Field(default_factory=dict)
+    oldest_unsuccessful_sync_minutes: float | None = None
+
+    #: Null, never zero, when a provider keeps no durable inbound record —
+    #: "nothing arrived" and "we cannot see what arrived" are different
+    #: findings, and collapsing them is how an outage reads as a quiet week.
+    deliveries_last_hour: int | None = None
+    failures_last_hour: int | None = None
+    deliveries_total: int | None = None
+    deliveries_unobservable_reason: str | None = None
+
+    #: Whether inbound delivery has been *observed*, not merely configured.
+    inbound_verified: bool = False
+
+
+class ConnectorFleetView(ApiModel):
+    """Every source at one moment, and the numbers worth alerting on."""
+
+    measured_at: datetime
+    providers: list[ConnectorHealthView] = Field(default_factory=list)
+    workspaces_in_error: int = 0
+    workspaces_failing: int = 0
+
+    #: The number that has to be zero before a release. Configured and never
+    #: proven is exactly what the release gates refuse to call passed, so the
+    #: gate and this screen cannot disagree.
+    providers_configured_but_unverified: int = 0
+    oldest_unsuccessful_sync_minutes: float | None = None
+
 
 class PrivacySettings(ApiModel):
     """What happens to this workspace's raw activity.
@@ -1112,3 +1187,110 @@ class ConsentUpdateResponse(ApiModel):
     #: person believes. A silent toggle asks them to take it on faith at exactly
     #: the moment they have decided not to.
     unlinked: int = 0
+
+
+# -- Slack ------------------------------------------------------------------
+#
+# Nothing here is a request body carrying a token. The install flow deliberately
+# has no "paste your bot token" endpoint: a customer who can hand us a token can
+# hand us somebody else's, and the token would then exist in a request body, a
+# proxy log and a browser's memory before it ever reached the encrypting path.
+# The only way a Slack credential enters CAIRN is the server-to-server exchange
+# in `slack/oauth.py`.
+
+
+class SlackInstallResponse(ApiModel):
+    """Where to send the customer, and what they are about to be asked."""
+
+    #: The Slack authorise URL, state parameter included. Built server-side from
+    #: settings, never from the request — a redirect URI assembled from a `Host`
+    #: header sends the install code to whoever set the header.
+    authorize_url: str
+
+    #: When the install link stops working. Returned so an interface can say
+    #: "this link expires in ten minutes" rather than presenting a stale button.
+    expires_at: datetime
+
+    #: Exactly what CAIRN asks Slack for, shown before the customer authorises
+    #: rather than only on Slack's own screen. A permission list a product is
+    #: willing to state up front is one it is willing to be held to.
+    requested_scopes: list[str] = Field(default_factory=list)
+
+    #: The `/invite` requirement, in the copy `slack.channels` owns. Present on
+    #: this response as well as the channel list because it changes what the
+    #: customer expects *before* they start, not after they wonder why the feed
+    #: is empty.
+    notice: str
+
+
+class SlackChannelResponse(ApiModel):
+    """One public channel the workspace could select."""
+
+    id: str
+
+    #: The display name, fetched live and never stored.
+    #:
+    #: The one place a Slack channel name crosses this API, and it is bounded to
+    #: it: this endpoint is Owner/Admin-only, returns the caller's own workspace's
+    #: channels, and is read by somebody already looking at the same list in
+    #: Slack. Nothing persists it, no log line carries it, and the selection
+    #: endpoints below answer in IDs alone.
+    name: str
+
+    #: Whether the CAIRN app is currently in the channel. A channel selected
+    #: without this being true delivers nothing at all, silently, so the picker
+    #: has to show it.
+    bot_is_member: bool
+
+    #: Whether it is currently selected.
+    selected: bool
+
+
+class SlackChannelListResponse(ApiModel):
+    """The picker's contents."""
+
+    channels: list[SlackChannelResponse] = Field(default_factory=list)
+
+    #: The `/invite` requirement. Travels with the list because this is the
+    #: screen where the misunderstanding happens.
+    notice: str
+
+
+class SlackChannelSelectionRequest(ApiModel):
+    """The full state of the picker, not a delta.
+
+    A replace rather than a merge: unchecking a box has to mean something, and
+    the something it means is withdrawing permission to read a channel.
+    """
+
+    #: Slack channel IDs (`C0123ABCD`). Names are refused — they change, and a
+    #: permission keyed on a name is one a rename silently grants or revokes.
+    channel_ids: list[str] = Field(default_factory=list)
+
+
+class SlackChannelSelectionResponse(ApiModel):
+    """What CAIRN may now process. IDs only — deliberately no names."""
+
+    channel_ids: list[str] = Field(default_factory=list)
+
+    #: Repeated here so the confirmation screen states it too. A selection saved
+    #: without the invite is a selection that does nothing.
+    notice: str
+
+
+class SlackDisconnectResponse(ApiModel):
+    """What disconnecting did, stated precisely enough to be trusted."""
+
+    state: str
+    disconnected_at: datetime
+
+    #: Whether the stored bot token was destroyed. Reported rather than assumed:
+    #: a disconnect that leaves the credential in place keeps a live grant to
+    #: read a customer's conversations after they asked us to stop, and a
+    #: customer has no way to check from outside.
+    credential_cleared: bool
+
+    #: What disconnecting does *not* do. Stated in the response because the
+    #: honest sentence is the less flattering one, and a product that only says
+    #: the flattering half is one whose deletion claims cannot be relied on.
+    retention_notice: str

@@ -323,6 +323,7 @@ class TestOperationsData:
         "/v1/internal/operations/queue",
         "/v1/internal/operations/spend",
         "/v1/internal/operations/evaluation",
+        "/v1/internal/operations/connectors",
         "/v1/internal/operations/slo",
     )
 

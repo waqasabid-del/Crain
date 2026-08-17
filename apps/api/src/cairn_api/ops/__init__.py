@@ -8,8 +8,11 @@ Three things live here that are not features and are not infrastructure:
   nobody has restored from is a hypothesis.
 - `release_gates.py` — the external dependencies CAIRN cannot verify from
   inside itself, and the distinction between "configured" and "proven".
+- `connectors.py` — whether each source is delivering, in counts and categories
+  only, so that "is Slack working" can be answered without anybody reading what
+  Slack delivered.
 
-All three are deliberately in the application rather than in a deployment
+All of them are deliberately in the application rather than in a deployment
 repository. An objective that lives beside the code is one a reviewer sees when
 they change the thing it measures.
 """

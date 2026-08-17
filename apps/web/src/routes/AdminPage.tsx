@@ -1,15 +1,43 @@
 "use client";
 
-import type { Integration, Member, Notifications, Privacy } from "@cairn/api-client";
+import type {
+  Integration,
+  Member,
+  Notifications,
+  Privacy,
+  SlackChannelList,
+  SlackInstall,
+} from "@cairn/api-client";
 import { Button } from "@cairn/ui";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useId, useState, type ReactNode, type SyntheticEvent } from "react";
 
 import { useApiClient } from "../api/context.js";
 import { useAuth, type TenantRole } from "../auth/context.js";
+import {
+  ChannelPicker,
+  ChannelPickerLoading,
+  reconcileChannels,
+} from "../components/ChannelPicker.js";
+import {
+  ConnectionCard,
+  connectionRows,
+  ConnectionsLoading,
+  SLACK_DISCONNECT_EFFECT,
+  SLACK_INVITE_RULE,
+  SLACK_REFUSALS,
+  SLACK_SCOPES,
+  type OAuthReturn,
+} from "../components/ConnectionCard.js";
+import { formatDayAndTime } from "../components/dates.js";
+import { InlineProblem } from "../components/InlineProblem.js";
 import { PageHeader } from "../components/PageHeader.js";
+import { Section } from "../components/Section.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
+import { StatusNote } from "../components/StatusNote.js";
 import { describeError, type DescribedError } from "../errors.js";
 import { useAsync } from "../hooks/useAsync.js";
+import utility from "../styles/utility.module.css";
 import styles from "./AdminPage.module.css";
 
 /**
@@ -76,25 +104,19 @@ export function AdminPage(): ReactNode {
   );
 }
 
-function Section({
-  title,
-  description,
-  children,
-}: {
+/**
+ * The shared `Section`, with this screen's eyebrow treatment.
+ *
+ * There was a fourth hand-rolled copy of `Section` in this file — same
+ * `useId`/`aria-labelledby` wiring, one different margin. The variant exists so
+ * the label of a region and the way it is announced stay one decision.
+ */
+function AdminSection(props: {
   title: string;
   description?: string;
   children: ReactNode;
 }): ReactNode {
-  const headingId = useId();
-  return (
-    <section className={styles.section} aria-labelledby={headingId}>
-      <h2 className={styles.sectionTitle} id={headingId}>
-        {title}
-      </h2>
-      {description !== undefined && <p className={styles.sectionBody}>{description}</p>}
-      {children}
-    </section>
-  );
+  return <Section variant="eyebrow" {...props} />;
 }
 
 // --------------------------------------------------------------------------
@@ -118,7 +140,7 @@ function Members({
   const [problem, setProblem] = useState<DescribedError | null>(null);
 
   return (
-    <Section
+    <AdminSection
       title="Members"
       description="A role decides what somebody can configure. It never decides how much CAIRN shows them about a colleague — everyone sees the same thing."
     >
@@ -128,9 +150,9 @@ function Members({
       )}
 
       {problem !== null && (
-        <p className={styles.problem} role="alert">
-          {problem.message}
-        </p>
+        <div className={styles.problem}>
+          <InlineProblem error={problem} />
+        </div>
       )}
 
       {state.status === "ready" && (
@@ -151,7 +173,7 @@ function Members({
           ))}
         </ul>
       )}
-    </Section>
+    </AdminSection>
   );
 }
 
@@ -217,7 +239,7 @@ function MemberRow({
 
       {canAdminister && !isSelf ? (
         <div className={styles.personControls}>
-          <label className={styles.visuallyHidden} htmlFor={roleId}>
+          <label className={utility.visuallyHidden} htmlFor={roleId}>
             Role for {member.displayName ?? member.email}
           </label>
           <select
@@ -298,6 +320,29 @@ function roleLabel(role: string): string {
 // Integrations
 // --------------------------------------------------------------------------
 
+/**
+ * What the provider's consent screen just said, out of the URL it came back to.
+ *
+ * Validated against the three known outcomes rather than passed through: the
+ * value is attacker-controllable, and rendering an arbitrary one would put a
+ * stranger's word on a page whose entire purpose is that its words are CAIRN's.
+ * An unrecognised value is treated as no return at all.
+ */
+function readOAuthReturn(value: string | null): OAuthReturn | undefined {
+  if (value === "connected" || value === "denied" || value === "error") return value;
+  return undefined;
+}
+
+/**
+ * What CAIRN is connected to, and the controls that start and stop it.
+ *
+ * Everything a card shows is read from the connection: a detail the API has not
+ * sent is left out rather than filled in, and the section says so, because
+ * otherwise an absent row reads as "fine" rather than as "not recorded".
+ *
+ * The disconnect failure is tracked per connection, not per section. One shared
+ * error message under a list of three cards does not say which of them failed.
+ */
 function Integrations({
   workspaceId,
   role,
@@ -311,80 +356,313 @@ function Integrations({
       client.listIntegrations(workspaceId, { signal }),
     [client, workspaceId],
   );
-  const { state, reload } = useAsync(load, "load the integrations");
-  const [problem, setProblem] = useState<DescribedError | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { state, reload } = useAsync(load, "load the connected sources");
+  const [problem, setProblem] = useState<{ id: string; error: DescribedError } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const oauthReturn = readOAuthReturn(useSearchParams().get("slack"));
+  const [connecting, setConnecting] = useState(false);
+  const [install, setInstall] = useState<SlackInstall | null>(null);
 
-  async function disconnect(installationId: number): Promise<void> {
-    setBusy(true);
+  const canManage = administers(role);
+
+  async function disconnect(id: string, installationId: number): Promise<void> {
+    setBusyId(id);
     setProblem(null);
     try {
       await client.disconnectGitHub(workspaceId, installationId);
       reload();
     } catch (error: unknown) {
-      setProblem(describeError(error, "disconnect that integration"));
+      setProblem({ id, error: describeError(error, "disconnect that source") });
     } finally {
-      setBusy(false);
+      setBusyId(null);
+    }
+  }
+
+  async function disconnectSlack(id: string): Promise<void> {
+    setBusyId(id);
+    setProblem(null);
+    try {
+      await client.disconnectSlack(workspaceId);
+      reload();
+    } catch (error: unknown) {
+      setProblem({ id, error: describeError(error, "disconnect that source") });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  /**
+   * Ask the API where to send the customer, then send them.
+   *
+   * Two steps rather than a link, because the URL does not exist until it is
+   * asked for: the install endpoint mints a single-use `state` nonce and returns
+   * the authorise URL instead of redirecting to it, since a 302 on a credentialed
+   * request is followed by `fetch` and the consent screen would never appear.
+   *
+   * The install is kept after the navigation is asked for, not discarded. If the
+   * window has not moved by the time the next paint lands — a blocked
+   * navigation, a slow one, somebody coming back — the card says when the link
+   * lapses rather than leaving them looking at a button that appears to have
+   * done nothing.
+   */
+  async function connectSlack(id: string): Promise<void> {
+    setConnecting(true);
+    setProblem(null);
+    try {
+      const started = await client.startSlackInstall(workspaceId);
+      setInstall(started);
+      window.location.assign(started.authorizeUrl);
+    } catch (error: unknown) {
+      setProblem({ id, error: describeError(error, "start connecting Slack") });
+    } finally {
+      setConnecting(false);
     }
   }
 
   return (
-    <Section
+    <AdminSection
       title="Connected sources"
       description="What CAIRN is reading. Disconnecting stops it reading anything more — it does not remove what has already been recorded."
     >
-      {state.status === "loading" && <LoadingState label="the integrations" lines={2} />}
+      {/*
+        Standing guidance, not a result, so it does not announce itself. It is
+        the sentence that makes an omitted row honest: without it, a card with
+        no "Last successful sync" reads as a connection that is fine.
+      */}
+      <div className={styles.note}>
+        <StatusNote live={false}>
+          Every detail below is read from the connection itself. Anything CAIRN has not recorded is
+          left out rather than guessed at.
+        </StatusNote>
+      </div>
+
+      {state.status === "loading" && <ConnectionsLoading label="the connected sources" />}
       {state.status === "failed" && (
+        // A 403 lands here with its own copy — "this account does not have
+        // access to that" — so a permission refusal is answered rather than
+        // reported as a generic failure.
         <ErrorState
-          title="The integrations could not be loaded"
+          title="The connected sources could not be loaded"
           error={state.error}
           onRetry={reload}
+          headingLevel={3}
         />
       )}
 
-      {problem !== null && (
-        <p className={styles.problem} role="alert">
-          {problem.message}
-        </p>
-      )}
+      {state.status === "ready" && (
+        <>
+          {state.data.length === 0 && (
+            <p className={styles.note}>
+              CAIRN captures nothing until a source is connected. Every source it could read is
+              listed below, switched off, with what it would ask for.
+              {!canManage && " An Owner or an Admin of this workspace can connect one."}
+            </p>
+          )}
 
-      {state.status === "ready" &&
-        (state.data.length === 0 ? (
-          <EmptyState title="Nothing connected yet">
-            CAIRN captures nothing until a source is connected. Connecting GitHub is what starts it.
-          </EmptyState>
-        ) : (
-          <ul className={styles.integrations} aria-label="Connected sources">
-            {state.data.map((integration) => (
-              <li key={`${integration.source}-${integration.account}`} className={styles.person}>
-                <div>
-                  <div className={styles.personName}>GitHub — {integration.account}</div>
-                  <div className={styles.personDetail}>
-                    {integration.disconnectedAt != null
-                      ? "Disconnected. CAIRN is no longer reading from this account."
-                      : integration.suspended
-                        ? "Suspended on GitHub. Nothing is being read while it stays that way."
-                        : "Reading commit messages, pull request titles and reviews. Never the contents of your code."}
-                  </div>
-                </div>
+          <ul className={styles.connections} aria-label="Connected sources">
+            {connectionRows(state.data).map((row) => {
+              const { connection, integration } = row;
+              const failure = problem?.id === connection.id ? problem.error : undefined;
+              const isSlack = row.source === "slack";
+              const connected = connection.state === "connected";
 
-                {administers(role) && integration.disconnectedAt == null && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    loading={busy}
-                    onClick={() => {
-                      void disconnect(integration.installationId);
-                    }}
-                  >
-                    Disconnect
-                  </Button>
-                )}
-              </li>
-            ))}
+              return (
+                <li key={connection.id}>
+                  <ConnectionCard
+                    connection={connection}
+                    canManage={canManage}
+                    disconnecting={busyId === connection.id}
+                    {...(failure === undefined ? {} : { problem: failure })}
+                    {...(isSlack
+                      ? slackCardProps({
+                          workspaceId,
+                          connected,
+                          oauthReturn,
+                          canManage,
+                          connecting,
+                          install,
+                          onConnect: () => {
+                            void connectSlack(connection.id);
+                          },
+                          onDisconnect: () => {
+                            void disconnectSlack(connection.id);
+                          },
+                        })
+                      : integration === null
+                        ? {}
+                        : {
+                            onDisconnect: (): void => {
+                              void disconnect(connection.id, integration.installationId);
+                            },
+                          })}
+                  />
+                </li>
+              );
+            })}
           </ul>
-        ))}
-    </Section>
+        </>
+      )}
+    </AdminSection>
+  );
+}
+
+/**
+ * Everything the Slack card needs, decided in one place.
+ *
+ * The invite rule lives on the card until Slack is connected and inside the
+ * picker afterwards — where it is the server's own sentence rather than this
+ * client's copy of it — so it is always on screen exactly once. Twice is how a
+ * reader learns to skip it.
+ */
+function slackCardProps({
+  workspaceId,
+  connected,
+  oauthReturn,
+  canManage,
+  connecting,
+  install,
+  onConnect,
+  onDisconnect,
+}: {
+  workspaceId: string;
+  connected: boolean;
+  oauthReturn: OAuthReturn | undefined;
+  canManage: boolean;
+  connecting: boolean;
+  install: SlackInstall | null;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}): {
+  requestedScopes: typeof SLACK_SCOPES;
+  refusals: string[];
+  disconnectEffect: string;
+  onConnect: () => void;
+  connecting: boolean;
+  onDisconnect: () => void;
+  oauthReturn?: OAuthReturn;
+  notice?: ReactNode;
+  children?: ReactNode;
+} {
+  return {
+    requestedScopes: SLACK_SCOPES,
+    refusals: SLACK_REFUSALS,
+    disconnectEffect: SLACK_DISCONNECT_EFFECT,
+    onConnect,
+    connecting,
+    onDisconnect,
+    ...(oauthReturn === undefined ? {} : { oauthReturn }),
+    ...(connected ? {} : { notice: connectNotice(install) }),
+    ...(connected
+      ? { children: <SlackChannels workspaceId={workspaceId} canManage={canManage} /> }
+      : {}),
+  };
+}
+
+/**
+ * What to read before authorising, and — once an install has begun — how long
+ * the link that was just minted is good for.
+ *
+ * The sentence is the server's whenever there is one to use: the install
+ * response carries the same `/invite` requirement the channel endpoints do, and
+ * a client-side copy alongside it is a copy that eventually says something the
+ * backend no longer enforces. `SLACK_INVITE_RULE` is only the stand-in for
+ * before anybody has asked.
+ *
+ * The expiry is stated rather than left implicit because a `state` nonce is
+ * single-use and time-boxed: somebody who opens the consent screen, goes to
+ * lunch and comes back gets a failure whose only explanation is this line.
+ */
+function connectNotice(install: SlackInstall | null): ReactNode {
+  if (install === null) return SLACK_INVITE_RULE;
+
+  return (
+    <>
+      {install.notice} Sending you to Slack now. This link stops working at{" "}
+      <time dateTime={install.expiresAt}>{formatDayAndTime(install.expiresAt)}</time> — if nothing
+      happens, or you come back to this later, start again.
+    </>
+  );
+}
+
+/**
+ * The channel selection, saved one channel at a time.
+ *
+ * **State comes back from the server, never from the click.** Nothing writes to
+ * the selection optimistically, so a refused save leaves the checkbox exactly
+ * where it was and puts the reason beside it. That costs a round trip of latency
+ * per channel and buys the one property this screen cannot do without: a tick
+ * means CAIRN is reading that room.
+ *
+ * The save answers with `channelIds` and no names, so `reconcileChannels` folds
+ * that confirmation back onto the channels the `GET` described. The tick still
+ * comes from what the server said, not from what was clicked.
+ */
+function SlackChannels({
+  workspaceId,
+  canManage,
+}: {
+  workspaceId: string;
+  canManage: boolean;
+}): ReactNode {
+  const client = useApiClient();
+  const load = useCallback(
+    (signal: AbortSignal): Promise<SlackChannelList> =>
+      client.listSlackChannels(workspaceId, { signal }),
+    [client, workspaceId],
+  );
+  const { state, reload } = useAsync(load, "load the Slack channels");
+
+  const [saved, setSaved] = useState<SlackChannelList | null>(null);
+  const [saving, setSaving] = useState<string[]>([]);
+  const [problem, setProblem] = useState<DescribedError | null>(null);
+
+  if (state.status === "loading") return <ChannelPickerLoading />;
+  if (state.status === "failed") {
+    // A 403 arrives here with its own copy — "this account does not have access
+    // to that" — so a permission refusal is answered rather than reported as a
+    // generic failure.
+    return (
+      <ErrorState
+        title="The Slack channels could not be loaded"
+        error={state.error}
+        onRetry={reload}
+        headingLevel={4}
+      />
+    );
+  }
+
+  const selection = saved ?? state.data;
+
+  async function toggle(channelId: string, next: boolean): Promise<void> {
+    // The whole state of the checkboxes, never a delta: `PUT` replaces rather
+    // than merges, so an unchecked box has to arrive as an absence, and an
+    // absence is only meaningful when everything else is present.
+    const ids = (selection.channels ?? [])
+      .filter((channel) => (channel.id === channelId ? next : channel.selected))
+      .map((channel) => channel.id);
+
+    setSaving((busy) => [...busy, channelId]);
+    setProblem(null);
+    try {
+      const confirmed = await client.setSlackChannels(workspaceId, ids);
+      setSaved(reconcileChannels(selection, confirmed));
+    } catch (error: unknown) {
+      setProblem(describeError(error, "save that channel choice"));
+    } finally {
+      setSaving((busy) => busy.filter((id) => id !== channelId));
+    }
+  }
+
+  return (
+    <ChannelPicker
+      selection={selection}
+      canManage={canManage}
+      saving={saving}
+      {...(problem === null ? {} : { problem })}
+      onToggle={(channelId, next) => {
+        void toggle(channelId, next);
+      }}
+    />
   );
 }
 
@@ -435,7 +713,7 @@ function PrivacySection({
   }
 
   return (
-    <Section
+    <AdminSection
       title="Privacy and data"
       description="How long CAIRN keeps the raw activity it received — the messages and payloads themselves. What CAIRN understood from them, and the briefs written from that, stay: they are the team's record."
     >
@@ -485,14 +763,14 @@ function PrivacySection({
           </form>
 
           {saved !== null && (
-            <p className={styles.note} role="status">
-              {saved}
-            </p>
+            <div className={styles.note}>
+              <StatusNote>{saved}</StatusNote>
+            </div>
           )}
           {problem !== null && (
-            <p className={styles.problem} role="alert">
-              {problem.message}
-            </p>
+            <div className={styles.problem}>
+              <InlineProblem error={problem} />
+            </div>
           )}
 
           <dl className={styles.facts}>
@@ -509,7 +787,7 @@ function PrivacySection({
           </dl>
         </>
       )}
-    </Section>
+    </AdminSection>
   );
 }
 
@@ -542,9 +820,9 @@ function NotificationSection({ workspaceId }: { workspaceId: string }): ReactNod
   if (state.status === "loading") return <LoadingState label="the notification status" lines={2} />;
   if (state.status === "failed") {
     return (
-      <Section title="Worker notification">
+      <AdminSection title="Worker notification">
         <ErrorState title="The status could not be loaded" error={state.error} onRetry={reload} />
-      </Section>
+      </AdminSection>
     );
   }
 
@@ -552,7 +830,7 @@ function NotificationSection({ workspaceId }: { workspaceId: string }): ReactNod
   const outstanding = people.filter((person) => person.notifiedAt == null);
 
   return (
-    <Section
+    <AdminSection
       title="Worker notification"
       description="CAIRN attributes nothing to a person until it has shown them what it reads and how to switch it off. This is who has seen that."
     >
@@ -594,6 +872,6 @@ function NotificationSection({ workspaceId }: { workspaceId: string }): ReactNod
           ? "Nobody has switched off a source."
           : `${String(state.data.optedOutCount)} ${state.data.optedOutCount === 1 ? "person has" : "people have"} switched off at least one source. CAIRN does not say who — that is their decision about their own record.`}
       </p>
-    </Section>
+    </AdminSection>
   );
 }

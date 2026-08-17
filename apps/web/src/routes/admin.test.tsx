@@ -1,4 +1,14 @@
-import type { Integration, Notifications, Privacy, SupportSession, Trust } from "@cairn/api-client";
+import type {
+  Integration,
+  Notifications,
+  Privacy,
+  SlackChannelList,
+  SlackChannelSelection,
+  SlackDisconnect,
+  SlackInstall,
+  SupportSession,
+  Trust,
+} from "@cairn/api-client";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -6,6 +16,7 @@ import { axe } from "vitest-axe";
 
 import AppLayout from "../app/(app)/layout.js";
 import { apiError, createStubClient, MEMBERS, renderRoute, SESSION } from "../test/harness.js";
+
 import { AdminPage } from "./AdminPage.js";
 import { TrustPage } from "./TrustPage.js";
 
@@ -35,6 +46,31 @@ const AXE_OPTIONS = {
 } as const;
 
 const WORKSPACE = SESSION.workspaces[0]?.workspace.id ?? "";
+
+/**
+ * The `/invite` requirement in the server's own words.
+ *
+ * Copied from the API's `BOT_INVITE_NOTICE` rather than paraphrased. Every Slack
+ * response carries it so that the sentence has one author, and a test matching a
+ * paraphrase would keep passing on the day the backend changed what it says.
+ */
+const NOTICE =
+  "CAIRN only receives messages from channels the CAIRN app has been added to. " +
+  "For each channel you select, run /invite @CAIRN in Slack. CAIRN cannot add " +
+  "itself — it does not ask Slack for permission to join channels.";
+
+/** What `PUT /channels` answers with: IDs, and no names at all. */
+function SAVED(channelIds: string[]): SlackChannelSelection {
+  return { channelIds, notice: NOTICE };
+}
+
+const DISCONNECTED: SlackDisconnect = {
+  state: "disconnected",
+  disconnectedAt: "2026-08-17T09:00:00Z",
+  credentialCleared: true,
+  retentionNotice:
+    "Slack will stop being collected from immediately, and the stored access token has been destroyed.",
+};
 
 const INTEGRATIONS: Integration[] = [
   {
@@ -85,13 +121,26 @@ function client(overrides = {}): ReturnType<typeof createStubClient> {
   });
 }
 
-function renderAdmin(stub = client()): ReturnType<typeof renderRoute> {
+function renderAdmin(stub = client(), search = ""): ReturnType<typeof renderRoute> {
   return renderRoute(
     <AppLayout>
       <AdminPage />
     </AppLayout>,
-    { client: stub, route: "/admin" },
+    { client: stub, route: "/admin", search },
   );
+}
+
+/**
+ * The card for one source.
+ *
+ * Two are listed now — GitHub, and Slack whether or not it is connected — so an
+ * assertion that does not say which one it means can pass for the wrong reason,
+ * or fail because the sentence it wanted is on screen twice.
+ */
+function card(name: RegExp): HTMLElement {
+  const article = screen.getByRole("heading", { name }).closest("article");
+  if (article === null) throw new Error("that heading is not inside a connection card");
+  return article;
 }
 
 describe("members", () => {
@@ -178,13 +227,51 @@ describe("connected sources", () => {
     ).toBeVisible();
   });
 
-  it("disconnects the installation the reader is looking at", async () => {
+  it("shows each connection as a record, not a toggle", async () => {
+    renderAdmin();
+
+    const connections = await screen.findByRole("list", { name: /connected sources/i });
+    expect(within(connections).getByRole("heading", { name: /github — acme-inc/i })).toBeVisible();
+    // The state as a word. Never a colour, and never a dot.
+    expect(within(connections).getByText("Connected")).toBeVisible();
+    expect(within(connections).getByText("Authorised on")).toBeVisible();
+  });
+
+  it("omits the details the API does not return, and says that it does", async () => {
+    // **The commitment this screen turns on.** The Trust page's whole claim is
+    // that its numbers are read from the workspace; a plausible "Last synced 4
+    // minutes ago" invented from a field the server never sent would discredit
+    // every other line on it. The sentence is asserted alongside the absence,
+    // because an omitted row on its own reads as "fine" rather than "not
+    // recorded".
+    renderAdmin();
+
+    const connections = await screen.findByRole("list", { name: /connected sources/i });
+    expect(within(connections).queryByText("Last successful sync")).not.toBeInTheDocument();
+    expect(within(connections).queryByText("Access granted")).not.toBeInTheDocument();
+    expect(screen.getByText(/left out rather than guessed at/i)).toBeVisible();
+  });
+
+  it("asks before disconnecting, states the effect, and only then calls the client", async () => {
     const disconnectGitHub = vi.fn(() => Promise.resolve());
     renderAdmin(client({ disconnectGitHub }));
 
-    await userEvent.click(await screen.findByRole("button", { name: /disconnect/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /^disconnect$/i }));
+    expect(disconnectGitHub).not.toHaveBeenCalled();
+    expect(screen.getByText(/stops cairn reading anything more from acme-inc/i)).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: /disconnect github/i }));
 
     expect(disconnectGitHub).toHaveBeenCalledWith(WORKSPACE, 42);
+  });
+
+  it("says so when a disconnect is refused", async () => {
+    renderAdmin(client({ disconnectGitHub: vi.fn(() => Promise.reject(apiError(403))) }));
+
+    await userEvent.click(await screen.findByRole("button", { name: /^disconnect$/i }));
+    await userEvent.click(screen.getByRole("button", { name: /disconnect github/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/does not have access to that/i);
   });
 
   it("explains a quiet feed when an integration is disconnected", async () => {
@@ -200,6 +287,537 @@ describe("connected sources", () => {
 
     expect(await screen.findByText(/no longer reading from this account/i)).toBeVisible();
     expect(screen.queryByRole("button", { name: /disconnect/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a skeleton the size of the cards it is waiting for", async () => {
+    // A skeleton announces nothing on its own, so the announcement is the test:
+    // the boxes exist to stop the page jumping, not to inform anybody.
+    // A request that never settles, so the skeleton stays on screen.
+    const pending = new Promise<Integration[]>(() => {
+      /* never resolves */
+    });
+    renderAdmin(client({ listIntegrations: vi.fn(() => pending) }));
+
+    expect(await screen.findByText(/loading the connected sources/i)).toBeInTheDocument();
+  });
+
+  it("says nothing is connected, and lists what each source would ask for anyway", async () => {
+    // Not an empty panel: the sources are listed switched off, so somebody can
+    // read what connecting one would permit while the answer is still "no".
+    renderAdmin(client({ listIntegrations: vi.fn(() => Promise.resolve([])) }));
+
+    expect(await screen.findByText(/captures nothing until a source is connected/i)).toBeVisible();
+    expect(screen.getByRole("heading", { name: /^slack$/i })).toBeVisible();
+    expect(screen.getByText("channels:history")).toBeVisible();
+  });
+
+  it("offers a safe retry when the list could not be loaded", async () => {
+    const listIntegrations = vi
+      .fn<() => Promise<Integration[]>>()
+      .mockRejectedValueOnce(apiError(503))
+      .mockResolvedValue(INTEGRATIONS);
+    renderAdmin(client({ listIntegrations }));
+
+    expect(await screen.findByText(/the connected sources could not be loaded/i)).toBeVisible();
+    await userEvent.click(screen.getAllByRole("button", { name: /try again/i })[0]!);
+
+    expect(await screen.findByRole("heading", { name: /github — acme-inc/i })).toBeVisible();
+  });
+
+  it("answers a permission refusal rather than reporting a generic failure", async () => {
+    renderAdmin(client({ listIntegrations: vi.fn(() => Promise.reject(apiError(403))) }));
+
+    expect(await screen.findByText(/does not have access to that/i)).toBeVisible();
+  });
+
+  it("restores focus to the control when the confirmation is dismissed", async () => {
+    // Cancelling must not drop a keyboard reader at the top of the document,
+    // several sections above where they were working.
+    renderAdmin();
+
+    await userEvent.click(await screen.findByRole("button", { name: /^disconnect$/i }));
+    await userEvent.click(screen.getByRole("button", { name: /keep it connected/i }));
+
+    expect(screen.getByRole("button", { name: /^disconnect$/i })).toHaveFocus();
+  });
+
+  it("passes an axe audit with the confirmation open", async () => {
+    const { container } = renderAdmin();
+
+    await userEvent.click(await screen.findByRole("button", { name: /^disconnect$/i }));
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+  });
+});
+
+/**
+ * Slack: the connect half.
+ *
+ * Two things here are not ordinary integration plumbing and are why this block
+ * is long.
+ *
+ * - **The bot only receives messages from public channels it has been invited
+ *   to.** CAIRN does not request `channels:join`, so a channel selected here and
+ *   never `/invite`d stays silent forever. If the screen does not say so,
+ *   somebody selects four channels, sees nothing arrive, and concludes the
+ *   product is broken — and from the screen alone they would be right to.
+ * - **A denial is a legitimate answer, not a failure.** Somebody was asked for
+ *   permission and said no. An apology and an alert would teach them that
+ *   declining broke something, which is how people learn to stop reading consent
+ *   screens.
+ */
+describe("connecting Slack", () => {
+  const SLACK: Integration = {
+    source: "slack",
+    account: "Northwind HQ",
+    installationId: 7,
+    connectedAt: "2026-07-02T09:00:00Z",
+    disconnectedAt: null,
+    suspended: false,
+  };
+
+  const CHANNELS: SlackChannelList = {
+    channels: [
+      { id: "C001", name: "general", botIsMember: true, selected: true },
+      { id: "C002", name: "engineering", botIsMember: false, selected: false },
+    ],
+    notice: NOTICE,
+  };
+
+  const INSTALL: SlackInstall = {
+    authorizeUrl: "https://slack.com/oauth/v2/authorize?state=nonce",
+    expiresAt: "2026-08-17T10:15:00Z",
+    requestedScopes: ["channels:history", "channels:read", "users:read"],
+    notice: NOTICE,
+  };
+
+  /** A workspace with Slack connected, and every Slack endpoint stubbed. */
+  function slackClient(overrides = {}): ReturnType<typeof createStubClient> {
+    return client({
+      listIntegrations: vi.fn(() => Promise.resolve([SLACK])),
+      startSlackInstall: vi.fn(() => Promise.resolve(INSTALL)),
+      listSlackChannels: vi.fn(() => Promise.resolve(CHANNELS)),
+      setSlackChannels: vi.fn(() => Promise.resolve(SAVED(["C001"]))),
+      disconnectSlack: vi.fn(() => Promise.resolve(DISCONNECTED)),
+      ...overrides,
+    });
+  }
+
+  /** Slack not yet connected. */
+  function unconnectedClient(overrides = {}): ReturnType<typeof createStubClient> {
+    return slackClient({
+      listIntegrations: vi.fn(() => Promise.resolve(INTEGRATIONS)),
+      ...overrides,
+    });
+  }
+
+  /**
+   * A window whose navigation can be observed.
+   *
+   * `location.assign` is what actually sends somebody to Slack, and jsdom
+   * neither performs nor records it. Stubbing the whole object rather than
+   * spying on the method because `window.location` is not configurable.
+   */
+  function captureNavigation(): ReturnType<typeof vi.fn> {
+    const assign = vi.fn();
+    const { href, origin, pathname, search } = window.location;
+    vi.stubGlobal("location", { href, origin, pathname, search, assign });
+    return assign;
+  }
+
+  describe("what the reader is told before they authorise anything", () => {
+    it("names the three scopes exactly, in both the literal form and plain words", async () => {
+      // The literal string is what somebody can check against Slack's own
+      // consent screen; the sentence is what they can understand. A paraphrase
+      // on its own asks them to trust the translation.
+      renderAdmin(unconnectedClient());
+
+      await screen.findByRole("heading", { name: /^slack$/i });
+      const slack = within(card(/^slack$/i));
+
+      expect(slack.getByText("channels:history")).toBeVisible();
+      expect(slack.getByText("channels:read")).toBeVisible();
+      expect(slack.getByText("users:read")).toBeVisible();
+      expect(slack.getByText(/read the messages in the public channels/i)).toBeVisible();
+      expect(slack.getByText(/list this workspace's public channels/i)).toBeVisible();
+      expect(slack.getByText(/look up who wrote a message/i)).toBeVisible();
+    });
+
+    it("asks for no fourth scope", async () => {
+      // Locked deliberately. The day somebody adds a scope to the manifest this
+      // fails, and whoever added it has to come and write the sentence that
+      // explains it to a customer.
+      renderAdmin(unconnectedClient());
+
+      await screen.findByRole("heading", { name: /^slack$/i });
+      const scopes = within(card(/^slack$/i)).getAllByText(/^[a-z]+:[a-z]+$/);
+
+      expect(scopes.map((node) => node.textContent)).toEqual([
+        "channels:history",
+        "channels:read",
+        "users:read",
+      ]);
+    });
+
+    it("states what CAIRN cannot do, rather than leaving it to be inferred", async () => {
+      // A list of granted permissions asks the reader to work out the complement
+      // of a set whose size they do not know, and everybody's guess is "probably
+      // more than that".
+      renderAdmin(unconnectedClient());
+
+      await screen.findByRole("heading", { name: /^slack$/i });
+      const slack = within(card(/^slack$/i));
+
+      expect(slack.getByText(/no permission to write anything to slack/i)).toBeVisible();
+      expect(slack.getByText(/direct messages, private channels, or group dms/i)).toBeVisible();
+      expect(slack.getByText(/does not request channels:join/i)).toBeVisible();
+    });
+
+    it("states the invite rule before anybody authorises anything", async () => {
+      // **The single most important sentence on the screen.**
+      renderAdmin(unconnectedClient());
+
+      expect(
+        await screen.findByText(/somebody has to run \/invite @CAIRN in that channel in slack/i),
+      ).toBeVisible();
+    });
+  });
+
+  describe("starting the connection", () => {
+    it("asks the API where to send the customer, then sends them there", async () => {
+      // **Why this is a button and not a link.** The install endpoint mints a
+      // single-use `state` nonce and *returns* the authorise URL rather than
+      // redirecting to it: a 302 on a credentialed request is followed by
+      // `fetch`, not by the window, so the customer would never reach Slack's
+      // consent screen at all. So the page asks, then navigates.
+      const assign = captureNavigation();
+      const startSlackInstall = vi.fn(() => Promise.resolve(INSTALL));
+      renderAdmin(unconnectedClient({ startSlackInstall }));
+
+      await userEvent.click(await screen.findByRole("button", { name: /^connect slack$/i }));
+
+      expect(startSlackInstall).toHaveBeenCalledWith(WORKSPACE);
+      expect(assign).toHaveBeenCalledWith(INSTALL.authorizeUrl);
+    });
+
+    it("says when the link it just minted stops working", async () => {
+      // A `state` nonce is single-use and time-boxed. Somebody who opens the
+      // consent screen, goes to lunch and comes back gets a failure whose only
+      // available explanation is this sentence.
+      captureNavigation();
+      renderAdmin(unconnectedClient());
+
+      await userEvent.click(await screen.findByRole("button", { name: /^connect slack$/i }));
+
+      expect(await screen.findByText(/this link stops working at/i)).toBeVisible();
+    });
+
+    it("says so when the install could not even be started", async () => {
+      // Slack unconfigured on the deployment answers 503. Navigating anyway
+      // would send somebody to a URL that does not exist; saying nothing would
+      // leave them pressing a button that appears to do nothing at all.
+      const assign = captureNavigation();
+      renderAdmin(
+        unconnectedClient({ startSlackInstall: vi.fn(() => Promise.reject(apiError(503))) }),
+      );
+
+      await userEvent.click(await screen.findByRole("button", { name: /^connect slack$/i }));
+
+      expect(await screen.findByRole("alert")).toBeVisible();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("names the act Reconnect when the grant has stopped working", async () => {
+      // "Connect" on a source that was already on hides from the reader that it
+      // ever was, and with it the question of what happened to it.
+      renderAdmin(
+        slackClient({
+          listIntegrations: vi.fn(() => Promise.resolve([{ ...SLACK, suspended: true }])),
+        }),
+      );
+
+      expect(await screen.findByRole("button", { name: /reconnect slack/i })).toBeVisible();
+    });
+
+    it("does not blame GitHub for a Slack failure", async () => {
+      renderAdmin(
+        slackClient({
+          listIntegrations: vi.fn(() => Promise.resolve([{ ...SLACK, suspended: true }])),
+        }),
+      );
+
+      await screen.findByRole("heading", { name: /slack — northwind hq/i });
+      expect(
+        within(card(/slack — northwind hq/i)).getByText(/slack has stopped accepting/i),
+      ).toBeVisible();
+      expect(screen.queryByText(/suspended on github/i)).not.toBeInTheDocument();
+    });
+
+    it("offers a Viewer no connect control, and says who has one", async () => {
+      const viewer = unconnectedClient({
+        getSession: vi.fn(() =>
+          Promise.resolve({
+            ...SESSION,
+            workspaces: [{ ...SESSION.workspaces[0]!, role: "viewer" as const }],
+          }),
+        ),
+      });
+      renderAdmin(viewer);
+
+      await screen.findByRole("heading", { name: /^slack$/i });
+      const slack = within(card(/^slack$/i));
+
+      expect(slack.queryByRole("button", { name: /^connect slack$/i })).not.toBeInTheDocument();
+      // Absence is not an explanation.
+      expect(
+        slack.getByText(/an owner or an admin of this workspace connects and disconnects sources/i),
+      ).toBeVisible();
+      // And they can still read exactly what it would ask for.
+      expect(slack.getByText("channels:history")).toBeVisible();
+    });
+  });
+
+  describe("coming back from Slack's consent screen", () => {
+    it("says plainly that it worked, and that nothing is being read yet", async () => {
+      renderAdmin(slackClient(), "slack=connected");
+
+      expect(await screen.findByText(/slack is connected/i)).toBeVisible();
+      expect(screen.getByText(/only after the cairn app has been invited/i)).toBeVisible();
+    });
+
+    it("treats a denial as an answer, not as a failure", async () => {
+      // **The decision this block turns on.** Somebody was asked for permission
+      // and said no. `role="alert"`, an apology, or the word "failed" would tell
+      // them their deliberate decision broke the product.
+      renderAdmin(unconnectedClient(), "slack=denied");
+
+      await screen.findByRole("heading", { name: /^slack$/i });
+      const slackCard = card(/^slack$/i);
+      const slack = within(slackCard);
+
+      expect(slack.getByText(/nothing was connected/i)).toBeVisible();
+      expect(slack.getByText(/you can start again whenever you want to/i)).toBeVisible();
+      expect(slack.queryByRole("alert")).not.toBeInTheDocument();
+      expect(slackCard.textContent).not.toMatch(/sorry|failed|went wrong/i);
+    });
+
+    it("reports a genuine failure as one, and says nothing was connected", async () => {
+      // After a broken OAuth round trip the one thing somebody cannot tell from
+      // the screen is whether access was granted anyway.
+      renderAdmin(unconnectedClient(), "slack=error");
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        /did not finish authorising cairn, so nothing was connected/i,
+      );
+    });
+
+    it("ignores a return value it does not recognise", async () => {
+      // The parameter is attacker-controllable, and rendering an arbitrary one
+      // would put a stranger's words on a page whose whole point is that its
+      // words are CAIRN's.
+      renderAdmin(unconnectedClient(), "slack=<script>");
+
+      await screen.findByRole("heading", { name: /^slack$/i });
+      expect(screen.queryByText(/nothing was connected/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("choosing channels", () => {
+    it("shows the selection the backend confirmed", async () => {
+      renderAdmin(slackClient());
+
+      expect(await screen.findByText(/cairn is reading 1 channel: #general\./i)).toBeVisible();
+    });
+
+    it("sends the whole new selection, not just the change", async () => {
+      // `PUT` replaces rather than merges, so unchecking a box has to arrive as
+      // an absence — and an absence only means anything when everything still
+      // chosen is present alongside it.
+      const setSlackChannels = vi.fn(() => Promise.resolve(SAVED(["C001", "C002"])));
+      renderAdmin(slackClient({ setSlackChannels }));
+
+      await userEvent.click(await screen.findByRole("button", { name: /choose channels/i }));
+      await userEvent.click(screen.getByRole("checkbox", { name: /engineering/i }));
+
+      expect(setSlackChannels).toHaveBeenCalledWith(WORKSPACE, ["C001", "C002"]);
+    });
+
+    it("ticks what the save confirmed, which is IDs and no names", async () => {
+      // The response carries `channelIds` only, deliberately: names belong to
+      // `conversations.list` and not to a write endpoint. The tick still has to
+      // come from that answer, so it is folded back onto the channels the GET
+      // described rather than taken from the click.
+      renderAdmin(slackClient({ setSlackChannels: vi.fn(() => Promise.resolve(SAVED(["C002"]))) }));
+
+      await userEvent.click(await screen.findByRole("button", { name: /choose channels/i }));
+      await userEvent.click(screen.getByRole("checkbox", { name: /engineering/i }));
+
+      expect(await screen.findByRole("checkbox", { name: /engineering/i })).toBeChecked();
+      // And #general, which the server did *not* confirm, loses its tick: the
+      // request was the full state of the checkboxes, so a missing ID is
+      // permission withdrawn rather than a channel the server forgot.
+      expect(screen.getByRole("checkbox", { name: /general/i })).not.toBeChecked();
+      expect(screen.getByText(/cairn is reading 1 channel: #engineering\./i)).toBeVisible();
+    });
+
+    it("says which channels the app is not in, because those deliver nothing", async () => {
+      // The single most common reason somebody connects Slack and sees nothing
+      // arrive. CAIRN asks for no `channels:join`, so this is unanswerable from
+      // any other part of the screen.
+      renderAdmin(slackClient());
+
+      await userEvent.click(await screen.findByRole("button", { name: /choose channels/i }));
+
+      expect(screen.getByRole("checkbox", { name: /engineering/i })).toHaveAccessibleDescription(
+        /the cairn app is not in this channel/i,
+      );
+    });
+
+    it("prints the server's invite sentence rather than a second copy of it", async () => {
+      renderAdmin(slackClient());
+
+      await userEvent.click(await screen.findByRole("button", { name: /choose channels/i }));
+
+      expect(screen.getByText(NOTICE)).toBeVisible();
+    });
+
+    it("only ticks a channel once the server has confirmed it", async () => {
+      // **The commitment this screen turns on.** A tick is a claim that CAIRN is
+      // reading that room. A request that never settles, so the answer never
+      // arrives.
+      const pending = new Promise<never>(() => {
+        /* never resolves */
+      });
+      renderAdmin(slackClient({ setSlackChannels: vi.fn(() => pending) }));
+
+      await userEvent.click(await screen.findByRole("button", { name: /choose channels/i }));
+      await userEvent.click(screen.getByRole("checkbox", { name: /engineering/i }));
+
+      const engineering = screen.getByRole("checkbox", { name: /engineering/i });
+      expect(engineering).not.toBeChecked();
+      expect(engineering).toHaveAttribute("aria-busy", "true");
+    });
+
+    it("leaves the checkbox where it was when the save is refused, and says why", async () => {
+      renderAdmin(slackClient({ setSlackChannels: vi.fn(() => Promise.reject(apiError(403))) }));
+
+      await userEvent.click(await screen.findByRole("button", { name: /choose channels/i }));
+      await userEvent.click(screen.getByRole("checkbox", { name: /engineering/i }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/does not have access to that/i);
+      expect(screen.getByRole("checkbox", { name: /engineering/i })).not.toBeChecked();
+    });
+
+    it("filters the channels by a search", async () => {
+      renderAdmin(slackClient());
+
+      await userEvent.click(await screen.findByRole("button", { name: /choose channels/i }));
+      await userEvent.type(screen.getByRole("searchbox", { name: /search channels/i }), "eng");
+
+      expect(screen.getByRole("checkbox", { name: /engineering/i })).toBeVisible();
+      expect(screen.queryByRole("checkbox", { name: /general/i })).not.toBeInTheDocument();
+    });
+
+    it("shows a skeleton the size of what it is waiting for", async () => {
+      const pending = new Promise<never>(() => {
+        /* never resolves */
+      });
+      renderAdmin(slackClient({ listSlackChannels: vi.fn(() => pending) }));
+
+      expect(await screen.findByText(/loading the slack channels/i)).toBeInTheDocument();
+    });
+
+    it("answers a permission refusal on the channel list rather than reporting a generic failure", async () => {
+      renderAdmin(slackClient({ listSlackChannels: vi.fn(() => Promise.reject(apiError(403))) }));
+
+      expect(await screen.findByText(/the slack channels could not be loaded/i)).toBeVisible();
+      expect(screen.getByText(/does not have access to that/i)).toBeVisible();
+    });
+
+    it("offers a safe retry when the channel list could not be loaded", async () => {
+      const listSlackChannels = vi
+        .fn<() => Promise<SlackChannelList>>()
+        .mockRejectedValueOnce(apiError(503))
+        .mockResolvedValue(CHANNELS);
+      renderAdmin(slackClient({ listSlackChannels }));
+
+      await userEvent.click(await screen.findByRole("button", { name: /try again/i }));
+
+      expect(await screen.findByText(/cairn is reading 1 channel: #general\./i)).toBeVisible();
+    });
+
+    it("shows a Viewer which channels are read, read-only", async () => {
+      const viewer = slackClient({
+        getSession: vi.fn(() =>
+          Promise.resolve({
+            ...SESSION,
+            workspaces: [{ ...SESSION.workspaces[0]!, role: "viewer" as const }],
+          }),
+        ),
+      });
+      renderAdmin(viewer);
+
+      expect(await screen.findByText(/cairn is reading 1 channel: #general\./i)).toBeVisible();
+      expect(screen.queryByRole("button", { name: /choose channels/i })).not.toBeInTheDocument();
+      expect(
+        screen.getByText(/an owner or an admin of this workspace chooses which channels/i),
+      ).toBeVisible();
+    });
+  });
+
+  describe("disconnecting", () => {
+    it("states all three consequences before it does anything", async () => {
+      // Collection stops, the credential is destroyed, and what was recorded is
+      // *not* deleted — it follows retention like everything else. Deleting it is
+      // a different request, and not a side effect of a button labelled
+      // Disconnect.
+      const disconnectSlack = vi.fn(() => Promise.resolve(DISCONNECTED));
+      renderAdmin(slackClient({ disconnectSlack }));
+
+      await userEvent.click(await screen.findByRole("button", { name: /^disconnect$/i }));
+
+      expect(disconnectSlack).not.toHaveBeenCalled();
+      expect(screen.getByText(/stops new collection immediately/i)).toBeVisible();
+      expect(screen.getByText(/deletes the credential cairn stored/i)).toBeVisible();
+      expect(screen.getByText(/removed on this workspace's retention schedule/i)).toBeVisible();
+    });
+
+    it("only disconnects once the reader has confirmed", async () => {
+      // `POST .../disconnect`, not `DELETE`: it answers with what it did — the
+      // credential cleared, and the retention that is deliberately unaffected.
+      const disconnectSlack = vi.fn(() => Promise.resolve(DISCONNECTED));
+      renderAdmin(slackClient({ disconnectSlack }));
+
+      await userEvent.click(await screen.findByRole("button", { name: /^disconnect$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /disconnect slack/i }));
+
+      expect(disconnectSlack).toHaveBeenCalledWith(WORKSPACE);
+    });
+
+    it("says so when a disconnect is refused", async () => {
+      renderAdmin(slackClient({ disconnectSlack: vi.fn(() => Promise.reject(apiError(403))) }));
+
+      await userEvent.click(await screen.findByRole("button", { name: /^disconnect$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /disconnect slack/i }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/does not have access to that/i);
+    });
+  });
+
+  it("passes an axe audit with the picker open", async () => {
+    const { container } = renderAdmin(slackClient(), "slack=connected");
+
+    await userEvent.click(await screen.findByRole("button", { name: /choose channels/i }));
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+  });
+
+  it("passes an axe audit on the OAuth error return", async () => {
+    const { container } = renderAdmin(unconnectedClient(), "slack=error");
+    await screen.findByRole("alert");
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
   });
 });
 
@@ -304,6 +922,22 @@ describe("what a role is offered", () => {
     expect(screen.queryByLabelText(/role for/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /disconnect/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /save/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a Viewer the connection record and tells them who can change it", async () => {
+    // Absence is not an explanation. Silence leaves a Viewer unable to tell
+    // "not mine to do" from "nobody has done it", and the record itself is
+    // theirs to read because it is about their own activity.
+    renderAdmin(asViewer());
+
+    await screen.findByRole("heading", { name: /github — acme-inc/i });
+    const github = within(card(/github — acme-inc/i));
+
+    expect(github.getByText("Connected")).toBeVisible();
+    expect(
+      github.getByText(/an owner or an admin of this workspace connects and disconnects sources/i),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /disconnect/i })).not.toBeInTheDocument();
   });
 
   it("does not show a Viewer who has not been notified", async () => {
@@ -420,6 +1054,140 @@ describe("the trust and privacy centre", () => {
     renderTrust();
 
     expect(await screen.findByText(/2 people have not been shown it yet/i)).toBeVisible();
+  });
+
+  it("lists the connections this workspace actually has, read-only", async () => {
+    // The catalogue above says what CAIRN *could* read. This is the workspace's
+    // own record — the difference between "we only read what you allow" and a
+    // reader being able to check it.
+    renderTrust();
+
+    const connections = await screen.findByRole("list", { name: /connections/i });
+    expect(within(connections).getByRole("heading", { name: /github — acme-inc/i })).toBeVisible();
+    expect(within(connections).queryByRole("button", { name: /disconnect/i })).toBeNull();
+  });
+
+  it("tells an Owner where the connection is changed, since it is not changed here", async () => {
+    // Read-only for everybody, Owners included: this page is the record and the
+    // workspace screen is the control. A record with no explanation of where it
+    // is changed reads as one nobody can change.
+    renderTrust({}, "owner");
+
+    await screen.findByRole("heading", { name: /github — acme-inc/i });
+    expect(
+      within(card(/github — acme-inc/i)).getByText(/disconnect this on the workspace screen/i),
+    ).toBeVisible();
+  });
+
+  it("invents no connection detail the API did not send", async () => {
+    // The page's entire claim is that its numbers are read from the workspace.
+    renderTrust();
+
+    const connections = await screen.findByRole("list", { name: /connections/i });
+    expect(within(connections).queryByText("Last successful sync")).not.toBeInTheDocument();
+    expect(within(connections).queryByText("Access granted")).not.toBeInTheDocument();
+  });
+
+  describe("what it says about Slack", () => {
+    const SLACK: Integration = {
+      source: "slack",
+      account: "Northwind HQ",
+      installationId: 7,
+      connectedAt: "2026-07-02T09:00:00Z",
+      disconnectedAt: null,
+      suspended: false,
+    };
+
+    function withSlack(payload: SlackChannelList, integrations: Integration[] = [SLACK]): object {
+      return {
+        listIntegrations: vi.fn(() => Promise.resolve(integrations)),
+        listSlackChannels: vi.fn(() => Promise.resolve(payload)),
+      };
+    }
+
+    it("states Slack's state whether or not it is connected", async () => {
+      renderTrust();
+
+      await screen.findByRole("heading", { name: /^slack$/i });
+      expect(within(card(/^slack$/i)).getByText("Disconnected")).toBeVisible();
+    });
+
+    it("lists the channels the backend returned, as a record", async () => {
+      renderTrust(
+        withSlack({
+          channels: [
+            { id: "C001", name: "general", botIsMember: true, selected: true },
+            { id: "C002", name: "engineering", botIsMember: true, selected: true },
+          ],
+          notice: NOTICE,
+        }),
+      );
+
+      expect(
+        await screen.findByText(/cairn is reading 2 channels: #general, #engineering\./i),
+      ).toBeVisible();
+    });
+
+    it("names only the channels the backend said were chosen", async () => {
+      // **The commitment this page turns on.** Its whole claim is that its
+      // numbers are read from the workspace. A channel CAIRN could read but
+      // nobody selected is not a channel CAIRN is reading, and listing it here
+      // would overstate the surveillance on the page that exists to be checked.
+      renderTrust(
+        withSlack({
+          channels: [
+            { id: "C001", name: "general", botIsMember: true, selected: true },
+            { id: "C002", name: "engineering", botIsMember: true, selected: false },
+          ],
+          notice: NOTICE,
+        }),
+      );
+
+      expect(await screen.findByText(/cairn is reading 1 channel: #general\./i)).toBeVisible();
+    });
+
+    it("keeps the record read-only and says where it is changed", async () => {
+      renderTrust(
+        withSlack({
+          channels: [{ id: "C001", name: "general", botIsMember: true, selected: true }],
+          notice: NOTICE,
+        }),
+      );
+
+      await screen.findByText(/cairn is reading 1 channel/i);
+      expect(screen.queryByRole("button", { name: /choose channels/i })).not.toBeInTheDocument();
+      expect(
+        screen.getByText(/an owner or an admin chooses these on the workspace screen/i),
+      ).toBeVisible();
+    });
+
+    it("says the record is incomplete rather than failing the whole page", async () => {
+      // One detail inside a record on a page full of records. An alert about a
+      // channel list is out of proportion to what a reader came here for.
+      renderTrust({
+        ...withSlack({ channels: [], notice: NOTICE }),
+        listSlackChannels: vi.fn(() => Promise.reject(apiError(503))),
+      });
+
+      await screen.findByRole("heading", { name: /slack — northwind hq/i });
+      expect(
+        await screen.findByText(/could not read which slack channels are selected/i),
+      ).toBeVisible();
+      expect(screen.getByText(/90 days, then deleted/i)).toBeVisible();
+    });
+
+    it("names the scopes and the invite rule here too", async () => {
+      // The same three facts, from the same constants, so the workspace screen
+      // and the trust record cannot come to disagree about what CAIRN asks for.
+      renderTrust();
+
+      await screen.findByRole("heading", { name: /^slack$/i });
+      const slack = within(card(/^slack$/i));
+
+      expect(slack.getByText("channels:history")).toBeVisible();
+      expect(slack.getByText(/\/invite @CAIRN/i)).toBeVisible();
+      expect(slack.getByText(/no permission to write anything to slack/i)).toBeVisible();
+    });
   });
 
   it("carries no reassurance", async () => {

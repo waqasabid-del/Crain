@@ -39,11 +39,14 @@ from cairn_api.api.routers import (
     internal,
     me,
     onboarding,
+    slack,
+    slack_webhooks,
     support,
     trust,
     workspaces,
 )
 from cairn_api.config import Settings, get_settings
+from cairn_api.connectors.credentials import build_cipher
 from cairn_api.db.preflight import run_preflight_checks
 from cairn_api.db.session import dispose_engines, platform_session
 from cairn_api.email import build_sender
@@ -93,6 +96,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Before serving, not after: an environment that cannot export what it
     # records is one where the first incident has no trace.
     check_telemetry(settings)
+
+    # Same reasoning, higher stakes. Without this the missing key surfaces at
+    # the first connector write — which is the moment a customer is handing
+    # CAIRN an access token, and the worst possible time to discover there is
+    # nowhere safe to put it. Building the cipher here turns that into a
+    # refusal to start.
+    build_cipher(settings)
 
     await logger.ainfo(
         "api_started",
@@ -168,7 +178,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(trust.router, prefix=API_PREFIX)
     app.include_router(support.router, prefix=API_PREFIX)
     app.include_router(internal.router, prefix=API_PREFIX)
+    # Two routers, because the Slack OAuth callback URL is registered with Slack
+    # once and therefore cannot carry a `{workspace_id}` path segment. The
+    # workspace-scoped half is gated exactly like the GitHub connect endpoint;
+    # the callback identifies its workspace from the single-use state instead.
+    app.include_router(slack.router, prefix=API_PREFIX)
+    app.include_router(slack.callback_router, prefix=API_PREFIX)
     app.include_router(webhooks.router, prefix=API_PREFIX)
+    # Mounts the Slack event endpoint and registers the job it publishes, in one
+    # call: a router without its handler publishes a job type no worker can
+    # resolve, which dead-letters as "unknown".
+    slack_webhooks.install(app, prefix=API_PREFIX)
 
     return app
 

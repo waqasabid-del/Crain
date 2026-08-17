@@ -1,6 +1,12 @@
 "use client";
 
-import type { SupportScope, SupportSession, Trust } from "@cairn/api-client";
+import type {
+  Integration,
+  SlackChannelList,
+  SupportScope,
+  SupportSession,
+  Trust,
+} from "@cairn/api-client";
 import Link from "next/link";
 import { Button } from "@cairn/ui";
 import { useCallback, useState, type ReactNode } from "react";
@@ -8,6 +14,16 @@ import { useCallback, useState, type ReactNode } from "react";
 import { useApiClient } from "../api/context.js";
 import { useAuth } from "../auth/context.js";
 import { describeError, type DescribedError } from "../errors.js";
+import { ChannelPicker, ChannelPickerLoading } from "../components/ChannelPicker.js";
+import {
+  ConnectionCard,
+  connectionRows,
+  ConnectionsLoading,
+  CONNECTION_READ_ONLY_NOTE,
+  SLACK_INVITE_RULE,
+  SLACK_REFUSALS,
+  SLACK_SCOPES,
+} from "../components/ConnectionCard.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { useAsync } from "../hooks/useAsync.js";
@@ -110,6 +126,8 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
         </p>
       </section>
 
+      <WorkspaceConnections workspaceId={workspaceId} />
+
       <section className={styles.section} aria-labelledby="never">
         <h2 className={styles.heading} id="never">
           What CAIRN never does
@@ -184,6 +202,141 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
         </dl>
       </section>
     </>
+  );
+}
+
+/**
+ * The connections themselves, not a claim about them.
+ *
+ * The section above lists every source CAIRN *could* read, which is a catalogue.
+ * This is the workspace's actual record: which accounts are connected, what was
+ * granted, when each last worked, and who authorised it. That is the difference
+ * between "we only read what you allow" and a reader being able to check it.
+ *
+ * Read-only for everybody here, including Owners — the control lives on the
+ * workspace screen, and this page is a record. The note says which, because a
+ * record with no explanation of where it is changed reads as one nobody can
+ * change.
+ *
+ * Absent fields are absent. A last-sync time invented for a page whose entire
+ * claim is that its numbers are read from the workspace would discredit every
+ * other line on it.
+ */
+function WorkspaceConnections({ workspaceId }: { workspaceId: string }): ReactNode {
+  const client = useApiClient();
+  const { activeRole } = useAuth();
+  const load = useCallback(
+    (signal: AbortSignal): Promise<Integration[]> =>
+      client.listIntegrations(workspaceId, { signal }),
+    [client, workspaceId],
+  );
+  const { state, reload } = useAsync(load, "load the connected sources");
+
+  const administers = activeRole === "owner" || activeRole === "admin";
+  const readOnlyNote = administers
+    ? "You can disconnect this on the workspace screen. It is read-only here because this page is the record, not the control."
+    : CONNECTION_READ_ONLY_NOTE;
+
+  return (
+    <section className={styles.section} aria-labelledby="connections">
+      <h2 className={styles.heading} id="connections">
+        What is connected right now
+      </h2>
+      <p className={styles.lead}>
+        The accounts CAIRN is reading from, as this workspace has them. Everything below is read
+        from the connection; anything CAIRN has not recorded is left out rather than guessed at.
+      </p>
+
+      {state.status === "loading" && <ConnectionsLoading label="the connected sources" />}
+      {state.status === "failed" && (
+        <ErrorState
+          title="The connected sources could not be loaded"
+          error={state.error}
+          onRetry={reload}
+          headingLevel={3}
+        />
+      )}
+
+      {state.status === "ready" && (
+        <>
+          {state.data.length === 0 && (
+            <p className={styles.lead}>
+              Nothing is connected, so CAIRN is reading nothing from this workspace. Each source it
+              could read is listed below with what it would ask for.
+            </p>
+          )}
+
+          <ul className={styles.connections} aria-label="Connections">
+            {connectionRows(state.data).map((row) => {
+              const { connection } = row;
+              const isSlack = row.source === "slack";
+
+              return (
+                <li key={connection.id}>
+                  <ConnectionCard
+                    connection={connection}
+                    canManage={false}
+                    readOnlyNote={readOnlyNote}
+                    {...(isSlack
+                      ? {
+                          requestedScopes: SLACK_SCOPES,
+                          refusals: SLACK_REFUSALS,
+                          notice: SLACK_INVITE_RULE,
+                          ...(connection.state === "connected"
+                            ? { children: <SlackChannelRecord workspaceId={workspaceId} /> }
+                            : {}),
+                        }
+                      : {})}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Which Slack channels are being read, as a record rather than a control.
+ *
+ * Read-only for everybody here, Owners included — this page is the record and
+ * the workspace screen is the control. The channel names and the count are
+ * whatever the API returned and nothing else: a fact invented on the page whose
+ * entire claim is that its numbers are read from the workspace would discredit
+ * every other line on it.
+ *
+ * A failure to load is *not* an error panel here. This is one detail inside a
+ * record on a page full of other records, and an alert about a channel list is
+ * out of proportion to what a reader of the Trust page came for — so it says
+ * what is missing, in a sentence, and leaves the rest of the page intact.
+ */
+function SlackChannelRecord({ workspaceId }: { workspaceId: string }): ReactNode {
+  const client = useApiClient();
+  const load = useCallback(
+    (signal: AbortSignal): Promise<SlackChannelList> =>
+      client.listSlackChannels(workspaceId, { signal }),
+    [client, workspaceId],
+  );
+  const { state } = useAsync(load, "load the Slack channels");
+
+  if (state.status === "loading") return <ChannelPickerLoading />;
+  if (state.status === "failed") {
+    return (
+      <p className={styles.readOnly}>
+        CAIRN could not read which Slack channels are selected just now, so this record is
+        incomplete rather than empty.
+      </p>
+    );
+  }
+
+  return (
+    <ChannelPicker
+      selection={state.data}
+      canManage={false}
+      readOnlyNote="An Owner or an Admin chooses these on the workspace screen. It is read-only here because this page is the record, not the control."
+    />
   );
 }
 

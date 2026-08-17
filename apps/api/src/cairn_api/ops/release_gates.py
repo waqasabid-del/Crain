@@ -313,6 +313,88 @@ def _audit_sink_gate(settings: Settings) -> Gate:
     )
 
 
+def _connectors_gate(settings: Settings) -> Gate:
+    """Chat sources delivering real events.
+
+    Stage F. Slack and Google Chat arrive in Step 32, and this gate is written
+    before they do so that the first thing anybody can say about them is bounded
+    by evidence rather than by a `.env` file.
+
+    **This gate cannot return `PASSED`, structurally.** Every input it has is
+    configuration: a client id, a signing secret, a service account. None of them
+    is a delivery. Proving a connector works needs an event that a customer's
+    workspace actually sent, which arrives over the network and is exactly what
+    this module refuses to go looking for. So the best a configured provider can
+    reach here is `UNVERIFIED`, and the check that would close it is named rather
+    than performed. `ops/connectors.py` holds the counterpart at runtime:
+    `inbound_verified` is true only once a delivery has been recorded, and
+    `providers_configured_but_unverified` is the number this gate is the release
+    time reading of.
+
+    **Slack makes the point concretely.** Three environment variables can all be
+    correct while the app is not installed, while the Events API Request URL was
+    never verified — Slack's URLs are case-sensitive, so a path that differs by
+    one letter fails verification and nothing arrives — or, most often, while the
+    bot has simply never been invited to a channel. CAIRN does not request
+    `channels:join`, so an uninvited bot receives nothing at all, and every
+    configuration check in the world passes in that state. So the manual step
+    named below starts with the invitation rather than the credentials.
+    """
+    from cairn_api.ops.connectors import PROVIDERS, ConnectorProvider, configured_providers, spec
+
+    configured = configured_providers(settings)
+    chat = tuple(item for item in configured if item is not ConnectorProvider.GITHUB)
+
+    if not chat:
+        names = ", ".join(
+            variable
+            for spec in PROVIDERS
+            if spec.provider is not ConnectorProvider.GITHUB
+            for variable in spec.env_vars
+        )
+        return Gate(
+            name="connectors",
+            status=GateStatus.BLOCKED,
+            detail=(
+                "No chat connector is configured. GitHub is the only source, so a "
+                "brief can describe what was shipped and nothing about what was "
+                "decided."
+            ),
+            next_step=(
+                f"Configure at least one chat source ({names}), install it on one "
+                "workspace, and confirm an event arrives."
+            ),
+        )
+
+    # The per-provider live check, composed rather than branched on. Each
+    # provider's manual step lives beside the rest of what is known about it in
+    # `ops/connectors.py`, so a fourth provider extends a constant instead of
+    # adding an `if` here — and Slack's step, which is the one people get wrong,
+    # is stated in full rather than summarised as "install it".
+    steps = " ".join(
+        spec(item).manual_verification for item in chat if spec(item).manual_verification
+    )
+
+    return Gate(
+        name="connectors",
+        status=GateStatus.UNVERIFIED,
+        detail=(
+            f"Credentials are configured for: {', '.join(sorted(item.value for item in chat))}. "
+            "No inbound delivery has been verified from inside this process."
+        ),
+        next_step=(
+            f"{steps} Then confirm the connector read model reports a delivery for "
+            "that provider: GET /v1/internal/operations/connectors, "
+            "`inboundVerified` true for its row. A signing secret in an "
+            "environment variable proves somebody set a variable — not that the "
+            "app is installed on a workspace, that the scopes asked for were "
+            "granted, that the Events API Request URL was ever verified, or that "
+            "one event has ever arrived. This gate has no way to reach 'passed' "
+            "on its own, deliberately."
+        ),
+    )
+
+
 def evaluate_release_gates(settings: Settings | None = None) -> Sequence[Gate]:
     """Every dependency a live release turns on, in the order to close them."""
     from cairn_api.config import get_settings
@@ -323,6 +405,7 @@ def evaluate_release_gates(settings: Settings | None = None) -> Sequence[Gate]:
         _telemetry_gate(resolved),
         _email_gate(resolved),
         _github_gate(resolved),
+        _connectors_gate(resolved),
         _model_gate(resolved),
         _audit_sink_gate(resolved),
     )

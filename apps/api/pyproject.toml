@@ -38,6 +38,11 @@ dependencies = [
     "pgvector>=0.4",
     "opentelemetry-api>=1.44.0",
     "opentelemetry-sdk>=1.44.0",
+    # Fernet, for connector credentials at rest (connectors/credentials.py).
+    # Present transitively via pyjwt[crypto] already, which is precisely why it
+    # is declared: the encryption of every third-party token would otherwise
+    # depend on a JWT library keeping an extra we do not control.
+    "cryptography>=50.0.0",
 ]
 
 [build-system]

@@ -12,6 +12,7 @@ import structlog
 
 from cairn_api.api.ratelimit import purge_expired_buckets
 from cairn_api.config import get_settings
+from cairn_api.connectors.credentials import build_cipher
 from cairn_api.db.preflight import run_preflight_checks
 from cairn_api.db.session import dispose_engines, platform_session
 from cairn_api.github import handlers as github_handlers
@@ -95,6 +96,11 @@ async def run_worker() -> None:
     # traces explain a bad brief. It refuses to start blind for the same reason
     # the API does.
     check_telemetry(settings)
+
+    # The worker reads connector credentials to poll and to backfill, so it
+    # refuses to start without somewhere safe to decrypt them from — the same
+    # refusal the API makes, for the same reason.
+    build_cipher(settings)
 
     queue = build_queue(settings)
     register_handlers(queue)

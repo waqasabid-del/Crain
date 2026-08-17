@@ -21,6 +21,23 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #: a connection string has not had its secrets injected.
 LOCAL_DEV_PASSWORD = "cairn_local_dev"  # noqa: S105
 
+#: Fernet key used to encrypt connector credentials in local development and in
+#: tests. Public in this repository, and base64 of the ASCII string
+#: ``cairn-local-development-key-only`` so that anyone who finds it in a dump can
+#: see at a glance that it protects nothing.
+#:
+#: It exists so a developer can exercise the real encryption path — the
+#: alternative is an "encryption optional" branch, and a branch that skips
+#: encryption is a branch something eventually takes in production. Refused
+#: outright in any deployed environment, below.
+DEVELOPMENT_CONNECTOR_KEY = "Y2Fpcm4tbG9jYWwtZGV2ZWxvcG1lbnQta2V5LW9ubHk="
+
+#: The variable an operator has to set. Named as a constant because the guard
+#: that refuses to start must be able to say it, and a message that says
+#: "configure encryption" without naming the knob is a message that costs an
+#: on-call engineer twenty minutes.
+CONNECTOR_ENCRYPTION_KEY_VAR = "CAIRN_CONNECTOR_ENCRYPTION_KEY"
+
 Environment = Literal["local", "test", "staging", "production"]
 
 #: Which broker backs the job queue.
@@ -254,6 +271,75 @@ class Settings(BaseSettings):
         ),
     )
 
+    # -- Slack -------------------------------------------------------------
+    #
+    # Three separate secrets because they protect three different directions.
+    # The client id and secret authorise *us* to Slack during the install
+    # exchange; the signing secret verifies that an *inbound* request really came
+    # from Slack. Collapsing them into one "Slack credential" is how a value that
+    # only ever needed to be read by the outbound path ends up in the request
+    # handler that anyone on the internet can reach.
+
+    slack_client_id: str = Field(
+        default="",
+        description=(
+            "Slack app client ID. Public by design — it appears in the authorise "
+            "URL the customer's browser follows — so it is a plain setting rather "
+            "than a secret. Empty means Slack is not configured, and the install "
+            "endpoint refuses rather than sending a customer to an authorise URL "
+            "that Slack will reject with a message about our app."
+        ),
+    )
+
+    slack_client_secret: str = Field(
+        default="",
+        description=(
+            "Slack app client secret, used only to exchange an install code for "
+            "a bot token. Never leaves this process and never reaches a "
+            "response: the exchange is server-to-server precisely so this value "
+            "is not in the browser's half of the flow."
+        ),
+    )
+
+    slack_signing_secret: str = Field(
+        default="",
+        description=(
+            "Shared secret Slack signs inbound requests with. Not used by the "
+            "install flow at all — declared here because a connector configured "
+            "for install and not for inbound is 'connected' with nothing "
+            "arriving, which is the failure md/05 §4 calls worse than an honest "
+            "one, and `ops/connectors.py` reports on all three together."
+        ),
+    )
+
+    slack_redirect_uri: str = Field(
+        default="http://localhost:8000/v1/integrations/slack/callback",
+        description=(
+            "Where Slack sends the customer back after they authorise. Must "
+            "match a URL registered on the Slack app exactly, character for "
+            "character, or the exchange fails with `bad_redirect_uri`.\n\n"
+            "Configured rather than derived from the request, for the same "
+            "reason as `public_app_url`: a redirect URI built from an "
+            "attacker-supplied Host header sends the install code — and "
+            "therefore the workspace's bot token — to the attacker."
+        ),
+    )
+
+    # -- Connectors --------------------------------------------------------
+
+    connector_encryption_key: str = Field(
+        default="",
+        description=(
+            "Fernet key encrypting third-party connector credentials at rest. "
+            "Empty falls back to the public development key, which a deployed "
+            "environment refuses — an unset secret must not degrade to a "
+            "weaker one silently, because the result still reads as "
+            "'encrypted' everywhere it is described. Generate with "
+            '`python -c "from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"`.'
+        ),
+    )
+
     # -- Model spend -------------------------------------------------------
     #
     # `pipeline/spend.py` enforces these. They live here rather than as module
@@ -450,6 +536,43 @@ class Settings(BaseSettings):
                 "CAIRN_GITHUB_WEBHOOK_SECRET is required outside local "
                 "development. The webhook endpoint is unauthenticated; without "
                 "a secret it accepts anything."
+            )
+            raise ValueError(msg)
+
+        if self.slack_client_id and not self.slack_redirect_uri.startswith("https://"):
+            # Only checked once Slack is actually configured, so an environment
+            # that has not enabled the connector is not forced to invent a URL.
+            #
+            # The install code arrives on this URL as a query parameter, and it
+            # is exchangeable for a bot token by whoever sees it first. Over
+            # plain HTTP that is every hop between the customer and us — and the
+            # default above is a localhost URL, so an environment that forgot to
+            # set this would send its customers' codes to a host that does not
+            # exist, which is the *lucky* outcome.
+            msg = (
+                f"CAIRN_SLACK_REDIRECT_URI is {self.slack_redirect_uri!r} while "
+                f"CAIRN_ENVIRONMENT is '{self.environment}'. The Slack install "
+                "code arrives on this URL and is exchangeable for a workspace's "
+                "bot token; it must be an https URL registered on the Slack app."
+            )
+            raise ValueError(msg)
+
+        if self.connector_encryption_key == DEVELOPMENT_CONNECTOR_KEY:
+            # Worse than no key, because everything reports success. Every
+            # token would be recoverable by anyone holding a copy of this
+            # repository and a database backup.
+            #
+            # An *absent* key is refused by `connectors.credentials.build_cipher`
+            # instead, which is where the queue, email and telemetry backends
+            # make the same call. This case is here as well because it is a
+            # property of the configuration alone: an environment handed the
+            # published key is misconfigured whether or not anything ever asks
+            # for a cipher.
+            msg = (
+                f"{CONNECTOR_ENCRYPTION_KEY_VAR} is set to the development key, "
+                f"which is published in this repository. Every connector "
+                f"credential would be decryptable by anyone who has read the "
+                f"source. Set a generated key."
             )
             raise ValueError(msg)
 

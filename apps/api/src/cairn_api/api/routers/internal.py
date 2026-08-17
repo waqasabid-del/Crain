@@ -39,6 +39,7 @@ from cairn_api.api.routers.facts import _fact_response
 from cairn_api.api.schemas import (
     AuditEntryResponse,
     AuditVerification,
+    ConnectorFleetView,
     EvaluationSummary,
     FactResponse,
     ModelSpend,
@@ -61,6 +62,7 @@ from cairn_api.db.staff_models import InternalAuditEntry, StaffMember, StaffRole
 from cairn_api.db.support_models import SupportScope, SupportSession
 from cairn_api.db.tenancy import tenant_session
 from cairn_api.internal import audit, support
+from cairn_api.ops import connectors as connector_ops
 from cairn_api.ops import measure
 from cairn_api.pipeline.spend import SPEND_SIGNALS
 
@@ -439,6 +441,33 @@ async def evaluation_summary(
         failed=int(baseline.get("failed", 0)),
         failure_modes={str(key): int(value) for key, value in modes.items()},
     )
+
+
+@router.get(
+    "/operations/connectors",
+    response_model=ConnectorFleetView,
+    summary="Whether each source is delivering",
+)
+async def connector_health(
+    db: PlatformDb,
+    settings: SettingsDep,
+    staff: Annotated[StaffContext, Depends(requires_staff(*OPERATIONS_ROLES))],
+) -> ConnectorFleetView:
+    """Per-source health, answered without reading anything a source delivered.
+
+    Step 32 adds Slack and Google Chat, at which point "is ingestion working"
+    stops being one number and becomes a per-provider question. The tempting way
+    to answer it is to look at what came in; that is the one thing an operator
+    may never do, so every figure here is a count, an age or a category from a
+    closed set.
+
+    Platform-wide and naming no workspace, like the other operations surfaces.
+    A per-workspace view of what a customer is producing is a support session's
+    business, not a dashboard's.
+    """
+    _ = staff
+    fleet = await connector_ops.connector_health(db, settings)
+    return ConnectorFleetView.model_validate(fleet, from_attributes=True)
 
 
 # --------------------------------------------------------------------------

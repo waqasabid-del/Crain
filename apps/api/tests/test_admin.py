@@ -317,6 +317,85 @@ class TestIntegrations:
         assert integration["account"] == "acme-inc"
         assert integration["disconnectedAt"] is None
 
+    async def test_the_connection_record_reaches_the_interface(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """Step 31's connector fields are real data or they are absent.
+
+        The interface renders a fact or omits the row; it never fills a gap with
+        something plausible. So this asserts both halves: what the connector
+        genuinely knows arrives, and what it does not know arrives as null rather
+        than as a value derived from something else.
+        """
+        from sqlalchemy import text as sql
+
+        owner = await owner_of_new_workspace(app)
+        installation_id = 910_000 + uuid.uuid4().int % 80_000
+
+        await owner.client.post(
+            f"/v1/workspaces/{owner.workspace_id}/integrations/github",
+            json={
+                "installationId": installation_id,
+                "accountLogin": "acme-inc",
+                "accountType": "Organization",
+            },
+        )
+
+        # The scopes a provider granted are connector state, not installation
+        # state, so they are set where the connector records them.
+        await platform.execute(
+            sql(
+                "UPDATE source_connections SET scopes = :scopes "
+                "WHERE installation_id = :installation_id"
+            ),
+            {
+                "scopes": '["contents:read", "pull_requests:read"]',
+                "installation_id": str(installation_id),
+            },
+        )
+        await platform.commit()
+
+        [integration] = (
+            await owner.client.get(f"/v1/workspaces/{owner.workspace_id}/integrations")
+        ).json()
+
+        assert integration["scopes"] == ["contents:read", "pull_requests:read"]
+        # Nothing has synced and nobody recorded an authoriser for a projected
+        # connection, so both are null rather than guessed from connectedAt.
+        assert integration["lastSuccessfulSyncAt"] is None
+        assert integration["authorisedBy"] is None
+        assert integration["revokedAt"] is None
+
+    async def test_connecting_does_not_start_reading_history_by_itself(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """Connecting a source is permission to watch from now on.
+
+        Reading months of past activity is a second, larger decision — it pulls
+        in work by people who never saw the connection happen — so it needs the
+        caller to name the repositories. A connect that quietly began importing
+        everything would make the consent notice arrive after the collection.
+
+        Asserted on the count the API returns, because "no backfill ran" is not
+        something a reader could otherwise verify.
+        """
+        owner = await owner_of_new_workspace(app)
+        installation_id = 860_000 + uuid.uuid4().int % 90_000
+
+        response = await owner.client.post(
+            f"/v1/workspaces/{owner.workspace_id}/integrations/github",
+            json={
+                "installationId": installation_id,
+                "accountLogin": "acme-inc",
+                "accountType": "Organization",
+                # No `repositories`: the caller connected, and asked for nothing
+                # historical.
+            },
+        )
+
+        assert response.status_code in (200, 201), response.text
+        assert response.json()["backfillRuns"] == 0, "connecting silently began reading history"
+
     async def test_disconnecting_stops_capture_and_keeps_the_record(
         self, app: FastAPI, platform: AsyncSession
     ) -> None:

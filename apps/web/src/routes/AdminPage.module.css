@@ -1,25 +1,5 @@
-.section {
-  margin-bottom: var(--space-10);
-}
-
-.section:last-child {
-  margin-bottom: 0;
-}
-
-.sectionTitle {
-  margin: 0 0 var(--space-4);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--fg-subtle);
-}
-
-.sectionBody {
-  max-width: 62ch;
-  margin: 0 0 var(--space-5);
-  color: var(--fg-muted);
-}
+/* The section shell, its heading and its description now come from the shared
+   `Section` primitive — see `AdminSection` in AdminPage.tsx. */
 
 /*
  * A list of people, and no column for how much they did.
@@ -28,12 +8,22 @@
  * seems reasonable, because every other admin area has one. md/05 §B.2 and
  * md/15 §2.2 make its absence a product commitment rather than a gap.
  */
-.people,
-.integrations {
+.people {
   margin: 0;
   padding: 0;
   list-style: none;
   border-top: var(--border-thin) solid var(--border-subtle);
+}
+
+/* Connections are cards, not rules: each carries a heading, a state, a record
+   and an action, and a flat row stopped reading as one object. */
+.connections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .person {
@@ -122,9 +112,7 @@
 
 .problem {
   max-width: 62ch;
-  margin: var(--space-3) 0 0;
-  font-size: var(--text-sm);
-  color: var(--fg-default);
+  margin-top: var(--space-3);
 }
 
 .facts {
@@ -153,19 +141,6 @@
   }
 }
 
-/*
- * Present to assistive technology, absent from the page. Used for the per-row
- * role label: a screen reader's control list of identical "Role" selects is
- * unusable, and a visible repeat of each name beside the control is noise.
- */
-.visuallyHidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
+/* The `.visuallyHidden` copy that lived here is gone; `styles/utility.module.css`
+   is the canonical one, and a subtly wrong duplicate of that rule silently mutes
+   a screen reader while looking correct in review. */

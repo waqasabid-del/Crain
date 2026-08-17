@@ -135,11 +135,90 @@ class _Evidence:
     project: str | None = None
 
 
+def _read_slack_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
+    """One public-channel message, as something a fact can cite.
+
+    Slack's identity is `(team, channel, ts)` — `ts` is unique per channel only,
+    so a shorter id would collide the moment two channels are selected. The same
+    id is what an edit updates and a delete retires, which is why it is built
+    from the message's own timestamp rather than the delivery's.
+
+    Deletes carry no text by design: the citation must stop resolving, and
+    returning nothing is how a retired statement leaves the record rather than
+    standing as current. Bot messages and unselected channels never reach here —
+    `slack/events.py` drops them before the delivery is recorded.
+    """
+    payload = delivery.payload
+    event = payload.get("event")
+    if not isinstance(event, dict):
+        return []
+
+    subtype = _text(event.get("subtype"))
+    if subtype == "message_deleted":
+        return []
+
+    inner = event.get("message") if subtype == "message_changed" else event
+    if not isinstance(inner, dict):
+        return []
+
+    text = _text(inner.get("text"))
+    # The edited message's own timestamp, never the outer one: the outer `ts` is
+    # when the edit happened, and citing it would file the correction as a
+    # second statement instead of replacing the first.
+    ts = _text(inner.get("ts")) or _text(event.get("ts"))
+    channel = _text(event.get("channel"))
+    team = _text(payload.get("team_id"))
+    if not text or not ts or not channel or not team:
+        return []
+
+    return [
+        _Evidence(
+            evidence_id=f"slack:message:{team}:{channel}:{ts}",
+            text=text[:MAX_EVIDENCE_CHARS],
+            # Slack sends no permalink on the event and CAIRN holds no scope to
+            # ask for one, so the citation carries no link rather than a guessed
+            # URL. An evidence id a reader cannot click is honest; a fabricated
+            # one is not.
+            url=None,
+            occurred_at=_slack_timestamp(ts),
+            # Slack has no equivalent of a repository, and inventing one from the
+            # channel would make a filterable project out of a name the event
+            # does not even carry.
+            project=None,
+        )
+    ]
+
+
+def _source_of(evidence_id: str) -> str:
+    """Which source a citation came from, read from the id it already carries.
+
+    The id is minted with its provider prefix at the moment the evidence is
+    read, so this cannot drift from the thing it describes — unlike a parallel
+    argument threaded down from the caller, which is what it replaced.
+    """
+    prefix, _, _ = evidence_id.partition(":")
+    return prefix if prefix in {"github", "slack"} else "github"
+
+
+def _slack_timestamp(ts: str) -> datetime | None:
+    """Slack's `ts` is unix seconds with a per-channel counter after the dot."""
+    try:
+        return datetime.fromtimestamp(float(ts), tz=UTC)
+    except (TypeError, ValueError):
+        return None
+
+
 def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
     """Everything in a payload a fact could legitimately cite. Evidence ids
     are stable across redelivery (commit SHA; PR/issue number), which is
     what makes the idempotency check possible. Read defensively."""
     payload = delivery.payload
+
+    # Slack deliveries are shaped nothing like GitHub's, and the GitHub reader
+    # would silently find no evidence in one — an ingested message that never
+    # reaches a brief, with no error anywhere.
+    if _text(payload.get("type")) in {"event_callback", "app_rate_limited"}:
+        return _read_slack_evidence(delivery)
     project = _text(_dig(payload, "repository", "full_name"))
     repository = project or "unknown"  # ok in an evidence id, not as a filterable project name
     found: list[_Evidence] = []
@@ -363,7 +442,11 @@ async def _understand(
     result = await extract(
         budgeted.for_stage("extract"),
         content=content,
-        known_evidence=dict.fromkeys(index, "github"),
+        # Read from the evidence id rather than assumed. Hardcoding "github"
+        # filed every Slack message as a commit, which is wrong on the Trust
+        # page, wrong in a per-source opt-out, and wrong in the one place a
+        # reader checks whether a statement came from somewhere they agreed to.
+        known_evidence={item: _source_of(item) for item in index},
     )
     if not result.facts:
         await logger.ainfo(

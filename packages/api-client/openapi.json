@@ -407,6 +407,164 @@
         "title": "ConnectGitHubRequest",
         "type": "object"
       },
+      "ConnectorFleetView": {
+        "additionalProperties": false,
+        "description": "Every source at one moment, and the numbers worth alerting on.",
+        "properties": {
+          "measuredAt": {
+            "format": "date-time",
+            "title": "Measuredat",
+            "type": "string"
+          },
+          "oldestUnsuccessfulSyncMinutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldestunsuccessfulsyncminutes"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorHealthView"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "providersConfiguredButUnverified": {
+            "default": 0,
+            "title": "Providersconfiguredbutunverified",
+            "type": "integer"
+          },
+          "workspacesFailing": {
+            "default": 0,
+            "title": "Workspacesfailing",
+            "type": "integer"
+          },
+          "workspacesInError": {
+            "default": 0,
+            "title": "Workspacesinerror",
+            "type": "integer"
+          }
+        },
+        "required": ["measuredAt"],
+        "title": "ConnectorFleetView",
+        "type": "object"
+      },
+      "ConnectorHealthView": {
+        "additionalProperties": false,
+        "description": "One source, as far as it can be seen without reading what it carried.\n\nEvery field is a count, an age, a flag, or a mapping keyed by a closed enum.\nThere is nowhere here to put a channel name, a message, a repository or a\nperson \u2014 reaching any of those needs the consent-gated support session in\nmd/15 \u00a75.2, never an operations screen.",
+        "properties": {
+          "credentialsConfigured": {
+            "title": "Credentialsconfigured",
+            "type": "boolean"
+          },
+          "deliveriesLastHour": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deliverieslasthour"
+          },
+          "deliveriesTotal": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deliveriestotal"
+          },
+          "deliveriesUnobservableReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deliveriesunobservablereason"
+          },
+          "errorsByCategory": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Errorsbycategory",
+            "type": "object"
+          },
+          "failuresLastHour": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failureslasthour"
+          },
+          "inboundVerified": {
+            "default": false,
+            "title": "Inboundverified",
+            "type": "boolean"
+          },
+          "oldestUnsuccessfulSyncMinutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldestunsuccessfulsyncminutes"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "workspacesByHealth": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Workspacesbyhealth",
+            "type": "object"
+          },
+          "workspacesByState": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Workspacesbystate",
+            "type": "object"
+          },
+          "workspacesConnected": {
+            "title": "Workspacesconnected",
+            "type": "integer"
+          },
+          "workspacesEverSynced": {
+            "title": "Workspaceseversynced",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "credentialsConfigured",
+          "workspacesConnected",
+          "workspacesEverSynced"
+        ],
+        "title": "ConnectorHealthView",
+        "type": "object"
+      },
       "ConsentResponse": {
         "additionalProperties": false,
         "description": "What CAIRN may attribute to the caller, and what it never does.\n\nThe refusals travel with the choices deliberately. md/05 \u00a7B.3.4 requires the\ncontractual refusals to be stated in-product, and the moment a person is\ndeciding whether to opt out is the moment they are most entitled to read\nthem \u2014 not a policy page they would have to go looking for.",
@@ -907,6 +1065,18 @@
             "title": "Account",
             "type": "string"
           },
+          "authorisedBy": {
+            "anyOf": [
+              {
+                "format": "email",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorisedby"
+          },
           "connectedAt": {
             "format": "date-time",
             "title": "Connectedat",
@@ -924,9 +1094,51 @@
             ],
             "title": "Disconnectedat"
           },
+          "health": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health"
+          },
           "installationId": {
             "title": "Installationid",
             "type": "integer"
+          },
+          "lastSuccessfulSyncAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastsuccessfulsyncat"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revokedat"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
           },
           "source": {
             "title": "Source",
@@ -1567,6 +1779,141 @@
         },
         "required": ["password", "email", "workspaceName", "workspaceSlug"],
         "title": "SignupRequest",
+        "type": "object"
+      },
+      "SlackChannelListResponse": {
+        "additionalProperties": false,
+        "description": "The picker's contents.",
+        "properties": {
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/SlackChannelResponse"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          }
+        },
+        "required": ["notice"],
+        "title": "SlackChannelListResponse",
+        "type": "object"
+      },
+      "SlackChannelResponse": {
+        "additionalProperties": false,
+        "description": "One public channel the workspace could select.",
+        "properties": {
+          "botIsMember": {
+            "title": "Botismember",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "selected": {
+            "title": "Selected",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "name", "botIsMember", "selected"],
+        "title": "SlackChannelResponse",
+        "type": "object"
+      },
+      "SlackChannelSelectionRequest": {
+        "additionalProperties": false,
+        "description": "The full state of the picker, not a delta.\n\nA replace rather than a merge: unchecking a box has to mean something, and\nthe something it means is withdrawing permission to read a channel.",
+        "properties": {
+          "channelIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Channelids",
+            "type": "array"
+          }
+        },
+        "title": "SlackChannelSelectionRequest",
+        "type": "object"
+      },
+      "SlackChannelSelectionResponse": {
+        "additionalProperties": false,
+        "description": "What CAIRN may now process. IDs only \u2014 deliberately no names.",
+        "properties": {
+          "channelIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Channelids",
+            "type": "array"
+          },
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          }
+        },
+        "required": ["notice"],
+        "title": "SlackChannelSelectionResponse",
+        "type": "object"
+      },
+      "SlackDisconnectResponse": {
+        "additionalProperties": false,
+        "description": "What disconnecting did, stated precisely enough to be trusted.",
+        "properties": {
+          "credentialCleared": {
+            "title": "Credentialcleared",
+            "type": "boolean"
+          },
+          "disconnectedAt": {
+            "format": "date-time",
+            "title": "Disconnectedat",
+            "type": "string"
+          },
+          "retentionNotice": {
+            "title": "Retentionnotice",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["state", "disconnectedAt", "credentialCleared", "retentionNotice"],
+        "title": "SlackDisconnectResponse",
+        "type": "object"
+      },
+      "SlackInstallResponse": {
+        "additionalProperties": false,
+        "description": "Where to send the customer, and what they are about to be asked.",
+        "properties": {
+          "authorizeUrl": {
+            "title": "Authorizeurl",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          },
+          "requestedScopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Requestedscopes",
+            "type": "array"
+          }
+        },
+        "required": ["authorizeUrl", "expiresAt", "notice"],
+        "title": "SlackInstallResponse",
         "type": "object"
       },
       "SloObjective": {
@@ -2702,6 +3049,98 @@
         "tags": ["auth"]
       }
     },
+    "/v1/integrations/slack/callback": {
+      "get": {
+        "description": "Where Slack sends the customer back.\n\n**Any ``error`` parameter is a failed install.** Slack's documentation does\nnot state verbatim which value comes back when somebody presses Cancel, so\nthis does not compare against the literal ``access_denied`` \u2014 an equality\ncheck that missed would fall through to \"exchange the code\" with no code, and\nthe customer would see a parse failure instead of \"you declined\". Presence is\nthe condition; the value is read for categorisation and then discarded.\n\nThe order of the checks is the security property. The state is claimed \u2014\natomically, single-use \u2014 *before* anything is exchanged, so a replayed\ncallback fails on the second attempt whether or not the first one worked.\nThen the caller is proved to still be a member of the state's workspace with\npermission to connect, so a leaked state cannot be redeemed by anyone else.\nOnly then is the code sent to Slack.\n\nRedirects rather than returning JSON, because the thing following this URL is\na browser mid-navigation, and the destination is built from\n``public_app_url`` rather than from the request \u2014 the same rule as\nverification links, for the same reason.",
+        "operationId": "finish_install_v1_integrations_slack_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Back to the workspace's integration settings."
+          },
+          "307": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish connecting a Slack workspace",
+        "tags": ["slack"]
+      }
+    },
     "/v1/internal/audit": {
       "get": {
         "description": "The log, newest first, optionally for one workspace.",
@@ -2828,6 +3267,54 @@
           }
         },
         "summary": "Check the audit chain end to end",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/operations/connectors": {
+      "get": {
+        "description": "Per-source health, answered without reading anything a source delivered.\n\nStep 32 adds Slack and Google Chat, at which point \"is ingestion working\"\nstops being one number and becomes a per-provider question. The tempting way\nto answer it is to look at what came in; that is the one thing an operator\nmay never do, so every figure here is a count, an age or a category from a\nclosed set.\n\nPlatform-wide and naming no workspace, like the other operations surfaces.\nA per-workspace view of what a customer is producing is a support session's\nbusiness, not a dashboard's.",
+        "operationId": "connector_health_v1_internal_operations_connectors_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorFleetView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Whether each source is delivering",
         "tags": ["internal"]
       }
     },
@@ -4574,6 +5061,266 @@
         },
         "summary": "Stop capturing activity from a GitHub installation",
         "tags": ["administration"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/slack/channels": {
+      "get": {
+        "description": "The picker's contents: every non-archived public channel, and its state.\n\nGated on `INTEGRATIONS_CONNECT` \u2014 Owner and Admin \u2014 rather than on plain\nmembership. This is the one endpoint in the API that returns Slack channel\nnames, and the people who may see the list are the people who may change what\nCAIRN reads. A Member gains nothing from a list they cannot act on.\n\n``bot_is_member`` is carried through untouched because it is the field that\nmakes the screen honest: selecting a channel the app has not been invited to\nproduces a permission that delivers nothing, forever, with no error anywhere.",
+        "operationId": "list_channels_v1_workspaces__workspace_id__integrations_slack_channels_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackChannelListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to connect integrations."
+          },
+          "404": {
+            "description": "No Slack workspace is connected."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "Slack could not be reached."
+          }
+        },
+        "summary": "List public channels CAIRN could read",
+        "tags": ["slack"]
+      },
+      "put": {
+        "description": "Replace the selection with exactly these channels.\n\n``PUT`` rather than ``POST``, and a replace rather than a merge, because the\nbody is the full state of a set of checkboxes. A merge would make unchecking\na box do nothing \u2014 and the box being unchecked is somebody withdrawing\npermission for CAIRN to read a conversation, which is the single operation on\nthis endpoint that must not silently fail.\n\nAn empty list is valid and means \"process nothing\", which is also the state a\nfreshly connected workspace is in.\n\nRuns on the tenant-scoped session: the application role holds SELECT, INSERT\nand DELETE here precisely because these writes happen from inside a\nworkspace, where the policy's WITH CHECK stops a row being written for\nanybody else.",
+        "operationId": "save_channels_v1_workspaces__workspace_id__integrations_slack_channels_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackChannelSelectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackChannelSelectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to connect integrations."
+          },
+          "404": {
+            "description": "No Slack workspace is connected."
+          },
+          "422": {
+            "description": "A value was not a Slack channel ID."
+          }
+        },
+        "summary": "Choose which public channels CAIRN may process",
+        "tags": ["slack"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/slack/disconnect": {
+      "post": {
+        "description": "Stop collecting, and drop the bot token.\n\nBoth, in one call, with no option to do only the first. A disconnect that\nleaves the credential behind keeps CAIRN holding a live grant to read a\ncustomer's conversations after they asked it to stop \u2014 and from outside there\nis no way to tell the two apart, which is exactly why the response says which\nhappened.\n\nRuns on the platform connection because the application role holds SELECT\nonly on ``source_connections``.\n\n**The response tells the truth about retention.** Disconnecting stops new\ncollection; it does not delete what was already recorded. Saying otherwise\nwould be the shorter sentence and a false one, and a product whose deletion\nclaims are approximate is one whose deletion claims are worthless.",
+        "operationId": "disconnect_slack_v1_workspaces__workspace_id__integrations_slack_disconnect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackDisconnectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to disconnect integrations."
+          },
+          "404": {
+            "description": "No Slack workspace is connected."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disconnect Slack and destroy the stored credential",
+        "tags": ["slack"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/slack/install": {
+      "post": {
+        "description": "Issue a one-time state and return the authorise URL.\n\nReturns the URL rather than redirecting. The caller is a browser application\ndoing this from a settings screen, and a 302 out of an XHR is either followed\ninvisibly or blocked \u2014 neither of which lets the interface warn about the\n``/invite`` step before the customer is standing on Slack's consent screen.\n\nRuns on the platform connection because ``slack_oauth_states`` is\ndeliberately unreachable from the application role: the callback has to read\nthe row with no tenant context to scope to, so every statement against that\ntable is platform-side and the grant set says so.",
+        "operationId": "begin_install_v1_workspaces__workspace_id__integrations_slack_install_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackInstallResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to connect integrations."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Slack is not configured on this deployment."
+          }
+        },
+        "summary": "Begin connecting a Slack workspace",
+        "tags": ["slack"]
       }
     },
     "/v1/workspaces/{workspace_id}/invitations": {
