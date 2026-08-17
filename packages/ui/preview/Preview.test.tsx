@@ -51,7 +51,7 @@ describe("design system preview", () => {
     // explanation still reaches assistive technology — the property that
     // silently disappears when the badge is a bare span.
     for (const tier of ["Verified", "Observed", "Suggested"]) {
-      expect(screen.getByRole("img", { name: new RegExp(`^${tier}:`) })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: new RegExp(`^${tier}:`) })).toBeInTheDocument();
     }
   });
 

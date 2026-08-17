@@ -131,12 +131,91 @@
   }
 }
 
+/* One support session, as a labelled record rather than a paragraph. Each fact
+   gets its own row so that no two of them can be read as one sentence — the
+   previous concatenated line let "approved by" and "ended early" sit adjacent
+   and imply the same person did both. */
+.record {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+}
+
+.recordRow {
+  display: contents;
+}
+
+.record dt {
+  color: var(--fg-muted);
+}
+
+.record dd {
+  max-width: 62ch;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.opened {
+  margin-top: var(--space-4);
+}
+
+.openedHeading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.openedNone {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
 .decision {
+  margin-top: var(--space-4);
+}
+
+.actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
-  margin-top: var(--space-3);
+}
+
+.confirm {
+  width: 100%;
+  max-width: 62ch;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+}
+
+/* Shown to members and viewers in place of controls they cannot use. Muted, but
+   present: absence would leave them unable to tell whether a pending request is
+   unattended or simply not theirs to decide. */
+.readOnly {
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+/* The record collapses to stacked label-then-value at narrow widths; a
+   `max-content` label column cannot reflow and would force the page wider than
+   the viewport (WCAG 1.4.10). */
+@media (width <= 40rem) {
+  .record {
+    grid-template-columns: 1fr;
+    gap: var(--space-1) 0;
+  }
+
+  .recordRow {
+    display: block;
+    margin-bottom: var(--space-3);
+  }
 }
 
 .problem {

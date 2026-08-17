@@ -7,7 +7,7 @@
 }
 
 .sectionTitle {
-  margin: 0 0 var(--space-2);
+  margin: 0 0 var(--space-4);
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
   letter-spacing: 0.08em;
@@ -33,7 +33,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  border-top: 1px solid var(--border-subtle);
+  border-top: var(--border-thin) solid var(--border-subtle);
 }
 
 .person {
@@ -43,7 +43,7 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--space-4) 0;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: var(--border-thin) solid var(--border-subtle);
 }
 
 .personName {
@@ -66,20 +66,21 @@
   color: var(--fg-subtle);
 }
 
+/* No `:focus-visible` rule here on purpose: the global one in @cairn/ui draws
+ * the accent ring, and a local override is how it became monochrome. */
 .select,
 .number {
   padding: var(--space-2) var(--space-3);
   font: inherit;
   color: var(--fg-default);
   background: var(--bg-default);
-  border: 1px solid var(--border-default);
+  /*
+   * `border-interactive`, not `border-default`: the outline of a control is
+   * information required to identify it, so WCAG 1.4.11 asks 3:1 of it. The
+   * decorative hairlines elsewhere are deliberately below that.
+   */
+  border: var(--border-thin) solid var(--border-interactive);
   border-radius: var(--radius-md);
-}
-
-.select:focus-visible,
-.number:focus-visible {
-  outline: 2px solid var(--fg-default);
-  outline-offset: 2px;
 }
 
 .number {
@@ -102,6 +103,7 @@
 
 .retentionRow {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
   align-items: center;
 }
@@ -139,6 +141,16 @@
 
 .facts dd {
   margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A term and its value stack rather than sharing a row: two columns at 320px
+ * leaves neither enough width, and WCAG 1.4.10 allows no sideways scroll. */
+@media (width <= 48rem) {
+  .facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2) 0;
+  }
 }
 
 /*

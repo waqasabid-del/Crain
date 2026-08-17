@@ -30,10 +30,20 @@
   font-size: var(--text-sm);
 }
 
+/*
+ * Cells wrap. The wrapper still scrolls if the content demands it, but a table
+ * that reflows into the width it has needs the scrollbar far less often, and a
+ * name or an address is readable over two lines.
+ */
 .table th,
 .table td {
   padding: var(--space-4) var(--space-5);
   text-align: left;
+}
+
+/* A date broken across lines is unreadable, so this is the one column that
+ * keeps its line. */
+.table time {
   white-space: nowrap;
 }
 
@@ -68,6 +78,8 @@
 
 .muted {
   color: var(--fg-muted);
+  /* An email address is a single unbreakable word to the line-breaker. */
+  overflow-wrap: anywhere;
 }
 
 /*
@@ -84,4 +96,5 @@
   font-size: var(--text-xs);
   line-height: 1.7;
   text-transform: capitalize;
+  white-space: nowrap;
 }

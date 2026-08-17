@@ -46,7 +46,7 @@ export function LoginPage(): ReactNode {
     try {
       await logIn(email, password);
     } catch (error: unknown) {
-      setProblem(describeError(error, "sign you in"));
+      setProblem(describeError(error, "sign you in", "sign-in"));
     } finally {
       setSubmitting(false);
     }

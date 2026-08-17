@@ -45,7 +45,7 @@
 .filters {
   margin-bottom: var(--space-8);
   padding-bottom: var(--space-6);
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: var(--border-thin) solid var(--border-subtle);
 }
 
 .searchRow {
@@ -54,10 +54,13 @@
 
 .searchControls {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
   align-items: stretch;
 }
 
+/* No `:focus-visible` rule in this file on purpose: the global one in @cairn/ui
+ * draws the accent ring, and a local override is how it became monochrome. */
 .search {
   flex: 1 1 auto;
   min-width: 0;
@@ -65,15 +68,13 @@
   font: inherit;
   color: var(--fg-default);
   background: var(--bg-default);
-  border: 1px solid var(--border-default);
+  /*
+   * `border-interactive`, not `border-default`: the outline of a control is
+   * information required to identify it, so WCAG 1.4.11 asks 3:1 of it. The
+   * decorative hairlines elsewhere are deliberately below that.
+   */
+  border: var(--border-thin) solid var(--border-interactive);
   border-radius: var(--radius-md);
-}
-
-.search:focus-visible,
-.select:focus-visible,
-.date:focus-visible {
-  outline: 2px solid var(--fg-default);
-  outline-offset: 2px;
 }
 
 .controls {
@@ -108,7 +109,7 @@
   font: inherit;
   color: var(--fg-default);
   background: var(--bg-default);
-  border: 1px solid var(--border-default);
+  border: var(--border-thin) solid var(--border-interactive);
   border-radius: var(--radius-md);
 }
 

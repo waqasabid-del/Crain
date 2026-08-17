@@ -10,6 +10,19 @@ export default defineConfig({
     // rather than naming the element it could not find.
     testTimeout: 15_000,
     setupFiles: ["./vitest.setup.ts"],
+    // Bound the number of test files running at once.
+    //
+    // Unbounded, Vitest starts a worker per core and every one of them boots
+    // jsdom, renders a full app shell and runs axe. On a busy machine the suite
+    // then spends longer queued than working, and a `findBy` that would resolve
+    // in 200ms exceeds `testTimeout` — so tests fail by timing out, a *different*
+    // subset each run, with nothing wrong in the code they cover.
+    //
+    // That is worse than slow: a suite that fails randomly stops being read. It
+    // gets re-run until green, which is the same as not having it. Four workers
+    // leaves headroom for the machine and makes the result deterministic.
+    maxWorkers: 4,
+    minWorkers: 1,
     // Restore anything replaced with `vi.stubGlobal` after each test. Several
     // tests stub `fetch`; without this, one file's stub is still installed when
     // the next file runs, and the failure appears in whichever test happens to

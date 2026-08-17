@@ -70,7 +70,15 @@
   display: none;
 }
 
-.summary:hover {
+/* Guarded, because on a touch device the hover state sticks to whatever was
+ * tapped last. */
+@media (hover: hover) {
+  .summary:hover {
+    color: var(--fg-default);
+  }
+}
+
+.summary:focus-visible {
   color: var(--fg-default);
 }
 

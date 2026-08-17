@@ -82,12 +82,53 @@ describe.each([
       ).toBe(true);
     });
 
-    it("fg.subtle passes AA for large text at minimum", () => {
-      // fg.subtle is reserved for large text and de-emphasised metadata.
-      const result = checkContrast(theme.fg.subtle, background, "largeText");
+    it("fg.subtle passes AA for normal text", () => {
+      /**
+       * Asserted at 4.5:1, not 3:1.
+       *
+       * The token was documented as "large text and de-emphasised metadata" and
+       * tested at the large-text bar, while every one of its callers used it at
+       * text-xs or text-sm — timestamps, captions, disabled button labels. The
+       * test agreed with the comment and neither agreed with the interface, so
+       * the value sat below AA for the type it actually rendered.
+       */
+      const result = checkContrast(theme.fg.subtle, background);
       expect(
         result.passes,
         `${themeName}/fg.subtle on bg.${surfaceName} was ${String(result.ratio)}:1, needs ${String(result.required)}:1`,
+      ).toBe(true);
+    });
+
+    it("fg.subtle stays quieter than fg.muted", () => {
+      // The point of the token. Raising it to clear 4.5:1 must not raise it to
+      // where the hierarchy it exists to express disappears.
+      const subtle = contrastRatio(theme.fg.subtle, background);
+      const muted = contrastRatio(theme.fg.muted, background);
+      expect(subtle).toBeLessThan(muted);
+    });
+
+    it("border.strong meets the non-text requirement", () => {
+      /**
+       * WCAG 1.4.11. In CertaintyBadge this border is the entire difference
+       * between a verified claim and an observed one — colour is not available
+       * to carry it and the weight difference is one step. A border nobody can
+       * see presents an inference with the authority of a fact.
+       */
+      const result = checkContrast(theme.border.strong, background, "nonText");
+      expect(
+        result.passes,
+        `${themeName}/border.strong on bg.${surfaceName} was ${String(result.ratio)}:1, needs ${String(result.required)}:1`,
+      ).toBe(true);
+    });
+
+    it("the focus ring meets the non-text requirement", () => {
+      // Testing only bg.default was not enough: nav links, setting rows and
+      // list rows take bg.muted when hovered or current, which is exactly when
+      // they are also being focused.
+      const result = checkContrast(theme.border.focus, background, "nonText");
+      expect(
+        result.passes,
+        `${themeName}/focus ring on bg.${surfaceName} was ${String(result.ratio)}:1, needs ${String(result.required)}:1`,
       ).toBe(true);
     });
   });
@@ -97,10 +138,48 @@ describe.each([
     expect(result.passes, `inverse pair was ${String(result.ratio)}:1`).toBe(true);
   });
 
-  it("focus ring meets the non-text requirement against the default surface", () => {
-    // WCAG 1.4.11 — a focus indicator nobody can see is not a focus indicator.
-    const result = checkContrast(theme.border.focus, theme.bg.default, "nonText");
-    expect(result.passes, `focus ring was ${String(result.ratio)}:1`).toBe(true);
+  it("focus ring meets the non-text requirement on the primary button", () => {
+    /**
+     * The surface the ring is most likely to fail against, and the one that was
+     * not being tested.
+     *
+     * `Button.module.css` fills the primary variant with `fg.default` — near
+     * black in light mode, near white in dark. The ring has to clear 3:1
+     * against that as well as against the page, which pins the accent into a
+     * narrow band: the previous light accent cleared the page at 6.7:1 and the
+     * button at 2.95:1.
+     */
+    const result = checkContrast(theme.border.focus, theme.fg.default, "nonText");
+    expect(
+      result.passes,
+      `${themeName}/focus ring on the primary button was ${String(result.ratio)}:1, needs ${String(result.required)}:1`,
+    ).toBe(true);
+  });
+
+  it("disabled button text passes AA", () => {
+    // Button.module.css puts fg.subtle on bg.muted for the disabled state.
+    // WCAG exempts disabled controls; CAIRN does not, because a disabled button
+    // still has to say what it would do once it is enabled.
+    const result = checkContrast(theme.fg.subtle, theme.bg.muted);
+    expect(
+      result.passes,
+      `${themeName}/disabled button label was ${String(result.ratio)}:1, needs ${String(result.required)}:1`,
+    ).toBe(true);
+  });
+
+  it("the disabled secondary button keeps a perceivable outline", () => {
+    // Its border drops from border.interactive to border.strong when disabled,
+    // which is still a control boundary and still carries 1.4.11.
+    const result = checkContrast(theme.border.strong, theme.bg.default, "nonText");
+    expect(result.passes, `border.strong was ${String(result.ratio)}:1`).toBe(true);
+  });
+
+  it("border.subtle is quieter than border.default", () => {
+    // The role only exists to sit below `default`. If it ever stopped doing so
+    // the seven separators using it would be louder than the boxes they divide.
+    const subtle = contrastRatio(theme.border.subtle, theme.bg.default);
+    const dfault = contrastRatio(theme.border.default, theme.bg.default);
+    expect(subtle).toBeLessThan(dfault);
   });
 
   it("accent text passes AA on the default surface", () => {

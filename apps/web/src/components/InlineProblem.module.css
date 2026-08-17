@@ -1,0 +1,42 @@
+/*
+ * The failure message, in place.
+ *
+ * Bordered rather than filled with a warning colour — the palette has no
+ * semantic red, and inventing one here would be the only colour in the product
+ * arriving at the reader's least confident moment. Weight carries the emphasis
+ * instead: `border-strong` against the hairlines used everywhere else.
+ *
+ * One copy, because eleven copies is how a message ends up styled correctly on
+ * ten screens and illegibly on the eleventh.
+ */
+
+.problem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+
+  padding: var(--space-3) var(--space-4);
+  color: var(--fg-default);
+  background: var(--bg-muted);
+  border: var(--border-thin) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.message {
+  margin: 0;
+}
+
+/*
+ * The correlation ID, present but quiet. Meaningless to the reader and
+ * essential to whoever they contact, so it belongs on the screen and nowhere
+ * near the message. Monospaced because it will be read aloud or retyped.
+ */
+.reference {
+  margin: 0;
+  color: var(--fg-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}

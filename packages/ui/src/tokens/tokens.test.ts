@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { certaintyTreatment, lightTheme } from "./color.js";
-import { space, spaceToPx } from "./layout.js";
+import { breakpoint, breakpointPx, mediaQuery, space, spaceToPx } from "./layout.js";
 
 /**
  * Token invariants.
@@ -31,6 +31,47 @@ describe("the spacing rhythm", () => {
     expect(space[4]).toBe("1rem");
     expect(spaceToPx(2)).toBe(8);
     expect(space[2]).toBe("0.5rem");
+  });
+});
+
+describe("breakpoints", () => {
+  /**
+   * Before these existed, every breakpoint was a literal in a per-file CSS
+   * module, written in two different syntaxes — `width <= 60rem` in one place
+   * and `max-width: 40rem` in another — so no two files agreed on where a
+   * layout changed and nothing could tell you which value was intended.
+   */
+
+  it("covers the widths the product is verified at", () => {
+    expect(breakpointPx.narrow).toBe(320);
+    expect(breakpointPx.phone).toBe(375);
+    expect(breakpointPx.tablet).toBe(768);
+    expect(breakpointPx.desktop).toBe(1024);
+  });
+
+  it("ascends", () => {
+    // A scale out of order would make `min-width` queries mask one another, and
+    // the symptom — one layout never appearing — looks like a CSS bug.
+    const values = Object.values(breakpointPx);
+    expect([...values].sort((a, b) => a - b)).toEqual(values);
+  });
+
+  it("publishes rem values that match the px values", () => {
+    // The rem strings are what stylesheets use; a mismatch would move a
+    // breakpoint without any file recording that it had moved.
+    for (const [name, px] of Object.entries(breakpointPx)) {
+      const rem = breakpoint[name as keyof typeof breakpointPx];
+      expect(Number.parseFloat(rem) * 16, `${name} disagrees with its px value`).toBe(px);
+      expect(rem.endsWith("rem")).toBe(true);
+    }
+  });
+
+  it("builds media queries from those same values", () => {
+    // `matchMedia(mediaQuery.tablet)` in a component and `@media` in a
+    // stylesheet must mean the same width, or a JS-driven layout and a
+    // CSS-driven one disagree in a band a few pixels wide.
+    expect(mediaQuery.tablet).toBe("(min-width: 48rem)");
+    expect(mediaQuery.desktop).toBe(`(min-width: ${breakpoint.desktop})`);
   });
 });
 

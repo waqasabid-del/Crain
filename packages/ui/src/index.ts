@@ -15,6 +15,7 @@ export * from "./tokens/layout.js";
 
 // Accessibility utilities
 export * from "./a11y/contrast.js";
+export { visuallyHidden } from "./styles/utilities.js";
 
 // Components
 export { Button } from "./components/Button.js";

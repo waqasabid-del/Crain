@@ -1,0 +1,77 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+/*
+ * The rule, stated before it can be broken.
+ *
+ * Above the input rather than below it, because a requirement discovered after
+ * a rejected submit is the most common reason a form takes two attempts
+ * (WCAG 3.3.2). It is also wired into `aria-describedby`, which is the half the
+ * app was missing: hint text sitting visually near an input is not associated
+ * with it, and a screen reader user reached the field never having heard it.
+ */
+.hint {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}
+
+.input {
+  min-height: var(--min-target);
+  padding: 0 var(--space-3);
+
+  color: var(--fg-default);
+  background: var(--bg-default);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+
+  /*
+   * `border-interactive`, not `border-default`.
+   *
+   * The outline of an input is information required to identify a control, so
+   * WCAG 1.4.11 asks for 3:1 against the background. The decorative hairlines
+   * elsewhere in the app are exempt from that; this is the case the distinction
+   * exists for, and using the wrong token here is the most likely way to fail
+   * the guideline while looking consistent.
+   */
+  border: var(--border-thin) solid var(--border-interactive);
+  border-radius: var(--radius-md);
+}
+
+.input:disabled {
+  background: var(--bg-muted);
+  color: var(--fg-muted);
+}
+
+/*
+ * The error state, drawn with weight rather than colour.
+ *
+ * An inset shadow rather than a thicker `border-width`: widening the border
+ * reflows the field and nudges everything below it down at the exact moment the
+ * reader is looking for what changed. The shadow thickens the same edge and
+ * moves nothing.
+ *
+ * Weight alone is never the whole signal — the message below carries it in
+ * words, which is what WCAG 1.4.1 actually asks for.
+ */
+.invalid {
+  border-color: var(--border-strong);
+  box-shadow: inset 0 0 0 var(--border-thin) var(--border-strong);
+}
+
+.error {
+  margin: 0;
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-relaxed);
+}

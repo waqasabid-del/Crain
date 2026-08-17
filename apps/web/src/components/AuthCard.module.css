@@ -1,0 +1,88 @@
+/*
+ * The chassis behind sign-in, sign-up and invitation redemption.
+ *
+ * Deliberately plain: one column, centred, no illustration, no marketing copy.
+ * It is the first thing anyone sees, and what it should communicate is that the
+ * product is careful — which is said better by restraint than by decoration.
+ *
+ * Previously three copies of this: two identical stylesheets plus one route
+ * importing another route's module across a boundary. The three screens are the
+ * same object at three moments, and a reader who signs up and later signs in has
+ * to recognise the second as the same product.
+ */
+
+.page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: var(--space-6);
+  background: var(--bg-subtle);
+}
+
+.card {
+  width: 100%;
+  max-width: 24rem;
+  padding: var(--space-10) var(--space-8);
+  background: var(--bg-default);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-8);
+  color: var(--fg-default);
+}
+
+.brandName {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/*
+ * `--text-2xl`, where `PageHeader` uses `--text-3xl`. One heading size for both
+ * was considered and rejected.
+ *
+ * Type is sized against the measure it sits on, not against a global rank. A
+ * page `<h1>` spans the full content column; this one spans a 24rem card, where
+ * `--text-3xl` wraps "You have been invited to CAIRN" onto three lines and turns
+ * the heading into the entire card. The two are the same rank and different
+ * sizes on purpose, and the rank is carried by the tag, not the size.
+ *
+ * So: auth headings are `--text-2xl` and every `PageHeader` is `--text-3xl`.
+ * Anything new that centres a heading in a narrow card belongs here.
+ */
+.title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  /* Tightened tracking at display size, matching `PageHeader`. */
+  letter-spacing: -0.015em;
+}
+
+.subtitle {
+  margin: var(--space-2) 0 var(--space-8);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/* The card body is a form on all three screens; the gap is the form's rhythm. */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.footer {
+  margin: var(--space-8) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}

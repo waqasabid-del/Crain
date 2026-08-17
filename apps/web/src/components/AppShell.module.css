@@ -17,8 +17,8 @@
   display: grid;
   /*
    * A fixed sidebar rather than a fractional one. Navigation is a constant, and
-   * a column that grows with the window makes the eye re-find the same five
-   * links at a different width on every screen.
+   * a column that grows with the window makes the eye re-find the same links at
+   * a different width on every screen.
    */
   grid-template-columns: 15.5rem minmax(0, 1fr);
   min-height: 100dvh;
@@ -46,6 +46,13 @@
 
 /* Brand -------------------------------------------------------------------- */
 
+.masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -69,7 +76,74 @@
   text-transform: uppercase;
 }
 
+/* Menu disclosure ---------------------------------------------------------- */
+
+/*
+ * The one mobile-first block in a desktop-first file, and deliberately so: the
+ * disclosure is the narrow-viewport arrangement, so it is styled as it appears
+ * there and *removed* on wide screens, where the panel it controls is
+ * permanently open and a control announcing `aria-expanded` would describe a
+ * state the reader cannot change. `display: none` rather than a visual hide,
+ * so it leaves the accessibility tree with the pixels.
+ */
+.menuTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+
+  /* Both axes, so the target clears 44px however short the label renders. */
+  min-height: var(--min-target);
+  min-width: var(--min-target);
+  padding: 0 var(--space-3);
+
+  color: var(--fg-default);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  background: var(--bg-default);
+  border: var(--border-thin) solid var(--border-interactive);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+@media (width > 60rem) {
+  .menuTrigger {
+    display: none;
+  }
+}
+
+/* Guarded for the same reason the nav links are: a tap on a touch device leaves
+   a sticky hover the reader reads as a stuck state. */
+@media (hover: hover) {
+  .menuTrigger:hover {
+    background: var(--bg-muted);
+  }
+}
+
+.menuTrigger:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.menuMark {
+  flex: none;
+  color: currentcolor;
+}
+
 /* Navigation --------------------------------------------------------------- */
+
+/*
+ * Everything the disclosure governs: the switcher, the destinations and the
+ * account block. Collapsing the navigation alone would leave "Sign out" pinned
+ * to a narrow header with nothing around it.
+ */
+.panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-height: 0;
+}
 
 .nav {
   flex: 1;
@@ -105,13 +179,23 @@
   transition: background-color var(--duration-fast) var(--easing-standard);
 }
 
-.navLink:hover {
-  color: var(--fg-default);
-  background: var(--bg-muted);
+/*
+ * Guarded, because a touch device reports a tap as a hover and keeps reporting
+ * it until the next tap elsewhere. Unguarded, the link just tapped keeps the
+ * "current" background while `aria-current` sits on a different row — two rows
+ * claiming to be where you are, and the wrong one is the louder signal.
+ */
+@media (hover: hover) {
+  .navLink:hover {
+    color: var(--fg-default);
+    background: var(--bg-muted);
+  }
 }
 
 /*
- * The current page, identified by the attribute react-router already sets.
+ * The current page, identified by the attribute `AppShell.tsx` sets on the
+ * matching link. Next's App Router has no `NavLink`, so the match is computed
+ * from `usePathname()` there rather than supplied by the router.
  *
  * Styling `aria-current` rather than a separate "active" class ties the visual
  * state to the accessible one: they cannot drift apart, because there is only
@@ -198,6 +282,13 @@
   transform: translateY(-200%);
 }
 
+/*
+ * `:focus`, not `:focus-visible` alone. Focus moved by script or by assistive
+ * technology does not always satisfy the heuristic behind `:focus-visible`, and
+ * a skip link that is focused but still off-screen is the worst of both: the
+ * reader's focus has gone somewhere they cannot see.
+ */
+.skipLink:focus,
 .skipLink:focus-visible {
   transform: translateY(0);
 }
@@ -205,13 +296,21 @@
 /* Narrow viewports --------------------------------------------------------- */
 
 /*
- * The sidebar becomes a top bar. No hamburger, no drawer, no overlay.
+ * The sidebar becomes a header with a disclosure beneath it.
  *
- * A drawer would need a focus trap, an escape handler, a scroll lock and a
- * return-focus rule — four accessibility obligations, each easy to get subtly
- * wrong — to hide five links. Five links fit. The rejected alternative is worth
- * naming because it will be proposed again: it becomes the right call at around
- * a dozen destinations, not at five.
+ * What was here before was a horizontally scrolling tab strip, justified by a
+ * comment claiming five links. There are eight, nine for an admin, and at 320px
+ * the last two — Settings and the Trust page md/05 §B.6 requires to be
+ * permanently reachable — sat off the right edge with no fade, no arrows and no
+ * visible scrollbar on iOS. A destination you cannot see and cannot scroll to
+ * is not in the navigation.
+ *
+ * The replacement is a disclosure, not a drawer. The panel takes the flow and
+ * pushes the page down instead of floating over it, so there is no overlay to
+ * trap focus inside, no background scroll to lock and no inert region to
+ * manage — the four obligations that make drawers go subtly wrong. What remains
+ * is what a disclosure genuinely owes: `aria-expanded`, `aria-controls`, focus
+ * into the panel on open, and Escape returning focus to the trigger.
  */
 @media (width <= 60rem) {
   .shell {
@@ -228,16 +327,20 @@
     border-bottom: var(--border-thin) solid var(--border-default);
   }
 
+  .panel {
+    flex: none;
+    gap: var(--space-4);
+  }
+
+  .panel[data-open="false"] {
+    display: none;
+  }
+
+  /* The list is vertical here as well: eight full-width rows at 44px each are
+     reachable at 320px, which is the whole point of the change. */
   .nav {
-    overflow-x: auto;
-  }
-
-  .navList {
-    flex-direction: row;
-  }
-
-  .navLink {
-    white-space: nowrap;
+    flex: none;
+    overflow-y: visible;
   }
 
   .account {
@@ -250,5 +353,27 @@
 
   .main {
     padding: var(--space-8) var(--space-5) var(--space-16);
+  }
+}
+
+/*
+ * Motion is opt-in. The panel appearing is a layout change, and a layout change
+ * that slides is the kind of movement that triggers vestibular symptoms.
+ */
+@media (width <= 60rem) and (prefers-reduced-motion: no-preference) {
+  .panel[data-open="true"] {
+    animation: panel-in var(--duration-normal) var(--easing-decelerate);
+  }
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--space-2) * -1));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

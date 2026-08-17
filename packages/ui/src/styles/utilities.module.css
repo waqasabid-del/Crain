@@ -1,0 +1,21 @@
+/*
+ * Content for assistive technology only.
+ *
+ * Not `display: none` and not `visibility: hidden`: both remove the element
+ * from the accessibility tree as well as the page, which is the opposite of
+ * what this is for. The 1px box with a clip is the pattern that survives every
+ * screen reader still in use, and `white-space: nowrap` keeps a long string
+ * from being read one word per line by the few that expose the clipped box.
+ */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

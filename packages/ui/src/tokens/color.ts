@@ -11,7 +11,12 @@ export const neutral = {
   200: "#e5e5e5",
   300: "#d4d4d4",
   400: "#a3a3a3",
+  /** Half-steps, added because the round hundreds land just short of a WCAG
+   * threshold: 400/500 miss 3:1 and 4.5:1 respectively by hundredths. */
+  420: "#949494",
+  450: "#8a8a8a",
   500: "#737373",
+  550: "#6b6b6b",
   600: "#525252",
   700: "#404040",
   800: "#262626",
@@ -23,10 +28,15 @@ export const neutral = {
 export type NeutralStep = keyof typeof neutral;
 
 /** One accent, for focus rings only: keyboard focus must be unmistakable (WCAG
- * 2.4.7), which a purely monochrome interface tends to fail. */
+ * 2.4.7), which a purely monochrome interface tends to fail.
+ *
+ * Each value is a compromise between two opposing 1.4.11 requirements: the ring
+ * has to clear 3:1 against the page *and* against the near-black fill of a
+ * primary button, whose focus outline sits beside it. A darker blue passes the
+ * page and fails the button; a lighter one does the reverse. */
 export const accent = {
-  light: "#1d4ed8",
-  dark: "#60a5fa",
+  light: "#2563eb",
+  dark: "#3b82f6",
 } as const;
 
 /** Roles, not colours: components reference `fg.default`, never `neutral[900]`. */
@@ -40,15 +50,22 @@ export const lightTheme = {
   fg: {
     default: neutral[950],
     muted: neutral[600],
-    subtle: neutral[500],
+    /** Used for text-xs/text-sm metadata, so it carries the 4.5:1 normal-text
+     * requirement — not the 3:1 large-text one its name might suggest. */
+    subtle: neutral[550],
     inverse: neutral[0],
     onAccent: neutral[0],
   },
   border: {
+    /** The faintest separator: lighter than `default`, for dividing rows inside
+     * a single surface where a full border would read as a box. */
+    subtle: neutral[100],
     default: neutral[200],
-    strong: neutral[300],
+    /** Carries the verified/observed distinction in CertaintyBadge with no
+     * colour to help, so it must meet 3:1 (WCAG 1.4.11). */
+    strong: neutral[450],
     /** Identifies a control — inputs, toggles. Must meet 3:1 (WCAG 1.4.11);
-     * `default` and `strong` are decorative and deliberately do not. */
+     * `subtle` and `default` are decorative and deliberately do not. */
     interactive: neutral[500],
     focus: accent.light,
   },
@@ -67,13 +84,16 @@ export const darkTheme = {
   fg: {
     default: neutral[50],
     muted: neutral[400],
-    subtle: neutral[500],
+    subtle: neutral[420],
     inverse: neutral[950],
     onAccent: neutral[950],
   },
   border: {
+    /** Less prominent than `default` rather than literally lighter: on a dark
+     * surface a quieter border is the one nearer the background. */
+    subtle: neutral[900],
     default: neutral[800],
-    strong: neutral[700],
+    strong: neutral[450],
     interactive: neutral[500],
     focus: accent.dark,
   },
@@ -87,7 +107,9 @@ export const darkTheme = {
 export interface Theme {
   readonly bg: Readonly<Record<"default" | "subtle" | "muted" | "inverse", string>>;
   readonly fg: Readonly<Record<"default" | "muted" | "subtle" | "inverse" | "onAccent", string>>;
-  readonly border: Readonly<Record<"default" | "strong" | "interactive" | "focus", string>>;
+  readonly border: Readonly<
+    Record<"subtle" | "default" | "strong" | "interactive" | "focus", string>
+  >;
   readonly accent: Readonly<Record<"default", string>>;
 }
 

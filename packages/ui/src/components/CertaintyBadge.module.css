@@ -3,11 +3,23 @@
   display: inline-flex;
   align-items: center;
 
+  /* WCAG 2.2 SC 2.5.8. The inline floor rather than --min-target: the badge
+     sits inside a line of prose, and 44px would break the leading around it.
+     Text at 0.75rem x 1.6 is ~19px, so without this the target is too small. */
+  min-height: var(--min-target-inline);
+
+  margin: 0;
   padding: 0 var(--space-2);
   font-family: var(--font-sans);
   font-size: var(--text-xs);
   line-height: 1.6;
   white-space: nowrap;
+
+  /* It is a <button>: undo the user-agent chrome, keep the affordance. */
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 
   border-width: var(--border-thin);
   border-radius: var(--radius-sm);
@@ -47,10 +59,9 @@
  * It previously lived only in the `title` attribute, which is pointer-only: a
  * screen reader user received it through `aria-label`, and a sighted keyboard
  * user could not reach it at all. WCAG 1.4.13 requires content shown on hover
- * to be available on focus as well.
- *
- * `aria-hidden` because the same words are already in the badge's accessible
- * name. Without it a screen reader announces the description twice.
+ * to be available on focus as well, and dismissible without moving either —
+ * hence `data-open`, driven by state, rather than a `:hover` rule that Escape
+ * would have no way to cancel.
  *
  * Positioned above rather than below: a badge sits inline in prose, and a
  * tooltip opening downward covers the line the reader is on.
@@ -62,7 +73,11 @@
   z-index: 1;
 
   width: max-content;
-  max-width: 22rem;
+  /* Never wider than a 320px viewport minus its gutters. The horizontal
+     position is clamped in the component; this clamps the width, which CSS can
+     do on its own and which is what overflows first. */
+  max-width: min(22rem, calc(100vw - var(--space-4)));
+  transform: translateX(var(--tooltip-shift, 0));
   padding: var(--space-2) var(--space-3);
 
   color: var(--fg-default);
@@ -88,8 +103,7 @@
     visibility var(--duration-fast) var(--easing-standard);
 }
 
-.badge:hover .description,
-.badge:focus-visible .description {
+.description[data-open="true"] {
   visibility: visible;
   opacity: 1;
 }

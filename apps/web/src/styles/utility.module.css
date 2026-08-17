@@ -8,7 +8,12 @@
  * right-to-left layout sideways.
  *
  * Lives in one place because a subtly wrong copy of this rule is invisible in
- * review and silently mutes a screen reader.
+ * review and silently mutes a screen reader. Two copies have nonetheless been
+ * made — `routes/MyWeekPage.module.css` and `routes/AdminPage.module.css` — and
+ * both are to be deleted in favour of this one by whoever owns those files.
+ *
+ * This is the canonical copy until @cairn/ui ships a shared utility, at which
+ * point this file forwards to it and every consumer keeps its import.
  */
 .visuallyHidden {
   position: absolute;

@@ -1,0 +1,15 @@
+/*
+ * A confirmation, or a quiet aside.
+ *
+ * Small and grey: it is the answer to "did that work?", which stops being worth
+ * reading the moment it has been read once. Nothing bordered, nothing coloured
+ * — a success that decorates itself is asking for attention it does not need.
+ */
+
+.note {
+  max-width: var(--prose-max-width);
+  margin: 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}

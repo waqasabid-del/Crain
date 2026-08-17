@@ -33,23 +33,21 @@
   display: flex;
   gap: var(--space-3);
   align-items: flex-start;
+  min-height: var(--min-target);
   padding: var(--space-3) 0;
   cursor: pointer;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: var(--border-thin) solid var(--border-subtle);
 }
 
 .option:last-child {
   border-bottom: 0;
 }
 
+/* No `:focus-visible` rule here on purpose: the global one in @cairn/ui draws
+ * the accent ring, and a local override is how it became monochrome. */
 .radio {
   margin-top: 0.25em;
   accent-color: var(--fg-default);
-}
-
-.radio:focus-visible {
-  outline: 2px solid var(--fg-default);
-  outline-offset: 2px;
 }
 
 .optionText {

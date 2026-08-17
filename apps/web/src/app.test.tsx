@@ -1,6 +1,8 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { axe } from "vitest-axe";
 
 import AppLayout from "./app/(app)/layout.js";
 import { BriefPage } from "./routes/BriefPage.js";
@@ -28,6 +30,24 @@ function shell(page: ReactNode): ReactNode {
 function signedIn(): ReturnType<typeof createStubClient> {
   return createStubClient({ getSession: vi.fn(() => Promise.resolve(SESSION)) });
 }
+
+const AXE_OPTIONS = {
+  // Needs a canvas to sample pixels; jsdom has none. See `a11y.test.tsx`.
+  rules: { "color-contrast": { enabled: false } },
+} as const;
+
+/** Every label in the primary navigation, so a destination added to the shell
+ * without being reachable on a phone fails here rather than in the field. */
+const DESTINATIONS = [
+  "Brief",
+  "My week",
+  "Archive",
+  "Feed",
+  "People",
+  "Workspace",
+  "Trust and privacy",
+  "Settings",
+] as const;
 
 describe("routing", () => {
   it("shows the brief at the root", async () => {
@@ -114,5 +134,122 @@ describe("the shell", () => {
     for (const link of links) {
       expect(link.textContent.trim()).not.toBe("");
     }
+  });
+
+  it("hands focus to the main region when the skip link is used", async () => {
+    // The previous test proves the link points somewhere real. This one proves
+    // it does the thing it exists for: a skip link that scrolls without moving
+    // focus leaves the next Tab back at the top of the navigation, which is
+    // exactly the journey the reader was trying to avoid.
+    renderRoute(shell(<BriefPage />), { client: signedIn(), route: "/" });
+    await screen.findByRole("navigation", { name: /primary/i });
+
+    // First Tab from the document, because the skip link is only useful if it
+    // is the first thing a keyboard user reaches.
+    await userEvent.tab();
+    const skip = screen.getByRole("link", { name: /skip to (main )?content/i });
+    expect(skip).toHaveFocus();
+
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getByRole("main")).toHaveFocus();
+  });
+});
+
+/**
+ * The narrow-viewport navigation.
+ *
+ * jsdom has no layout and no media queries, so none of this can assert that the
+ * disclosure is the arrangement actually shown at 320px — that is the CSS's job
+ * and a manual check's. What it can assert is the part that was broken and the
+ * part that is easy to break again: that the control exists, that every
+ * destination is behind it, and that a keyboard user can open it, use it, close
+ * it with Escape and get their focus back. The strip this replaced put two
+ * destinations, one of them the Trust page md/05 §B.6 requires to be permanently
+ * reachable, off the right edge with no way to scroll to them by keyboard.
+ */
+describe("the narrow-viewport navigation", () => {
+  async function openMenu(): Promise<HTMLElement> {
+    const trigger = await screen.findByRole("button", { name: /menu/i });
+    await userEvent.click(trigger);
+    return trigger;
+  }
+
+  it("keeps every destination behind the disclosure", async () => {
+    renderRoute(shell(<BriefPage />), { client: signedIn(), route: "/" });
+
+    const trigger = await openMenu();
+    const panel = document.getElementById(trigger.getAttribute("aria-controls") ?? "");
+    expect(panel).not.toBeNull();
+
+    const nav = await screen.findByRole("navigation", { name: /primary/i });
+    expect(panel?.contains(nav)).toBe(true);
+
+    for (const label of DESTINATIONS) {
+      expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("opens and closes from the keyboard alone", async () => {
+    renderRoute(shell(<BriefPage />), { client: signedIn(), route: "/" });
+    const trigger = await screen.findByRole("button", { name: /menu/i });
+
+    // Skip link, wordmark, then the disclosure: reachable in three keystrokes
+    // from a cold start, before any of the destinations.
+    await userEvent.tab();
+    await userEvent.tab();
+    await userEvent.tab();
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    await userEvent.keyboard("{Enter}");
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    // Focus lands inside the panel, so the next key press acts on the menu the
+    // reader just opened rather than on the page behind it.
+    const nav = screen.getByRole("navigation", { name: /primary/i });
+    expect(within(nav).getByRole("link", { name: "Brief" })).toHaveFocus();
+
+    // Not a trap: Tab continues through the destinations in order.
+    await userEvent.tab();
+    expect(within(nav).getByRole("link", { name: "My week" })).toHaveFocus();
+  });
+
+  it("closes on Escape and returns focus to the trigger", async () => {
+    // Without the return, focus falls to `<body>` when the panel is hidden and
+    // the reader resumes tabbing from the top of the document with no
+    // explanation for why.
+    renderRoute(shell(<BriefPage />), { client: signedIn(), route: "/" });
+
+    const trigger = await openMenu();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+  });
+
+  it("collapses again when a destination is chosen", async () => {
+    renderRoute(shell(<BriefPage />), { client: signedIn(), route: "/" });
+
+    const trigger = await openMenu();
+    const nav = screen.getByRole("navigation", { name: /primary/i });
+    await userEvent.click(within(nav).getByRole("link", { name: "Trust and privacy" }));
+
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+  });
+
+  it("passes an axe audit with the menu open", async () => {
+    // The closed shell is audited in `a11y.test.tsx`. Open is the state that
+    // carries the new ARIA — `aria-expanded`, `aria-controls` and the id it
+    // points at — and an audit that never opens the menu never sees any of it.
+    const { container } = renderRoute(shell(<BriefPage />), {
+      client: signedIn(),
+      route: "/",
+    });
+    await openMenu();
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
   });
 });

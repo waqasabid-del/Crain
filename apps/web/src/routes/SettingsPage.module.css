@@ -57,7 +57,19 @@
   cursor: pointer;
 }
 
-.choice:hover {
+/*
+ * Guarded, because on a touch device the hover state sticks to whatever was
+ * tapped last and reads as a selection that is not there.
+ */
+@media (hover: hover) {
+  .choice:hover {
+    background: var(--bg-muted);
+  }
+}
+
+/* Focus lands on the radio inside, so without this the keyboard user is the one
+ * person who cannot see which option they are on. */
+.choice:focus-within {
   background: var(--bg-muted);
 }
 
@@ -91,4 +103,14 @@
 
 .identity dd {
   margin: 0;
+  /* An email address is one unbreakable word to the line-breaker, and it is
+   * wider than 320px on its own. */
+  overflow-wrap: anywhere;
+}
+
+@media (width <= 48rem) {
+  .identity {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2) 0;
+  }
 }

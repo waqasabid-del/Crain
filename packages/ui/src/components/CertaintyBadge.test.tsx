@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CertaintyBadge } from "./CertaintyBadge.js";
 import styles from "./CertaintyBadge.module.css";
@@ -22,6 +22,17 @@ describe("CertaintyBadge", () => {
 
     const badge = screen.getByLabelText(/Suggested:/);
     expect(badge.getAttribute("aria-label")).toContain("meeting transcript");
+  });
+
+  it.each([
+    ["verified", "Verified"],
+    ["observed", "Observed"],
+    ["suggested", "Suggested"],
+  ] as const)("names the %s tier before its explanation", (certainty, label) => {
+    // The accessible name has to lead with the certainty: it is the part the
+    // reader needs, and a screen reader user hears it first or not at all.
+    render(<CertaintyBadge certainty={certainty} />);
+    expect(screen.getByRole("button", { name: new RegExp(`^${label}: `) })).toBeInTheDocument();
   });
 
   /**
@@ -75,7 +86,7 @@ describe("CertaintyBadge", () => {
       // present a guess with the authority of a merged pull request.
       render(<CertaintyBadge certainty={certainty} />);
 
-      const classes = screen.getByRole("img").className.split(" ");
+      const classes = screen.getByRole("button").className.split(" ");
       expect(styles[certainty]).toBeDefined();
       expect(classes).toContain(styles.badge);
       expect(classes).toContain(styles[certainty]);
@@ -97,9 +108,99 @@ describe("CertaintyBadge", () => {
 
     await user.tab();
 
-    const badge = screen.getByRole("img");
+    const badge = screen.getByRole("button");
     expect(badge).toHaveFocus();
-    expect(badge).toHaveAttribute("tabindex", "0");
+    expect(badge).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("is a real control rather than a focusable image", () => {
+    /**
+     * The dead tab stop this closes.
+     *
+     * The badge was `role="img"` with `tabIndex={0}` — focusable, announced as
+     * a graphic, and doing nothing when activated. Thirty claims on a page is
+     * thirty stops that lead nowhere. Either the description is worth a stop,
+     * in which case the element is a control, or it is not, in which case it
+     * should not be focusable. It is worth a stop.
+     */
+    render(<CertaintyBadge certainty="verified" />);
+    const badge = screen.getByRole("button");
+
+    expect(badge).not.toHaveAttribute("tabindex");
+    expect(badge.tagName).toBe("BUTTON");
+    expect(badge).toHaveAttribute("type", "button");
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("reveals the description on hover", async () => {
+    const user = userEvent.setup();
+    render(<CertaintyBadge certainty="observed" />);
+
+    await user.hover(screen.getByRole("button"));
+
+    expect(screen.getByRole("button")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("dismisses the description with Escape, without moving focus", async () => {
+    // WCAG 2.2 SC 1.4.13. A tooltip that can only be closed by moving the
+    // pointer or tabbing away obscures whatever is under it for a magnifier
+    // user, who may not be able to see what it is covering to move off it.
+    const user = userEvent.setup();
+    render(<CertaintyBadge certainty="verified" />);
+
+    const badge = screen.getByRole("button");
+    await user.tab();
+    expect(badge).toHaveAttribute("aria-expanded", "true");
+
+    await user.keyboard("{Escape}");
+
+    expect(badge).toHaveAttribute("aria-expanded", "false");
+    expect(badge).toHaveFocus();
+  });
+
+  it("can be reopened after dismissal", async () => {
+    // Escape must not be a one-way door: the description is the only place the
+    // tier is explained.
+    const user = userEvent.setup();
+    render(<CertaintyBadge certainty="verified" />);
+
+    const badge = screen.getByRole("button");
+    await user.tab();
+    await user.keyboard("{Escape}");
+    await user.keyboard("{Enter}");
+
+    expect(badge).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("pulls the description back inside a 320px viewport", async () => {
+    /**
+     * The tooltip is anchored to the badge's left edge, so on the narrowest
+     * supported viewport a badge towards the end of a line pushed it off screen
+     * — where, being `position: absolute`, it could not be scrolled to.
+     */
+    const user = userEvent.setup();
+    const previousWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { value: 320, configurable: true });
+
+    // jsdom lays nothing out, so the geometry has to be supplied: a 200px-wide
+    // panel starting 200px in, on a 320px screen.
+    const measure = vi.spyOn(Element.prototype, "getBoundingClientRect");
+    measure.mockImplementation(function measurePanel(this: Element): DOMRect {
+      return this.hasAttribute("data-open") ? new DOMRect(200, 0, 200, 40) : new DOMRect();
+    });
+
+    try {
+      render(<CertaintyBadge certainty="verified" />);
+      await user.tab();
+
+      // 400 - (320 - 8) = 88px of overflow, and the panel has 192px of room to
+      // its left, so the whole overflow is absorbed.
+      const panel = screen.getByRole("button").querySelector("[data-open]");
+      expect(panel?.getAttribute("style")).toContain("--tooltip-shift: -88px");
+    } finally {
+      measure.mockRestore();
+      Object.defineProperty(window, "innerWidth", { value: previousWidth, configurable: true });
+    }
   });
 
   it("does not announce its explanation twice", () => {
@@ -108,7 +209,7 @@ describe("CertaintyBadge", () => {
     // sentence, then reads it again.
     render(<CertaintyBadge certainty="verified" />);
 
-    const badge = screen.getByRole("img");
+    const badge = screen.getByRole("button");
     const visible = badge.querySelector("[aria-hidden='true']");
 
     expect(visible).not.toBeNull();

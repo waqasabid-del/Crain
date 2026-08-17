@@ -49,6 +49,52 @@ export const shadow = {
  * effortless on any device (md/05 §A.3). */
 export const minTargetSize = "44px";
 
+/** The WCAG 2.5.8 floor, for controls that sit inline inside a line of prose —
+ * a badge in a sentence cannot be 44px tall without breaking the leading of the
+ * paragraph around it. Anything standalone uses `minTargetSize`. */
+export const minTargetSizeInline = "24px";
+
+/**
+ * Layout breakpoints.
+ *
+ * The px values are the source of truth. CSS custom properties are resolved
+ * against an element, and a media query is evaluated before any element exists,
+ * so `@media (width <= var(--bp-tablet))` can never work — no polyfill changes
+ * that. Media queries therefore repeat the literal, and this scale exists so
+ * there is one place to look up which literal is correct and one value for
+ * JavaScript (`matchMedia`) to share with the stylesheet.
+ *
+ * The steps are the widths the product is verified at, not a generic device
+ * ladder: `narrow` is the smallest supported viewport, `phone` the common one
+ * below it, and layouts change at `tablet` and `desktop`.
+ */
+export const breakpointPx = {
+  narrow: 320,
+  phone: 375,
+  tablet: 768,
+  desktop: 1024,
+} as const;
+
+export type Breakpoint = keyof typeof breakpointPx;
+
+/** The same steps in rem, for the `width <= 48rem` style of query: rem respects
+ * the browser font-size setting, px does not. */
+export const breakpoint: Readonly<Record<Breakpoint, string>> = {
+  narrow: "20rem",
+  phone: "23.4375rem",
+  tablet: "48rem",
+  desktop: "64rem",
+};
+
+/** Ready-made query strings, so `matchMedia` in a component and the stylesheet
+ * cannot drift apart. Mobile-first: each matches at or above its step. */
+export const mediaQuery: Readonly<Record<Breakpoint, string>> = {
+  narrow: `(min-width: ${breakpoint.narrow})`,
+  phone: `(min-width: ${breakpoint.phone})`,
+  tablet: `(min-width: ${breakpoint.tablet})`,
+  desktop: `(min-width: ${breakpoint.desktop})`,
+};
+
 /** An explicit high-contrast outline with an offset: tinting a background does
  * not read against greyscale, so a monochrome interface fails WCAG 2.4.7. */
 export const focusRing = {

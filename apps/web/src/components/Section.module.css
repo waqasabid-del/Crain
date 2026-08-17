@@ -1,0 +1,43 @@
+.section {
+  margin-bottom: var(--space-10);
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+/*
+ * Two heading treatments, because the app already has two and both are right.
+ *
+ * `plain` is a heading that is read: Trust, Settings and Welcome use it for
+ * sections whose titles are sentences the reader is meant to take in.
+ *
+ * `eyebrow` is a heading that is scanned past: Admin, Brief and Feed use it to
+ * label a region without competing with the content inside it. Small, uppercase
+ * and subdued — a signpost, not a statement.
+ *
+ * A third treatment would mean the distinction is not real. These two are.
+ */
+.plain {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-4);
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  /* Uppercase closes up badly at small sizes; the tracking buys the letters back. */
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.description {
+  max-width: var(--prose-max-width);
+  margin: 0 0 var(--space-5);
+  color: var(--fg-muted);
+  line-height: var(--leading-relaxed);
+}

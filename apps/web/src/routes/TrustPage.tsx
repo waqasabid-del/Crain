@@ -1,6 +1,6 @@
 "use client";
 
-import type { SupportSession, Trust } from "@cairn/api-client";
+import type { SupportScope, SupportSession, Trust } from "@cairn/api-client";
 import Link from "next/link";
 import { Button } from "@cairn/ui";
 import { useCallback, useState, type ReactNode } from "react";
@@ -239,48 +239,136 @@ function SupportHistory({ workspaceId }: { workspaceId: string }): ReactNode {
       ) : (
         <>
           <p className={styles.lead}>
-            Every request is listed, approved or not. CAIRN staff cannot grant themselves access,
-            and access ends by itself.
+            Requests are listed here whether they were approved or refused. CAIRN staff cannot grant
+            themselves access, and access ends by itself.
           </p>
           <ul className={styles.sources}>
             {sessions.map((session) => (
-              <li key={session.id} className={styles.source}>
-                <div className={styles.sourceHeader}>
-                  <span className={styles.sourceName}>{describe(session)}</span>
-                  <span className={session.active ? styles.on : styles.off}>
-                    {session.active ? "Active now" : outcome(session)}
-                  </span>
-                </div>
-                <p className={styles.sourceReads}>
-                  {session.requestedBy} asked on {formatDate(session.requestedAt)}. Reason:{" "}
-                  {session.reason}
-                  {session.decidedAt != null &&
-                    ` Decided ${formatDate(session.decidedAt)}${
-                      session.decidedBy != null ? ` by ${session.decidedBy}` : ""
-                    }.`}
-                  {session.approvedScope != null &&
-                    ` Approved for ${scopeName(session.approvedScope)}.`}
-                  {session.expiresAt != null && ` Ends ${formatDate(session.expiresAt)}.`}
-                  {session.revokedAt != null && ` Ended early on ${formatDate(session.revokedAt)}.`}
-                  {session.breakGlass && " This was emergency access."}
-                </p>
-
-                <Decision session={session} workspaceId={workspaceId} onChanged={reload} />
-                {(session.events ?? []).length > 0 && (
-                  <ul className={styles.refusals}>
-                    {(session.events ?? []).map((event, index) => (
-                      <li key={index}>
-                        {formatDate(event.occurredAt)} — {event.description}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
+              <SessionRecord
+                key={session.id}
+                session={session}
+                workspaceId={workspaceId}
+                onChanged={reload}
+              />
             ))}
           </ul>
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * One request, told in order: what was asked for, by whom, what this workspace
+ * decided, how long it lasted, and what was actually opened.
+ *
+ * Written as separate sentences rather than one concatenated line because the
+ * previous version ran them together and the adjacency did the lying — "Decided
+ * by Alice. Ended early." reads as Alice ending it, whoever actually did.
+ */
+function SessionRecord({
+  session,
+  workspaceId,
+  onChanged,
+}: {
+  session: SupportSession;
+  workspaceId: string;
+  onChanged: () => void;
+}): ReactNode {
+  const events = session.events ?? [];
+
+  return (
+    <li className={styles.source}>
+      <div className={styles.sourceHeader}>
+        <span className={styles.sourceName}>{describe(session)}</span>
+        <span className={session.active ? styles.on : styles.off}>{statusLabel(session)}</span>
+      </div>
+
+      <dl className={styles.record}>
+        <div className={styles.recordRow}>
+          <dt>Asked by</dt>
+          <dd>
+            {session.requestedBy} on {formatDate(session.requestedAt)}
+          </dd>
+        </div>
+        <div className={styles.recordRow}>
+          <dt>Reason given</dt>
+          <dd>{session.reason}</dd>
+        </div>
+        <div className={styles.recordRow}>
+          <dt>Asked for</dt>
+          <dd>
+            {scopeName(session.requestedScope)}, for up to {durationLabel(session.requestedMinutes)}
+          </dd>
+        </div>
+
+        {/* Field names, never statuses. The badge above already states the
+            outcome, and repeating its exact words here made the same sentence
+            appear twice on one row. */}
+        {session.decidedAt != null && (
+          <div className={styles.recordRow}>
+            <dt>Decision</dt>
+            <dd>
+              {session.status === "rejected" ? "Refused" : "Approved"} on{" "}
+              {formatDate(session.decidedAt)}
+              {session.decidedBy != null && ` by ${session.decidedBy}`}
+              {session.approvedScope != null && `, for ${scopeName(session.approvedScope)}`}
+            </dd>
+          </div>
+        )}
+
+        {/* Tense follows the clock. "Expires" about a past instant, on a row
+            whose badge already says the access finished, is the kind of small
+            inaccuracy this page cannot afford. */}
+        {session.expiresAt != null && (
+          <div className={styles.recordRow}>
+            <dt>{isPast(session.expiresAt) ? "Expired" : "Expires"}</dt>
+            <dd>{formatDate(session.expiresAt)}</dd>
+          </div>
+        )}
+
+        {session.revokedAt != null && (
+          <div className={styles.recordRow}>
+            <dt>Ended before expiry</dt>
+            <dd>
+              {formatDate(session.revokedAt)}
+              {/* Named only when the API returns it. Sessions ended before CAIRN
+                  recorded the revoker say so plainly rather than borrowing the
+                  approver's name from the row above. */}
+              {session.revokedBy != null
+                ? ` by ${session.revokedBy}`
+                : " — who ended it was not recorded"}
+            </dd>
+          </div>
+        )}
+
+        <div className={styles.recordRow}>
+          <dt>Emergency access</dt>
+          <dd>{session.breakGlass ? "Yes — approval was bypassed" : "No"}</dd>
+        </div>
+      </dl>
+
+      <Decision session={session} workspaceId={workspaceId} onChanged={onChanged} />
+
+      <div className={styles.opened}>
+        <h3 className={styles.openedHeading}>What was opened</h3>
+        {events.length === 0 ? (
+          <p className={styles.openedNone}>
+            {session.approvedScope == null
+              ? "Nothing — this was never approved."
+              : "Nothing. Access was granted and never used."}
+          </p>
+        ) : (
+          <ul className={styles.refusals}>
+            {events.map((event, index) => (
+              <li key={`${event.occurredAt}-${String(index)}`}>
+                {formatDate(event.occurredAt)} — {event.description} ({scopeName(event.scope)})
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -291,20 +379,65 @@ function describe(session: SupportSession): string {
     : "Access to settings and diagnostics";
 }
 
-/** The outcome, stated plainly. "Expired" is a fact about the clock, so it is
- * derived here rather than read from a status that could be stale. */
-function outcome(session: SupportSession): string {
-  if (session.status === "pending") return "Waiting for a decision";
-  if (session.status === "rejected") return "Refused";
-  // Not "ended by you": an Owner or Admin ends access on the workspace's
-  // behalf, and the reader may be neither. Who did it is named in the line
-  // above, where it can be accurate.
-  if (session.status === "revoked") return "Ended early";
-  return "Ended";
+/**
+ * The outcome, stated plainly.
+ *
+ * A switch rather than a chain of ternaries so that adding a scope or a status
+ * on the server is a compile error here. The previous shape defaulted anything
+ * unrecognised to "Ended" — a new status would have been reported as finished
+ * access on the page whose whole claim is that it does not overstate.
+ */
+function statusLabel(session: SupportSession): string {
+  if (session.active) return "Active now";
+
+  switch (session.status) {
+    case "pending":
+      return "Waiting for a decision";
+    case "rejected":
+      return "Refused";
+    // Never "ended by you": whoever ended it is named in the record below,
+    // where the name can be accurate. The reader may not be that person.
+    case "revoked":
+      return "Ended early";
+    case "approved":
+      return "Ended";
+    default:
+      return assertNever(session.status);
+  }
 }
 
-function scopeName(scope: string): string {
-  return scope === "activity_content" ? "your team's recorded work" : "settings and diagnostics";
+function scopeName(scope: SupportScope): string {
+  switch (scope) {
+    case "activity_content":
+      return "your team's recorded work";
+    case "configuration_diagnostics":
+      return "settings and diagnostics";
+    default:
+      return assertNever(scope);
+  }
+}
+
+/** Minutes as a person would say them. */
+function durationLabel(minutes: number): string {
+  if (minutes < 60) return `${String(minutes)} minutes`;
+  const hours = minutes / 60;
+  const rounded = Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
+  return `${rounded} ${hours === 1 ? "hour" : "hours"}`;
+}
+
+function isPast(value: string): boolean {
+  return new Date(value).getTime() <= Date.now();
+}
+
+/**
+ * Turns an unhandled union member into a compile error.
+ *
+ * Reached only if the server adds a value the client has not been taught, so it
+ * returns the raw value rather than throwing: an unfamiliar word on the screen
+ * is recoverable, a blank page during a privacy review is not.
+ */
+function assertNever(value: never): string {
+  return String(value);
 }
 
 /**
@@ -325,51 +458,72 @@ function Decision({
 }): ReactNode {
   const client = useApiClient();
   const { activeRole } = useAuth();
-  const [busy, setBusy] = useState(false);
+  // Which action is in flight, not merely whether one is. Sharing a single
+  // boolean marked Allow and Refuse as busy together, telling a screen-reader
+  // user that two mutually exclusive things were happening at once.
+  const [busy, setBusy] = useState<Action | null>(null);
   const [problem, setProblem] = useState<DescribedError | null>(null);
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
 
   const mayDecide = activeRole === "owner" || activeRole === "admin";
   const pending = session.status === "pending";
-  const live = session.active;
+  const actionable = pending || session.active;
 
-  if (!mayDecide || (!pending && !live)) return null;
+  if (!actionable) return null;
 
-  async function run(action: () => Promise<unknown>, verb: string): Promise<void> {
-    setBusy(true);
+  // Read-only readers are told who decides, rather than shown nothing. A Viewer
+  // has the same stake in this record as an Owner; silence leaves them unable to
+  // tell whether the request is unattended or simply not theirs to act on.
+  if (!mayDecide) {
+    return (
+      <p className={styles.readOnly}>
+        {pending
+          ? "An Owner or an Admin of this workspace decides this request."
+          : "An Owner or an Admin of this workspace can end this access."}
+      </p>
+    );
+  }
+
+  async function run(action: Action, call: () => Promise<unknown>, verb: string): Promise<void> {
+    setBusy(action);
     setProblem(null);
     try {
-      await action();
+      await call();
       onChanged();
     } catch (error: unknown) {
       setProblem(describeError(error, verb));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   return (
     <div className={styles.decision}>
       {pending ? (
-        <>
+        <div className={styles.actions}>
           <Button
             size="sm"
             variant="primary"
-            loading={busy}
+            loading={busy === "allow"}
+            disabled={busy !== null}
             onClick={() => {
               void run(
+                "allow",
                 () => client.decideSupportSession(workspaceId, session.id, true),
                 "approve this request",
               );
             }}
           >
-            Allow
+            Allow for {durationLabel(session.requestedMinutes)}
           </Button>
           <Button
             size="sm"
             variant="secondary"
-            loading={busy}
+            loading={busy === "refuse"}
+            disabled={busy !== null}
             onClick={() => {
               void run(
+                "refuse",
                 () => client.decideSupportSession(workspaceId, session.id, false),
                 "refuse this request",
               );
@@ -377,14 +531,47 @@ function Decision({
           >
             Refuse
           </Button>
-        </>
+        </div>
+      ) : confirmingEnd ? (
+        // Ending access is not destructive to data, but it is a decision the
+        // other party notices, so it states its effect before it happens.
+        <div className={styles.actions}>
+          <p className={styles.confirm}>
+            CAIRN staff lose access to this workspace immediately. The record of what they already
+            opened stays here.
+          </p>
+          <Button
+            size="sm"
+            variant="primary"
+            loading={busy === "end"}
+            disabled={busy !== null}
+            onClick={() => {
+              void run(
+                "end",
+                () => client.revokeSupportSession(workspaceId, session.id),
+                "end this access",
+              );
+            }}
+          >
+            End access now
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={busy !== null}
+            onClick={() => {
+              setConfirmingEnd(false);
+            }}
+          >
+            Leave it open
+          </Button>
+        </div>
       ) : (
         <Button
           size="sm"
           variant="secondary"
-          loading={busy}
           onClick={() => {
-            void run(() => client.revokeSupportSession(workspaceId, session.id), "end this access");
+            setConfirmingEnd(true);
           }}
         >
           End access now
@@ -399,6 +586,8 @@ function Decision({
     </div>
   );
 }
+
+type Action = "allow" | "refuse" | "end";
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleString(undefined, {

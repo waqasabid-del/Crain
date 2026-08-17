@@ -4,13 +4,26 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
 import { ErrorState, LoadingState } from "../components/States.js";
+import utility from "../styles/utility.module.css";
 import { useAuth } from "./context.js";
 import styles from "./RequireAuth.module.css";
 
-function Gate({ children }: { children: ReactNode }): ReactNode {
+/**
+ * Every gate state is a page, and a page owes a level-one heading.
+ *
+ * Visually hidden rather than drawn: these screens are deliberately bare — a
+ * skeleton, or one small panel — and a headline above them would be the loudest
+ * thing on a screen whose whole job is to be brief. Hidden text still gives a
+ * screen-reader user the document outline, so `ErrorState`'s `h2` sits under an
+ * `h1` instead of being the highest heading on the page.
+ */
+function Gate({ heading, children }: { heading: string; children: ReactNode }): ReactNode {
   return (
     <div className={styles.gate}>
-      <div className={styles.inner}>{children}</div>
+      <div className={styles.inner}>
+        <h1 className={utility.visuallyHidden}>{heading}</h1>
+        {children}
+      </div>
     </div>
   );
 }
@@ -36,7 +49,7 @@ export function RequireAuth({ children }: { children: ReactNode }): ReactNode {
 
   if (status === "loading") {
     return (
-      <Gate>
+      <Gate heading="Opening your workspace">
         <LoadingState label="your workspace" />
       </Gate>
     );
@@ -44,7 +57,7 @@ export function RequireAuth({ children }: { children: ReactNode }): ReactNode {
 
   if (status === "unavailable") {
     return (
-      <Gate>
+      <Gate heading="Sign in unavailable">
         <ErrorState
           title="CAIRN could not sign you in"
           error={error ?? { message: "CAIRN could not reach the server." }}
@@ -55,10 +68,15 @@ export function RequireAuth({ children }: { children: ReactNode }): ReactNode {
   }
 
   if (status === "anonymous") {
-    // Held on loading while the effect navigates; never render the children.
+    // Never render the children. The announcement says what is actually
+    // happening: the effect above is navigating to the sign-in screen, and
+    // "Loading your workspace" told a screen-reader user to wait for a
+    // workspace that is not coming.
     return (
-      <Gate>
-        <LoadingState label="your workspace" />
+      <Gate heading="Signing in required">
+        <p className={styles.notice} role="status">
+          Taking you to the sign-in screen.
+        </p>
       </Gate>
     );
   }

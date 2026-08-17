@@ -10,6 +10,7 @@ import {
   easing,
   focusRing,
   minTargetSize,
+  minTargetSizeInline,
   radius,
   shadow,
   space,
@@ -62,7 +63,11 @@ const HEADER = `/**
  * repaint rather than a re-render.
  */`;
 
-/** Tokens that carry no theme — identical in light and dark. */
+/** Tokens that carry no theme — identical in light and dark.
+ *
+ * Breakpoints are deliberately absent: a custom property cannot be read by a
+ * media query, so emitting one would advertise a single source of truth that
+ * every `@media` rule would then have to ignore. See tokens/layout.ts. */
 function structuralTokens(): string {
   const lines: string[] = [];
 
@@ -107,6 +112,7 @@ function structuralTokens(): string {
   lines.push("");
   lines.push("  /* Interaction */");
   lines.push(`  --min-target: ${minTargetSize};`);
+  lines.push(`  --min-target-inline: ${minTargetSizeInline};`);
   lines.push(`  --focus-width: ${focusRing.width};`);
   lines.push(`  --focus-offset: ${focusRing.offset};`);
   lines.push(`  --focus-style: ${focusRing.style};`);

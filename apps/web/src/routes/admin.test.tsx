@@ -483,9 +483,41 @@ describe("the trust and privacy centre", () => {
         listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
       });
 
-      expect(await screen.findByText(/sam@cairn.dev asked on/i)).toBeVisible();
+      expect(await screen.findByText(/sam@cairn.dev on /i)).toBeVisible();
       expect(screen.getByText(/investigating an integration failure/i)).toBeVisible();
-      expect(screen.getByText(/decided .* by ali@acme.example.com/i)).toBeVisible();
+      expect(screen.getByText(/ali@acme.example.com/)).toBeVisible();
+    });
+
+    it("states the duration that was asked for", async () => {
+      // The approver is agreeing to a length of access. Approving a duration
+      // nobody displayed is consent to an unstated term.
+      renderTrust({
+        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
+      });
+
+      expect(await screen.findByText(/for up to 40 minutes/i)).toBeVisible();
+    });
+
+    it("says which scope each recorded access was performed under", async () => {
+      // "They opened something" and "they opened your team's work" are
+      // different answers, and the event carries which one it was.
+      renderTrust({
+        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
+      });
+
+      expect(
+        await screen.findByText(
+          /read 3 recorded activity statements \(settings and diagnostics\)/i,
+        ),
+      ).toBeVisible();
+    });
+
+    it("says plainly when approved access was never used", async () => {
+      renderTrust({
+        listSupportSessions: vi.fn(() => Promise.resolve([{ ...SUPPORT_SESSION, events: [] }])),
+      });
+
+      expect(await screen.findByText(/access was granted and never used/i)).toBeVisible();
     });
 
     it("lists what was actually opened, not only what was permitted", async () => {
@@ -541,7 +573,9 @@ describe("the trust and privacy centre", () => {
       expect(decideSupportSession).toHaveBeenCalledWith(WORKSPACE, SUPPORT_SESSION.id, true);
     });
 
-    it("offers ending access while a session is live", async () => {
+    it("explains the effect before ending access, and only then ends it", async () => {
+      // Ending access is not destructive to data, but the other party notices
+      // immediately, so the effect is stated before the act.
       const revokeSupportSession = vi.fn(() => Promise.resolve(SUPPORT_SESSION));
       renderTrust({
         listSupportSessions: vi.fn(() => Promise.resolve([{ ...SUPPORT_SESSION, active: true }])),
@@ -549,8 +583,28 @@ describe("the trust and privacy centre", () => {
       });
 
       await userEvent.click(await screen.findByRole("button", { name: /end access now/i }));
+      expect(revokeSupportSession).not.toHaveBeenCalled();
+      expect(screen.getByText(/lose access to this workspace immediately/i)).toBeVisible();
+
+      await userEvent.click(screen.getByRole("button", { name: /^end access now$/i }));
 
       expect(revokeSupportSession).toHaveBeenCalledWith(WORKSPACE, SUPPORT_SESSION.id);
+    });
+
+    it("lets the reader back out of ending access", async () => {
+      const revokeSupportSession = vi.fn(() => Promise.resolve(SUPPORT_SESSION));
+      renderTrust({
+        listSupportSessions: vi.fn(() => Promise.resolve([{ ...SUPPORT_SESSION, active: true }])),
+        revokeSupportSession,
+      });
+
+      await userEvent.click(await screen.findByRole("button", { name: /end access now/i }));
+      await userEvent.click(screen.getByRole("button", { name: /leave it open/i }));
+
+      expect(revokeSupportSession).not.toHaveBeenCalled();
+      expect(
+        screen.queryByText(/lose access to this workspace immediately/i),
+      ).not.toBeInTheDocument();
     });
 
     it.each(["member", "viewer"] as const)(
@@ -568,30 +622,73 @@ describe("the trust and privacy centre", () => {
           role,
         );
 
-        expect(await screen.findByText(/sam@cairn.dev asked on/i)).toBeVisible();
+        expect(await screen.findByText(/sam@cairn.dev on /i)).toBeVisible();
         expect(screen.queryByRole("button", { name: /allow/i })).not.toBeInTheDocument();
         expect(screen.queryByRole("button", { name: /refuse/i })).not.toBeInTheDocument();
       },
     );
 
-    it("does not claim a revocation was the reader's doing", async () => {
-      // "Ended by you" is false for every member who did not end it — including
-      // the colleague reading the record afterwards.
+    it.each(["member", "viewer"] as const)(
+      "tells a %s who can decide, rather than showing them nothing",
+      async (role) => {
+        // Absence is ambiguous: it leaves the reader unable to tell whether a
+        // pending request is unattended or simply not theirs to act on. A
+        // Viewer has the same stake in this record as an Owner.
+        renderTrust(
+          {
+            listSupportSessions: vi.fn(() =>
+              Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
+            ),
+          },
+          role,
+        );
+
+        expect(
+          await screen.findByText(/an owner or an admin of this workspace decides this request/i),
+        ).toBeVisible();
+      },
+    );
+
+    it("names who ended a session, not who approved it", async () => {
+      // The two are different acts by possibly different people. Rendering only
+      // the approver beside "ended early" attributed the ending to them.
       renderTrust({
         listSupportSessions: vi.fn(() =>
           Promise.resolve([
             {
-              ...SESSION,
+              ...SUPPORT_SESSION,
               status: "revoked" as const,
               active: false,
               revokedAt: "2026-08-12T09:20:00Z",
+              revokedBy: "dana@acme.example.com",
             },
           ]),
         ),
       });
 
       expect(await screen.findByText(/^ended early$/i)).toBeVisible();
+      expect(screen.getByText(/dana@acme.example.com/)).toBeVisible();
       expect(screen.queryByText(/ended by you/i)).not.toBeInTheDocument();
+    });
+
+    it("says the revoker is unknown rather than borrowing the approver's name", async () => {
+      // Sessions ended before CAIRN recorded the revoker cannot name one, and
+      // the honest answer is to say so.
+      renderTrust({
+        listSupportSessions: vi.fn(() =>
+          Promise.resolve([
+            {
+              ...SUPPORT_SESSION,
+              status: "revoked" as const,
+              active: false,
+              revokedAt: "2026-08-12T09:20:00Z",
+              revokedBy: null,
+            },
+          ]),
+        ),
+      });
+
+      expect(await screen.findByText(/who ended it was not recorded/i)).toBeVisible();
     });
 
     it("states the approved scope, expiry and break-glass state", async () => {
@@ -599,12 +696,35 @@ describe("the trust and privacy centre", () => {
         listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
       });
 
-      const entry = await screen.findByText(/approved for settings and diagnostics/i);
-      expect(entry).toBeVisible();
-      expect(entry).toHaveTextContent(/ends /i);
-      // Break-glass is false, so the line must not appear at all rather than
-      // saying "not emergency access".
-      expect(screen.queryByText(/emergency access/i)).not.toBeInTheDocument();
+      expect(await screen.findByText(/for settings and diagnostics/i)).toBeVisible();
+      // Break-glass is answered explicitly. Silence would leave a customer
+      // reading a privacy record unable to tell whether the question was asked
+      // and answered "no", or never asked at all.
+      expect(screen.getByText(/^no$/i)).toBeVisible();
+    });
+
+    it("does not describe a finished session in the present tense", async () => {
+      // The row's status already says the access ended; "Ends {past date}" on
+      // the same row contradicts it.
+      renderTrust({
+        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
+      });
+
+      await screen.findByText(/sam@cairn.dev on /i);
+      expect(screen.queryByText(/^expires$/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/^expired$/i)).toBeVisible();
+    });
+
+    it("uses a future tense for a session that has not run out yet", async () => {
+      renderTrust({
+        listSupportSessions: vi.fn(() =>
+          Promise.resolve([
+            { ...SUPPORT_SESSION, active: true, expiresAt: "2099-01-01T00:00:00Z" },
+          ]),
+        ),
+      });
+
+      expect(await screen.findByText(/^expires$/i)).toBeVisible();
     });
 
     it("says so when a decision cannot be recorded", async () => {

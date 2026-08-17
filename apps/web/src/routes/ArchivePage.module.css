@@ -33,8 +33,12 @@
   text-decoration: none;
 }
 
-.link:hover {
-  background: var(--bg-subtle);
+/* Guarded, because on a touch device the hover background stays on the last row
+ * tapped and reads as a selection. */
+@media (hover: hover) {
+  .link:hover {
+    background: var(--bg-subtle);
+  }
 }
 
 .link:focus-visible {
