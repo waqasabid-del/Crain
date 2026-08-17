@@ -13,6 +13,7 @@ import structlog
 from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cairn_api import telemetry
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.graph_models import EdgeKind, FactEdge, FactEmbedding
 from cairn_api.pipeline.embeddings import DEFAULT_EMBEDDING_MODEL, EmbeddingProvider
@@ -85,74 +86,77 @@ async def retrieve(
             activity window (`since`/`until`).
         include_history: Traverse supersession edges. Off by default.
     """
-    vector = (await embedder.embed([question]))[0]
+    with telemetry.stage("retrieval", tenant_id=str(tenant_id)):
+        vector = (await embedder.embed([question]))[0]
 
-    entries = await _entry_points(
-        session,
-        tenant_id=tenant_id,
-        vector=vector,
-        model_name=model_name,
-        since=since,
-        until=until,
-        as_of=as_of,
-        limit=entry_points,
-    )
-
-    retrieval = Retrieval()
-    seen: set[uuid.UUID] = set()
-    spent = 0
-
-    for row, distance in entries:
-        cost = len(row.statement)
-        if spent + cost > budget_chars:
-            retrieval.truncated = True
-            break
-        retrieval.facts.append(RetrievedFact(fact=row, hops=0, distance=distance))
-        seen.add(row.id)
-        spent += cost
-
-    frontier = list(seen)
-    kinds = (*CURRENT_EDGE_KINDS, EdgeKind.SUPERSEDES) if include_history else CURRENT_EDGE_KINDS
-
-    for hop in range(1, max_hops + 1):
-        if not frontier or retrieval.truncated:
-            break
-
-        neighbours = await _expand(
+        entries = await _entry_points(
             session,
             tenant_id=tenant_id,
-            frontier=frontier,
-            kinds=kinds,
-            exclude=seen,
+            vector=vector,
+            model_name=model_name,
             since=since,
             until=until,
             as_of=as_of,
+            limit=entry_points,
         )
 
-        next_frontier: list[uuid.UUID] = []
-        for row, edge in neighbours:
+        retrieval = Retrieval()
+        seen: set[uuid.UUID] = set()
+        spent = 0
+
+        for row, distance in entries:
             cost = len(row.statement)
             if spent + cost > budget_chars:
                 retrieval.truncated = True
                 break
-            retrieval.facts.append(
-                RetrievedFact(fact=row, hops=hop, via=edge.kind, because=edge.detail)
-            )
+            retrieval.facts.append(RetrievedFact(fact=row, hops=0, distance=distance))
             seen.add(row.id)
-            next_frontier.append(row.id)
             spent += cost
 
-        frontier = next_frontier
+        frontier = list(seen)
+        kinds = (
+            (*CURRENT_EDGE_KINDS, EdgeKind.SUPERSEDES) if include_history else CURRENT_EDGE_KINDS
+        )
 
-    await logger.ainfo(
-        "retrieval.completed",
-        tenant_id=str(tenant_id),
-        entry_points=len(entries),
-        retrieved=len(retrieval.facts),
-        truncated=retrieval.truncated,
-        chars=spent,
-    )
-    return retrieval
+        for hop in range(1, max_hops + 1):
+            if not frontier or retrieval.truncated:
+                break
+
+            neighbours = await _expand(
+                session,
+                tenant_id=tenant_id,
+                frontier=frontier,
+                kinds=kinds,
+                exclude=seen,
+                since=since,
+                until=until,
+                as_of=as_of,
+            )
+
+            next_frontier: list[uuid.UUID] = []
+            for row, edge in neighbours:
+                cost = len(row.statement)
+                if spent + cost > budget_chars:
+                    retrieval.truncated = True
+                    break
+                retrieval.facts.append(
+                    RetrievedFact(fact=row, hops=hop, via=edge.kind, because=edge.detail)
+                )
+                seen.add(row.id)
+                next_frontier.append(row.id)
+                spent += cost
+
+            frontier = next_frontier
+
+        await logger.ainfo(
+            "retrieval.completed",
+            tenant_id=str(tenant_id),
+            entry_points=len(entries),
+            retrieved=len(retrieval.facts),
+            truncated=retrieval.truncated,
+            chars=spent,
+        )
+        return retrieval
 
 
 async def _entry_points(

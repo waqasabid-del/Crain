@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 import structlog
 
+from cairn_api import telemetry
 from cairn_api.pipeline import prompts
 from cairn_api.pipeline.provider import ModelProvider
 
@@ -72,36 +73,37 @@ async def classify(provider: ModelProvider, *, content: str) -> Classification:
     Never raises: a classification failure must not stop ingestion. Returning
     `UNKNOWN` routes the event to extraction instead.
     """
-    request = prompts.build(INSTRUCTION, content)
-    try:
-        response = await provider.complete(request)
-    except Exception as exc:
-        await logger.awarning("classify.provider_failed", error=str(exc))
-        return Classification(event_class=EventClass.UNKNOWN, note=f"provider: {exc}")
+    with telemetry.stage("classify"):
+        request = prompts.build(INSTRUCTION, content)
+        try:
+            response = await provider.complete(request)
+        except Exception as exc:
+            await logger.awarning("classify.provider_failed", error=str(exc))
+            return Classification(event_class=EventClass.UNKNOWN, note=f"provider: {exc}")
 
-    if len(response.text.encode("utf-8")) > MAX_RESPONSE_BYTES:
-        return Classification(
-            event_class=EventClass.UNKNOWN,
-            model=response.model,
-            note="response too large to be a classification",
-        )
+        if len(response.text.encode("utf-8")) > MAX_RESPONSE_BYTES:
+            return Classification(
+                event_class=EventClass.UNKNOWN,
+                model=response.model,
+                note="response too large to be a classification",
+            )
 
-    label = _read_label(response.text)
-    if label is None:
+        label = _read_label(response.text)
+        if label is None:
+            return Classification(
+                event_class=EventClass.UNKNOWN,
+                model=response.model,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                note="unrecognised label",
+            )
+
         return Classification(
-            event_class=EventClass.UNKNOWN,
+            event_class=label,
             model=response.model,
             input_tokens=response.input_tokens,
             output_tokens=response.output_tokens,
-            note="unrecognised label",
         )
-
-    return Classification(
-        event_class=label,
-        model=response.model,
-        input_tokens=response.input_tokens,
-        output_tokens=response.output_tokens,
-    )
 
 
 def _read_label(text: str) -> EventClass | None:

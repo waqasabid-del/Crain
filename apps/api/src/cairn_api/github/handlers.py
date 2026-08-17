@@ -67,6 +67,9 @@ async def handle_delivery(
     delivery.processed_at = datetime.now(UTC)
     delivery.error = None
 
+    # `correlation_id` is not passed: the worker bound it for this job, so every
+    # line here already carries it and joins this delivery to the webhook that
+    # arrived and the understanding job published below it.
     await logger.ainfo(
         "github.delivery_processed",
         delivery_id=delivery_id,

@@ -431,7 +431,13 @@ async def _already_understood(
 async def publish(queue: JobQueue, *, tenant_id: uuid.UUID, delivery_id: str) -> None:
     """Enqueue understanding for one delivery. `STANDARD`: not `INTERACTIVE`
     (nobody watches a spinner for this), not `BULK` (this *is* the live
-    event, md/06 §6B.3)."""
+    event, md/06 §6B.3).
+
+    The envelope inherits the correlation id of the job that is publishing it —
+    `run_job` binds it, `JobEnvelope` picks it up — so the webhook, the delivery
+    job and this understanding job share one id all the way to the brief. It is
+    inherited rather than passed because a parameter is a thing every future
+    caller can forget, and the one that forgets is the chain that breaks."""
     await queue.publish(
         JobEnvelope(
             job_type=UNDERSTAND_JOB,

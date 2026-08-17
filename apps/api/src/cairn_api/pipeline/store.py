@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Text
 
+from cairn_api import telemetry
 from cairn_api.db.consent_models import SourceOptOut
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.fact_models import FactOrigin, FactPerson, FactSource
@@ -138,29 +139,30 @@ async def apply(
 ) -> ResolutionPlan:
     """Resolve a batch against the store and persist the outcome. Returns the
     plan as the audit trail behind a disputed brief."""
-    current = await _candidates(session, tenant_id=tenant_id, incoming=incoming)
-    plan = resolve(incoming, current)
+    with telemetry.stage("store", tenant_id=str(tenant_id)):
+        current = await _candidates(session, tenant_id=tenant_id, incoming=incoming)
+        plan = resolve(incoming, current)
 
-    for decision in plan.decisions:
-        if decision.outcome is Outcome.MERGED:
-            await _apply_merge(session, tenant_id, decision)
-        elif decision.outcome is Outcome.SUPERSEDES:
-            await _apply_supersession(session, tenant_id, decision)
-        else:
-            await _insert(session, tenant_id, decision.fact)
+        for decision in plan.decisions:
+            if decision.outcome is Outcome.MERGED:
+                await _apply_merge(session, tenant_id, decision)
+            elif decision.outcome is Outcome.SUPERSEDES:
+                await _apply_supersession(session, tenant_id, decision)
+            else:
+                await _insert(session, tenant_id, decision.fact)
 
-        # Flushed per decision: a later decision may merge into a fact this loop just created.
-        await session.flush()
+            # Flushed per decision: a later decision may merge into a fact this loop just created.
+            await session.flush()
 
-    await logger.ainfo(
-        "resolve.applied",
-        tenant_id=str(tenant_id),
-        **{
-            outcome.value: sum(1 for d in plan.decisions if d.outcome is outcome)
-            for outcome in Outcome
-        },
-    )
-    return plan
+        await logger.ainfo(
+            "resolve.applied",
+            tenant_id=str(tenant_id),
+            **{
+                outcome.value: sum(1 for d in plan.decisions if d.outcome is outcome)
+                for outcome in Outcome
+            },
+        )
+        return plan
 
 
 async def _apply_merge(session: AsyncSession, tenant_id: uuid.UUID, decision: Decision) -> None:

@@ -23,6 +23,7 @@ from typing import Any
 import structlog
 from pydantic import ValidationError
 
+from cairn_api import telemetry
 from cairn_api.domain import Certainty
 from cairn_api.pipeline import guardrails, prompts
 from cairn_api.pipeline.facts import ExtractionResult, Fact, FactKind, SourceRef
@@ -71,34 +72,35 @@ async def extract(
         known_evidence: Evidence id to source name. Facts citing anything
             outside this mapping are dropped.
     """
-    request = prompts.build(INSTRUCTION, content)
-    diagnostics: list[str] = []
+    with telemetry.stage("extract"):
+        request = prompts.build(INSTRUCTION, content)
+        diagnostics: list[str] = []
 
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        try:
-            response = await provider.complete(request)
-        except Exception as exc:
-            diagnostics.append(f"attempt {attempt}: provider error: {exc}")
-            await logger.awarning("extract.provider_failed", attempt=attempt, error=str(exc))
-            continue
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                response = await provider.complete(request)
+            except Exception as exc:
+                diagnostics.append(f"attempt {attempt}: provider error: {exc}")
+                await logger.awarning("extract.provider_failed", attempt=attempt, error=str(exc))
+                continue
 
-        facts, rejected = _parse(response.text, known_evidence)
-        diagnostics.extend(rejected)
+            facts, rejected = _parse(response.text, known_evidence)
+            diagnostics.extend(rejected)
 
-        if facts or not rejected:
-            # Empty with no rejections is a real answer (nothing in the event);
-            # retrying would just spend money to be told the same thing again.
-            return ExtractionResult(
-                facts=facts[:MAX_FACTS_PER_EVENT],
-                abstained=not facts,
-                diagnostics=diagnostics,
-            )
+            if facts or not rejected:
+                # Empty with no rejections is a real answer (nothing in the event);
+                # retrying would just spend money to be told the same thing again.
+                return ExtractionResult(
+                    facts=facts[:MAX_FACTS_PER_EVENT],
+                    abstained=not facts,
+                    diagnostics=diagnostics,
+                )
 
-        diagnostics.append(f"attempt {attempt}: no usable facts, retrying")
+            diagnostics.append(f"attempt {attempt}: no usable facts, retrying")
 
-    await logger.awarning("extract.exhausted", diagnostics=diagnostics[:5])
-    # Abstain rather than emit whatever survived; scored as a missed signal.
-    return ExtractionResult(facts=[], abstained=True, diagnostics=diagnostics)
+        await logger.awarning("extract.exhausted", diagnostics=diagnostics[:5])
+        # Abstain rather than emit whatever survived; scored as a missed signal.
+        return ExtractionResult(facts=[], abstained=True, diagnostics=diagnostics)
 
 
 def _parse(text: str, known_evidence: dict[str, str]) -> tuple[list[Fact], list[str]]:

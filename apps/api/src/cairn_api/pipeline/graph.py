@@ -17,6 +17,7 @@ from sqlalchemy import CursorResult, Select, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cairn_api import telemetry
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.fact_models import FactPerson, FactSource
 from cairn_api.db.graph_models import EdgeKind, FactEdge, FactEmbedding
@@ -83,49 +84,52 @@ async def build(
     on `created_at`, not `occurred_at`. Both args narrow which facts get new
     edges; candidates are always the whole currently-valid graph.
     """
-    # autoflush=False (db/session.py): flush so a caller's pending writes are visible below.
-    await session.flush()
+    with telemetry.stage("graph", tenant_id=str(tenant_id)):
+        # autoflush=False (db/session.py): flush so a caller's pending writes are visible below.
+        await session.flush()
 
-    focus = await _focus(
-        session, tenant_id=tenant_id, model_name=model_name, since=since, fact_ids=fact_ids
-    )
-    if not focus:
-        await logger.ainfo("graph.built", tenant_id=str(tenant_id), facts=0, edges=0, embeddings=0)
-        return GraphUpdate()
+        focus = await _focus(
+            session, tenant_id=tenant_id, model_name=model_name, since=since, fact_ids=fact_ids
+        )
+        if not focus:
+            await logger.ainfo(
+                "graph.built", tenant_id=str(tenant_id), facts=0, edges=0, embeddings=0
+            )
+            return GraphUpdate()
 
-    candidates = await _candidates(session, tenant_id=tenant_id, focus=focus)
-    derivation = _derive(focus, candidates)
-    written = await _write_edges(session, tenant_id, derivation.edges)
-    embedded = await _write_embeddings(
-        session, tenant_id, focus, embedder=embedder, model_name=model_name
-    )
-
-    if derivation.truncated_groups:
-        await logger.awarning(
-            "graph.fanout_truncated",
-            tenant_id=str(tenant_id),
-            groups=len(derivation.truncated_groups),
-            ceiling=MAX_GROUP_FANOUT,
-            sample=derivation.truncated_groups[:5],
+        candidates = await _candidates(session, tenant_id=tenant_id, focus=focus)
+        derivation = _derive(focus, candidates)
+        written = await _write_edges(session, tenant_id, derivation.edges)
+        embedded = await _write_embeddings(
+            session, tenant_id, focus, embedder=embedder, model_name=model_name
         )
 
-    await logger.ainfo(
-        "graph.built",
-        tenant_id=str(tenant_id),
-        facts=len(focus),
-        candidates=len(candidates.subjects),
-        edges=written,
-        embeddings=embedded,
-        subject_comparisons=derivation.subject_comparisons,
-        truncated=bool(derivation.truncated_groups),
-    )
-    return GraphUpdate(
-        edges_written=written,
-        embeddings_written=embedded,
-        facts_considered=len(focus),
-        subject_comparisons=derivation.subject_comparisons,
-        truncated=bool(derivation.truncated_groups),
-    )
+        if derivation.truncated_groups:
+            await logger.awarning(
+                "graph.fanout_truncated",
+                tenant_id=str(tenant_id),
+                groups=len(derivation.truncated_groups),
+                ceiling=MAX_GROUP_FANOUT,
+                sample=derivation.truncated_groups[:5],
+            )
+
+        await logger.ainfo(
+            "graph.built",
+            tenant_id=str(tenant_id),
+            facts=len(focus),
+            candidates=len(candidates.subjects),
+            edges=written,
+            embeddings=embedded,
+            subject_comparisons=derivation.subject_comparisons,
+            truncated=bool(derivation.truncated_groups),
+        )
+        return GraphUpdate(
+            edges_written=written,
+            embeddings_written=embedded,
+            facts_considered=len(focus),
+            subject_comparisons=derivation.subject_comparisons,
+            truncated=bool(derivation.truncated_groups),
+        )
 
 
 # --- What the rules operate on ---

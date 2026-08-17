@@ -11,6 +11,12 @@ log line emitted anywhere beneath it carries them without being passed the
 values. The alternative — threading a logger through call signatures — is what
 makes people give up and log without context.
 
+The two ids that travel this way are `request_id` (bound in `api/middleware.py`,
+one HTTP request) and `correlation_id` (`telemetry/correlation.py`, one unit of
+work — from the webhook that started it to the brief it produced, across
+processes and across the queue in between). The second is what makes
+`grep <correlation_id>` reconstruct a whole path rather than one hop of it.
+
 **What must never be logged here** is as important as what is. No email
 addresses, no session tokens, no request bodies. A log store has a different
 retention policy, a different access model and a different deletion path from

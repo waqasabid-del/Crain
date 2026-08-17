@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 import structlog
 
+from cairn_api import telemetry
 from cairn_api.jobs.envelope import JobEnvelope
 from cairn_api.jobs.queue import Priority, QueueDepth, QueueMessage
 
@@ -87,6 +88,9 @@ class InMemoryJobQueue:
                     priority=priority,
                 )
             )
+        telemetry.record_queue_event(
+            job_type=envelope.job_type, outcome="published", priority=priority.name.lower()
+        )
 
     async def receive(self, *, max_messages: int = 1) -> list[QueueMessage]:
         async with self._lock:
@@ -119,7 +123,15 @@ class InMemoryJobQueue:
                 )
                 messages.append(message)
 
-            return messages
+        # Outside the lock: telemetry must never be on the critical path of the
+        # thing it describes.
+        for message in messages:
+            telemetry.record_queue_event(
+                job_type=message.envelope.job_type,
+                outcome="claimed",
+                priority=message.priority.name.lower(),
+            )
+        return messages
 
     def _choose_fairly(self, available: list[_Queued], limit: int) -> list[_Queued]:
         """Round-robin within the highest priority band that has work, one
@@ -164,8 +176,10 @@ class InMemoryJobQueue:
     async def ack(self, message: QueueMessage) -> None:
         async with self._lock:
             self._in_flight.pop(message.receipt, None)
+        telemetry.record_queue_event(job_type=message.envelope.job_type, outcome="acked")
 
     async def retry(self, message: QueueMessage, *, delay_seconds: float) -> None:
+        telemetry.record_queue_event(job_type=message.envelope.job_type, outcome="retried")
         async with self._lock:
             self._in_flight.pop(message.receipt, None)
             # New envelope with an incremented attempt — the envelope is frozen.
@@ -180,6 +194,15 @@ class InMemoryJobQueue:
             )
 
     async def dead_letter(self, message: QueueMessage, *, reason: str) -> None:
+        telemetry.record_queue_event(job_type=message.envelope.job_type, outcome="dead_lettered")
+        # The dedicated counter as well as the general one: the general counter
+        # is where dead letters are invisible among publishes and acks, and this
+        # is the series an operator alerts on.
+        telemetry.record_dead_letter(
+            job_type=message.envelope.job_type,
+            reason=reason,
+            priority=message.priority.name.lower(),
+        )
         async with self._lock:
             self._in_flight.pop(message.receipt, None)
             self._dead.append(
@@ -189,12 +212,17 @@ class InMemoryJobQueue:
                     failed_at=time.monotonic(),
                 )
             )
+        # ERROR with the category as its own field: the reason is kept in full
+        # here (the log store is where an investigation starts) while the
+        # category is what a log-based alert and the metric agree on.
         await logger.aerror(
             "job.dead_lettered",
             job_id=str(message.envelope.job_id),
             job_type=message.envelope.job_type,
             tenant_id=str(message.envelope.tenant_id),
+            correlation_id=message.envelope.correlation_id,
             attempts=message.envelope.attempt,
+            error_category=telemetry.dead_letter_category(reason),
             reason=reason,
         )
 

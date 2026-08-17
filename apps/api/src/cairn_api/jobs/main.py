@@ -23,6 +23,7 @@ from cairn_api.jobs.worker import Worker, WorkerConfig
 from cairn_api.logging import configure_logging
 from cairn_api.pipeline import jobs as pipeline_jobs
 from cairn_api.pipeline import retention
+from cairn_api.telemetry.startup import check_telemetry
 
 logger = structlog.get_logger(__name__)
 
@@ -89,6 +90,11 @@ async def run_worker() -> None:
     if settings.is_deployed:
         # A role that can bypass row-level security means no tenant isolation.
         await run_preflight_checks()
+
+    # The worker is where the pipeline actually runs, so it is the process whose
+    # traces explain a bad brief. It refuses to start blind for the same reason
+    # the API does.
+    check_telemetry(settings)
 
     queue = build_queue(settings)
     register_handlers(queue)

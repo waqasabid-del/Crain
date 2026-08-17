@@ -57,6 +57,7 @@ from cairn_api.jobs.runner import registry as job_registry
 from cairn_api.logging import configure_logging
 from cairn_api.pipeline import jobs as pipeline_jobs
 from cairn_api.pipeline.jobs import UNDERSTAND_JOB
+from cairn_api.telemetry.startup import check_telemetry
 
 logger = structlog.get_logger(__name__)
 
@@ -88,6 +89,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # property directly against deliberately misconfigured roles — a
         # stronger check than a startup call that only exercises the happy path.
         await run_preflight_checks()
+
+    # Before serving, not after: an environment that cannot export what it
+    # records is one where the first incident has no trace.
+    check_telemetry(settings)
 
     await logger.ainfo(
         "api_started",

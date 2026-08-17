@@ -17,6 +17,7 @@ from typing import Any
 
 import structlog
 
+from cairn_api import telemetry
 from cairn_api.jobs.envelope import JobEnvelope
 from cairn_api.jobs.queue import Priority, QueueDepth, QueueMessage
 
@@ -81,6 +82,10 @@ class PubSubJobQueue:
         }
         if envelope.traceparent:
             attributes["traceparent"] = envelope.traceparent
+        # The id also rides inside the serialised envelope; repeating it as a
+        # message attribute is what makes it readable from the Pub/Sub console
+        # and from a dead-letter topic without decoding the body.
+        attributes["correlation_id"] = envelope.correlation_id
 
         await asyncio.to_thread(
             lambda: self._publisher.publish(self._topic_path, data, **attributes).result()
@@ -163,24 +168,39 @@ class PubSubJobQueue:
                 payload,
                 job_type=message.envelope.job_type,
                 tenant_id=str(message.envelope.tenant_id),
+                correlation_id=message.envelope.correlation_id,
                 attempts=str(message.envelope.attempt),
                 reason=reason[:1024],
             ).result()
         )
         await self.ack(message)
 
+        telemetry.record_dead_letter(
+            job_type=message.envelope.job_type,
+            reason=reason,
+            priority=message.priority.name.lower(),
+        )
         await logger.aerror(
             "job.dead_lettered",
             job_id=str(message.envelope.job_id),
             job_type=message.envelope.job_type,
             tenant_id=str(message.envelope.tenant_id),
+            correlation_id=message.envelope.correlation_id,
             attempts=message.envelope.attempt,
+            error_category=telemetry.dead_letter_category(reason),
             reason=reason,
         )
 
     async def _publish_raw_to_dlq(self, data: bytes) -> None:
         await asyncio.to_thread(
             lambda: self._publisher.publish(self._dlq_path, data, reason="undecodable").result()
+        )
+        # A message no version of this code can parse is still a job that will
+        # never run. Counted with an explicit category rather than left out of
+        # the DLQ series because the envelope it came from cannot be read.
+        telemetry.record_dead_letter(job_type="unparseable", reason="undecodable")
+        await logger.aerror(
+            "job.dead_lettered", job_type="unparseable", error_category="undecodable"
         )
 
     async def depth(self) -> QueueDepth:

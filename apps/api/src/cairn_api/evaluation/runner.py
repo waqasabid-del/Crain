@@ -19,6 +19,7 @@ import asyncio
 import sys
 from pathlib import Path
 
+from cairn_api import telemetry
 from cairn_api.evaluation.cases import GoldenDataset, load_dataset
 from cairn_api.evaluation.contract import Pipeline
 from cairn_api.evaluation.gate import (
@@ -51,7 +52,17 @@ async def run(dataset: GoldenDataset, pipeline: Pipeline) -> EvaluationReport:
     report = EvaluationReport(dataset_version=dataset.version)
     for case in dataset:
         output = await pipeline.run(case)
-        report.results.append(grade(case, output))
+        result = grade(case, output)
+        report.results.append(result)
+        # One counter per case, by outcome and by the mode that blocked it.
+        # `blocked` is the release-gate question; a case with softer findings
+        # still counts as a pass here, as it does in the gate.
+        telemetry.record_evaluation(
+            result="blocked" if result.blocked else "ok",
+            failure_mode=next(
+                (finding.mode.value for finding in result.findings if result.blocked), None
+            ),
+        )
     return report
 
 

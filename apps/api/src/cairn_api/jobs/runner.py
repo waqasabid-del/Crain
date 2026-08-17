@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cairn_api import telemetry
 from cairn_api.db.tenancy import tenant_session
 from cairn_api.jobs.envelope import JobEnvelope
 
@@ -67,11 +68,32 @@ async def run_job(envelope: JobEnvelope, *, job_registry: JobRegistry | None = N
             "job_type": envelope.job_type,
             "tenant_id": str(envelope.tenant_id),
             "attempt": envelope.attempt,
+            "correlation_id": envelope.correlation_id,
         },
     )
 
+    # `correlated` here rather than only on the worker: `run_job` is also the
+    # entry point for tests and for anything that drives a handler directly,
+    # and it is what makes a job the handler publishes inherit this job's id
+    # instead of starting a second, unconnected story.
     async with tenant_session(envelope.tenant_id) as session:
-        await handler(session, envelope)
+        with (
+            telemetry.correlated(envelope.correlation_id),
+            telemetry.linked_to(
+                {"traceparent": envelope.traceparent} if envelope.traceparent else None
+            ),
+            telemetry.stage(
+                "job",
+                job_type=envelope.job_type,
+                job_id=str(envelope.job_id),
+                tenant_id=str(envelope.tenant_id),
+                attempt=envelope.attempt,
+                # Both on the span: `traceparent` joins the trace, the
+                # correlation id survives when there is no trace to join.
+                correlation_id=envelope.correlation_id,
+            ),
+        ):
+            await handler(session, envelope)
 
     logger.info(
         "job.complete",
@@ -79,5 +101,6 @@ async def run_job(envelope: JobEnvelope, *, job_registry: JobRegistry | None = N
             "job_id": str(envelope.job_id),
             "job_type": envelope.job_type,
             "tenant_id": str(envelope.tenant_id),
+            "correlation_id": envelope.correlation_id,
         },
     )

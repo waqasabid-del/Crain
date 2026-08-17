@@ -11,6 +11,7 @@ from typing import Any
 
 import structlog
 
+from cairn_api import telemetry
 from cairn_api.domain import Certainty, weakest_certainty
 from cairn_api.pipeline import guardrails, hedging, prompts, verify
 from cairn_api.pipeline.facts import Fact
@@ -76,30 +77,31 @@ async def synthesize(
     max_facts: int | None = None,
 ) -> Brief:
     """`max_facts` overrides `MAX_FACTS` per-call, keeping this module pure."""
-    if not facts:
-        return Brief(
-            abstained=True,
-            narrative="There is not enough activity this period to summarise.",
+    with telemetry.stage("synthesis"):
+        if not facts:
+            return Brief(
+                abstained=True,
+                narrative="There is not enough activity this period to summarise.",
+            )
+
+        usable = facts[: max_facts if max_facts is not None else MAX_FACTS]
+        by_id = {fact.id: fact for fact in usable}
+
+        request = prompts.build(
+            INSTRUCTION.replace("their team's week", f"their team's {period}"),
+            _render(usable),
         )
 
-    usable = facts[: max_facts if max_facts is not None else MAX_FACTS]
-    by_id = {fact.id: fact for fact in usable}
+        try:
+            response = await provider.complete(request)
+        except Exception as exc:
+            await logger.aerror("synthesize.provider_failed", error=str(exc))
+            return Brief(
+                abstained=True,
+                narrative="This brief could not be generated. No summary is available.",
+            )
 
-    request = prompts.build(
-        INSTRUCTION.replace("their team's week", f"their team's {period}"),
-        _render(usable),
-    )
-
-    try:
-        response = await provider.complete(request)
-    except Exception as exc:
-        await logger.aerror("synthesize.provider_failed", error=str(exc))
-        return Brief(
-            abstained=True,
-            narrative="This brief could not be generated. No summary is available.",
-        )
-
-    return _assemble(response.text, by_id)
+        return _assemble(response.text, by_id)
 
 
 def _render(facts: list[Fact]) -> str:

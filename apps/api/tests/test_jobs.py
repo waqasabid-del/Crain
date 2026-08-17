@@ -73,6 +73,62 @@ class TestJobEnvelope:
         assert envelope.job_id is not None
 
 
+class TestTheCorrelationId:
+    """The durable half of "follow this webhook to the brief it produced".
+
+    `traceparent` links spans and exists only while a tracer is installed, which
+    is nowhere by default. This one is always there, is carried through the
+    queue, and lands in the logs.
+    """
+
+    def test_every_job_has_one_even_with_no_origin(self) -> None:
+        # Scheduled work, backfill and anything built in a test have no
+        # originating request. None of them may be the job with no id.
+        envelope = JobEnvelope(job_type="brief.generate", tenant_id=uuid.uuid4())
+
+        assert len(envelope.correlation_id) == 32
+
+    def test_a_retry_keeps_it(self) -> None:
+        first = JobEnvelope(job_type="brief.generate", tenant_id=uuid.uuid4())
+
+        assert first.next_attempt().correlation_id == first.correlation_id
+
+    def test_it_does_not_replace_the_traceparent(self) -> None:
+        """Both, always: one links spans across a tracer, the other survives
+        without one."""
+        fields = JobEnvelope.model_fields
+
+        assert "traceparent" in fields
+        assert "correlation_id" in fields
+
+    def test_an_id_that_is_not_opaque_is_refused(self) -> None:
+        """It is stamped on spans, so an envelope carrying a sentence in this
+        field would be a leak. Refusing to parse is the failure people notice."""
+        with pytest.raises(ValidationError, match="correlation_id"):
+            JobEnvelope(
+                job_type="brief.generate",
+                tenant_id=uuid.uuid4(),
+                correlation_id="Priya shipped the payments migration",
+            )
+
+    def test_a_unit_of_work_binds_it_into_the_log_context(self) -> None:
+        """`grep <correlation_id>` only reconstructs the path if every line
+        beneath the job carries it without being handed the value."""
+        import structlog
+        from cairn_api.telemetry import correlation
+
+        seen: list[object] = []
+        envelope = JobEnvelope(job_type="brief.generate", tenant_id=uuid.uuid4())
+
+        with correlation.correlated(envelope.correlation_id):
+            seen.append(structlog.contextvars.get_contextvars().get("correlation_id"))
+
+        assert seen == [envelope.correlation_id]
+        # And unbound afterwards: a worker handles many jobs in one process, and
+        # a leaked id would label the next job's lines with this one's path.
+        assert "correlation_id" not in structlog.contextvars.get_contextvars()
+
+
 class TestJobRegistry:
     def test_resolves_a_registered_handler(self) -> None:
         registry = JobRegistry()

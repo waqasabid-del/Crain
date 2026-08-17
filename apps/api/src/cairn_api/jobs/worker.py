@@ -14,9 +14,11 @@ from dataclasses import asdict, dataclass
 
 import structlog
 
+from cairn_api import telemetry
 from cairn_api.jobs.queue import JobQueue, QueueMessage
 from cairn_api.jobs.retry import DEFAULT_RETRY_POLICY, RetryPolicy
 from cairn_api.jobs.runner import JobRegistry, UnknownJobTypeError, run_job
+from cairn_api.telemetry.correlation import correlated
 
 logger = structlog.get_logger(__name__)
 
@@ -131,25 +133,39 @@ class Worker:
         envelope = message.envelope
         self.stats.processed += 1
 
-        structlog.contextvars.bind_contextvars(
-            job_id=str(envelope.job_id),
-            job_type=envelope.job_type,
-            tenant_id=str(envelope.tenant_id),
-            attempt=envelope.attempt,
-        )
-        try:
-            await run_job(envelope, job_registry=self._registry)
-        except UnknownJobTypeError as exc:
-            await self._queue.dead_letter(message, reason=f"unknown job type: {exc}")
-            self.stats.dead_lettered += 1
-        except Exception as exc:
-            await self._on_failure(message, exc)
-        else:
-            await self._queue.ack(message)
-            self.stats.succeeded += 1
-            await logger.ainfo("job.succeeded")
-        finally:
-            structlog.contextvars.unbind_contextvars("job_id", "job_type", "tenant_id", "attempt")
+        # The correlation id is bound around everything, including the ack,
+        # retry and dead-letter lines below — those are the ones somebody
+        # greps for when a webhook produced no brief, and they are emitted
+        # after `run_job` has returned and dropped its own binding.
+        with correlated(envelope.correlation_id):
+            structlog.contextvars.bind_contextvars(
+                job_id=str(envelope.job_id),
+                job_type=envelope.job_type,
+                tenant_id=str(envelope.tenant_id),
+                attempt=envelope.attempt,
+            )
+            try:
+                await run_job(envelope, job_registry=self._registry)
+            except UnknownJobTypeError as exc:
+                # Reason formatted as `Type: message` like every other
+                # dead letter, so `telemetry.dead_letter_category` reads one
+                # shape rather than special-casing this path.
+                await self._queue.dead_letter(message, reason=f"{type(exc).__name__}: {exc}")
+                self.stats.dead_lettered += 1
+                await logger.aerror(
+                    "job.dead_lettered_unknown_type",
+                    error_category=telemetry.error_category(exc),
+                )
+            except Exception as exc:
+                await self._on_failure(message, exc)
+            else:
+                await self._queue.ack(message)
+                self.stats.succeeded += 1
+                await logger.ainfo("job.succeeded")
+            finally:
+                structlog.contextvars.unbind_contextvars(
+                    "job_id", "job_type", "tenant_id", "attempt"
+                )
 
     async def _on_failure(self, message: QueueMessage, exc: Exception) -> None:
         """Retry or dead-letter a job whose handler raised."""
@@ -159,7 +175,16 @@ class Worker:
         if not policy.should_retry(envelope.attempt):
             await self._queue.dead_letter(message, reason=f"{type(exc).__name__}: {exc}")
             self.stats.dead_lettered += 1
-            await logger.aexception("job.exhausted_retries", exc_info=exc)
+            # ERROR, with the category as a field: this is the line the DLQ
+            # alert's log-based sibling matches on, and a level below ERROR is
+            # how a permanent failure ends up filtered out of the console
+            # somebody is watching during an incident.
+            await logger.aerror(
+                "job.exhausted_retries",
+                error_category=telemetry.error_category(exc),
+                attempts=envelope.attempt,
+                exc_info=exc,
+            )
             return
 
         delay = policy.delay_for(envelope.attempt)

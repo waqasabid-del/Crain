@@ -18,7 +18,7 @@ import uuid
 import pytest
 from cairn_api.jobs.envelope import JobEnvelope
 from cairn_api.jobs.memory import InMemoryJobQueue
-from cairn_api.jobs.queue import Priority
+from cairn_api.jobs.queue import Priority, QueueMessage
 from cairn_api.jobs.retry import DEFAULT_RETRY_POLICY, RetryPolicy
 from cairn_api.jobs.runner import JobRegistry
 from cairn_api.jobs.worker import Worker, WorkerConfig
@@ -198,7 +198,9 @@ class TestRetryToDeadLetter:
 
         assert worker.stats.retried == 0
         assert worker.stats.dead_lettered == 1
-        assert "unknown job type" in queue.dead_letters()[0].reason
+        # Formatted `Type: message` like every other dead letter, so the
+        # category the DLQ metric is labelled with is derived the same way.
+        assert queue.dead_letters()[0].reason.startswith("UnknownJobTypeError:")
 
     async def test_a_job_that_recovers_is_acknowledged_not_dead_lettered(
         self, queue: InMemoryJobQueue, registry: JobRegistry
@@ -225,6 +227,183 @@ class TestRetryToDeadLetter:
         assert calls == [1, 2]
         assert worker.stats.succeeded == 1
         assert queue.dead_letters() == []
+
+
+class TestTheDeadLetterQueueRaisesItsOwnAlarm:
+    """A job that fails permanently used to disappear quietly.
+
+    The counter is asserted through a real worker and a real broker, so it fails
+    if the wiring is removed rather than only if the helper is renamed.
+    """
+
+    @pytest.fixture
+    def dead_letter_metric(self, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
+        from cairn_api import telemetry
+
+        captured: list[dict[str, object]] = []
+
+        class Recorder:
+            def add(self, amount: int, attributes: dict[str, object] | None = None) -> None:
+                captured.append(dict(attributes or {}))
+
+        monkeypatch.setattr(telemetry.spans, "dead_letters", Recorder())
+        return captured
+
+    async def test_exhausting_retries_increments_the_dedicated_counter(
+        self,
+        queue: InMemoryJobQueue,
+        registry: JobRegistry,
+        dead_letter_metric: list[dict[str, object]],
+    ) -> None:
+        @registry.register("always.fails")
+        async def _handler(_session: object, _env: JobEnvelope) -> None:
+            msg = "could not read the row for Priya"
+            raise ConnectionError(msg)
+
+        policy = RetryPolicy(max_attempts=1, base_delay_seconds=0.01, jitter_ratio=0)
+        worker = worker_for(queue, registry, retry_policy=policy)
+        await queue.publish(envelope("always.fails"))
+
+        await worker.run_once()
+
+        assert worker.stats.dead_lettered == 1
+        assert dead_letter_metric == [
+            {
+                "job_type": "always.fails",
+                "error_category": "ConnectionError",
+                "priority": "standard",
+            }
+        ]
+
+    async def test_an_unknown_job_type_is_counted_under_its_own_category(
+        self,
+        queue: InMemoryJobQueue,
+        registry: JobRegistry,
+        dead_letter_metric: list[dict[str, object]],
+    ) -> None:
+        # The other permanent failure, and the one that skips retrying — it
+        # must not skip the alert with it.
+        worker = worker_for(queue, registry)
+        await queue.publish(envelope("nobody.handles.this"))
+
+        await worker.run_once()
+
+        assert [entry["error_category"] for entry in dead_letter_metric] == ["UnknownJobTypeError"]
+
+    async def test_the_full_reason_stays_where_it_is_allowed_to(
+        self, queue: InMemoryJobQueue, dead_letter_metric: list[dict[str, object]]
+    ) -> None:
+        # Two stores with two retention policies: the durable record keeps the
+        # text an investigation needs, the exporter gets a category.
+        [message] = await _published(queue)
+        reason = "ValueError: could not parse 'Priya shipped the payments migration'"
+
+        await queue.dead_letter(message, reason=reason)
+
+        assert queue.dead_letters()[0].reason == reason
+        assert "Priya" not in str(dead_letter_metric)
+
+
+class TestTheCorrelationIdSurvivesTheQueue:
+    """One webhook, one greppable name, all the way to the brief.
+
+    `traceparent` is absent whenever no tracer is installed — the default — and
+    is stored nowhere. The correlation id is the half that always exists.
+    """
+
+    async def test_it_survives_publish_receive_and_the_handler(
+        self, queue: InMemoryJobQueue, registry: JobRegistry
+    ) -> None:
+        seen: list[str] = []
+
+        @registry.register("carries.the.id")
+        async def _handler(_session: object, env: JobEnvelope) -> None:
+            seen.append(env.correlation_id)
+
+        published = envelope("carries.the.id")
+        await queue.publish(published)
+        await worker_for(queue, registry).run_once()
+
+        assert seen == [published.correlation_id]
+
+    async def test_the_worker_binds_it_into_the_log_context(
+        self, queue: InMemoryJobQueue, registry: JobRegistry
+    ) -> None:
+        """Every line emitted beneath a job carries the id without being handed
+        it — which is what makes `grep <correlation_id>` reconstruct the path."""
+        import structlog
+
+        bound: list[object] = []
+
+        @registry.register("logs.its.context")
+        async def _handler(_session: object, _env: JobEnvelope) -> None:
+            bound.append(structlog.contextvars.get_contextvars().get("correlation_id"))
+
+        published = envelope("logs.its.context")
+        await queue.publish(published)
+        await worker_for(queue, registry).run_once()
+
+        assert bound == [published.correlation_id]
+
+    async def test_a_retried_job_keeps_the_same_id(
+        self, queue: InMemoryJobQueue, registry: JobRegistry
+    ) -> None:
+        """The whole point. An id that changed on retry would tell an operator
+        the second attempt was a different piece of work."""
+        seen: list[str] = []
+
+        @registry.register("flaky")
+        async def _handler(_session: object, env: JobEnvelope) -> None:
+            seen.append(env.correlation_id)
+            if env.attempt < 2:
+                msg = "transient"
+                raise ConnectionError(msg)
+
+        policy = RetryPolicy(max_attempts=5, base_delay_seconds=0.01, jitter_ratio=0)
+        worker = worker_for(queue, registry, retry_policy=policy)
+        published = envelope("flaky")
+        await queue.publish(published)
+
+        for _ in range(3):
+            await worker.run_once()
+            await asyncio.sleep(0.03)
+
+        assert seen == [published.correlation_id, published.correlation_id]
+
+    async def test_a_dead_letter_carries_it_too(self, queue: InMemoryJobQueue) -> None:
+        # The failure is exactly when somebody needs to reconstruct the path.
+        [message] = await _published(queue)
+
+        await queue.dead_letter(message, reason="ValueError: no")
+
+        assert queue.dead_letters()[0].envelope.correlation_id == message.envelope.correlation_id
+
+    async def test_a_job_with_no_ambient_id_gets_one(self) -> None:
+        """Scheduled and backfill work has no originating request, and must not
+        be the case that has no id at all."""
+        from cairn_api.telemetry import correlation
+
+        assert correlation.current_correlation_id() is None
+        assert correlation.coerce(envelope().correlation_id) is not None
+
+    async def test_work_published_beneath_a_job_inherits_its_id(
+        self, queue: InMemoryJobQueue
+    ) -> None:
+        """A handler that publishes further work continues the same story —
+        the delivery job publishing understanding is exactly this."""
+        from cairn_api.telemetry import correlation
+
+        origin = envelope()
+        with correlation.correlated(origin.correlation_id):
+            follow_on = envelope("pipeline.understand")
+
+        assert follow_on.correlation_id == origin.correlation_id
+
+
+async def _published(queue: InMemoryJobQueue) -> list[QueueMessage]:
+    """Publish one job and claim it back."""
+    await queue.publish(envelope())
+    return await queue.receive(max_messages=1)
 
 
 class TestDepthObservability:

@@ -34,6 +34,7 @@ from cairn_api.github.signatures import (
 )
 from cairn_api.jobs.envelope import JobEnvelope
 from cairn_api.jobs.queue import Priority
+from cairn_api.telemetry import correlation
 
 logger = structlog.get_logger(__name__)
 
@@ -76,6 +77,14 @@ async def receive_github_webhook(
     frontend's, and publishing it would put this unauthenticated write path
     into the generated client.
     """
+    # The true entry point of everything that follows. Started here, before the
+    # signature check, so a rejected delivery is greppable too; bound into the
+    # logging context, inherited by the envelope published below, and carried
+    # from there through the queue into the worker and the brief. Unscoped is
+    # safe: `api/middleware.py` clears the logging context per request, and each
+    # request runs in its own task with its own copy of the context.
+    correlation.begin()
+
     body = await request.body()
 
     # Size check before signature: HMAC over an unbounded body is the
