@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.fact_models import FactSource
-from cairn_api.db.models import Membership, TenantRole
+from cairn_api.db.models import Membership, TenantRole, User
 from cairn_api.db.staff_models import InternalAuditEntry, StaffMember, StaffRole
 from cairn_api.db.support_models import (
     SupportScope,
@@ -114,6 +114,12 @@ async def approve(
     assert response.status_code == 200, response.text
     body: dict[str, object] = response.json()
     return body
+
+
+async def _email_of(platform: AsyncSession, user_id: uuid.UUID) -> str:
+    email: str | None = await platform.scalar(select(User.email).where(User.id == user_id))
+    assert email is not None
+    return email
 
 
 async def add_activity(tenant_id: uuid.UUID, statement: str) -> None:
@@ -476,6 +482,56 @@ class TestSessionsExpire:
             )
             assert response.status_code == 200, response.text
 
+    async def test_the_record_names_who_ended_it_not_who_allowed_it(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """Approving and ending are different acts by possibly different people.
+
+        The revoker was not stored at all, so the customer-visible record could
+        say a session ended early without saying by whom — and the only name on
+        the row was the approver's, which read as though they had ended it.
+        """
+        staff = await as_staff(platform, await signed_up(app))
+        owner = await signed_up(app)
+        admin = await joins(app, platform, owner, TenantRole.ADMIN)
+
+        session = await request_session(staff, owner)
+        await approve(owner, str(session["id"]))
+
+        await admin.client.post(
+            f"/v1/workspaces/{owner.workspace_id}/support-sessions/{session['id']}/revoke"
+        )
+
+        [entry] = (
+            await owner.client.get(f"/v1/workspaces/{owner.workspace_id}/support-sessions")
+        ).json()
+
+        assert entry["decidedBy"] == await _email_of(platform, owner.user_id)
+        assert entry["revokedBy"] == await _email_of(platform, admin.user_id)
+        assert entry["decidedBy"] != entry["revokedBy"]
+
+    async def test_revoking_does_not_rewrite_a_refusal(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """A refusal and an early ending are different answers.
+
+        Revoking a rejected request used to overwrite the status, so the
+        customer's own record lost the fact that they had refused — the one
+        piece of evidence the record exists to keep on their behalf.
+        """
+        staff = await as_staff(platform, await signed_up(app))
+        customer = await signed_up(app)
+        session = await request_session(staff, customer)
+        await approve(customer, str(session["id"]), approve_it=False)
+
+        response = await customer.client.post(
+            f"/v1/workspaces/{customer.workspace_id}/support-sessions/{session['id']}/revoke"
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "rejected"
+        assert response.json()["revokedAt"] is not None
+
 
 # --------------------------------------------------------------------------
 # The customer can see all of it
@@ -501,6 +557,7 @@ class TestTheCustomerSeesIt:
 
         assert entry["reason"] == "investigating an integration failure"
         assert entry["requestedMinutes"] == 40
+        assert entry["requestedBy"] == await _email_of(platform, staff.user_id)
         assert entry["requestedScope"] == "configuration_diagnostics"
         assert entry["status"] == "approved"
         assert entry["decidedBy"] is not None

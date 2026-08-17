@@ -318,14 +318,20 @@ async def _understand(tenant_id: uuid.UUID, delivery_ids: list[str]) -> int:
 
 async def _attribute(tenant_id: uuid.UUID) -> int:
     """Store the authored facts and resolve their mentions to people."""
+    # The address is what ties a contributor to an account, so seeded people who
+    # correspond to a seeded account carry one. Without it the seeded workspace
+    # demonstrates a product where nobody owns their own record: My Week is
+    # empty and every correction is refused, because both resolve the caller
+    # through `Person.user_id`. Priya has no account on purpose — a workspace
+    # where every contributor has signed up is not the normal case.
     people = {
-        "Priya Nair": "priya",
-        "Ali Rahman": "ali",
-        "Sara Bennett": "sara",
+        "Priya Nair": ("priya", None),
+        "Ali Rahman": ("ali", "ali@acme.example.com"),
+        "Sara Bennett": ("sara", "sara@acme.example.com"),
     }
 
     async with tenant_session(tenant_id) as session:
-        for display_name, login in people.items():
+        for display_name, (login, email) in people.items():
             person = Person(tenant_id=tenant_id, display_name=display_name)
             session.add(person)
             await session.flush()
@@ -337,6 +343,19 @@ async def _attribute(tenant_id: uuid.UUID) -> int:
                     value=login,
                 )
             )
+
+            if email is None:
+                continue
+
+            session.add(
+                Identity(
+                    tenant_id=tenant_id,
+                    person_id=person.id,
+                    kind=IdentityKind.EMAIL,
+                    value=email,
+                )
+            )
+            person.user_id = await session.scalar(select(User.id).where(User.email == email))
 
         facts = _attributed_facts()
         await store.apply(session, tenant_id=tenant_id, incoming=facts)

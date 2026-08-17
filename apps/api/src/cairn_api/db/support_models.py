@@ -98,6 +98,13 @@ class SupportSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    #: Who ended it, recorded separately from who approved it. Without this the
+    #: record can say a session ended early but not by whom, and the only name
+    #: on the row is the approver's — which reads as though they ended it.
+    revoked_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+
     #: Reserved. No break-glass path exists — see `internal/support.py`.
     break_glass: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 

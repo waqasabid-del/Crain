@@ -166,10 +166,17 @@ async def revoke(
 
     Revocation is available whatever the state, and is idempotent: somebody
     ending access under pressure should not have to read a status first.
+
+    A rejection is not overwritten. Revoking an already-rejected request would
+    replace "we said no" with "we ended it", and the customer-visible record is
+    the one place that distinction is theirs to keep. The timestamp is still
+    stamped, so the action is not lost either.
     """
     if support_session.revoked_at is None:
         support_session.revoked_at = datetime.now(UTC)
-        support_session.status = SupportSessionStatus.REVOKED
+        support_session.revoked_by_user_id = revoker_user_id
+        if support_session.status is not SupportSessionStatus.REJECTED:
+            support_session.status = SupportSessionStatus.REVOKED
         await logger.ainfo(
             "support.revoked",
             tenant_id=str(support_session.tenant_id),
@@ -209,10 +216,18 @@ async def active_session_for(
     approved scope, and the clock. A helper that answered "is there an approved
     session" without the other three would be the shape of the bug this exists
     to prevent.
+
+    **Locked, because revocation races the read it is trying to stop.** Without
+    `FOR UPDATE`, a customer clicking revoke while staff are mid-request commits
+    against a row the gate has already read and passed, and the read completes
+    under permission that no longer exists. The lock serialises the two: whoever
+    reaches the row first wins, and the loser sees the other's outcome rather
+    than a stale copy of it. Held only for the request that claimed it.
     """
     now = datetime.now(UTC)
     candidates = await session.scalars(
-        select(SupportSession).where(
+        select(SupportSession)
+        .where(
             SupportSession.tenant_id == tenant_id,
             SupportSession.requested_by_user_id == staff_user_id,
             SupportSession.status == SupportSessionStatus.APPROVED,
@@ -220,8 +235,36 @@ async def active_session_for(
             SupportSession.revoked_at.is_(None),
             SupportSession.expires_at > now,
         )
+        .with_for_update()
     )
     return next(iter(candidates), None)
+
+
+async def resolve_participant_emails(user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Name the people in a support record, including the ones outside the workspace.
+
+    **Why this needs a platform session.** The `users` policy shows a person only
+    to contexts that share a workspace with them, and CAIRN staff are members of
+    no customer workspace — that is the whole point of the support model. Read
+    through the tenant session, the requester therefore resolves to nothing, and
+    the customer's record of who asked to open their workspace says "unknown".
+    A privacy record naming everybody except the person it is about is worse than
+    no record: it reads as complete.
+
+    The exposure is bounded by the ids, and the ids come from support rows
+    row-level security already scoped to the caller's workspace: the staff member
+    who asked about *your* workspace, and the colleague who decided. No caller
+    supplies an id, so this cannot be turned into a directory.
+    """
+    if not user_ids:
+        return {}
+
+    from cairn_api.db.models import User
+    from cairn_api.db.session import platform_session
+
+    async with platform_session() as scoped:
+        found = await scoped.execute(select(User.id, User.email).where(User.id.in_(user_ids)))
+        return {row[0]: row[1] for row in found.all()}
 
 
 async def record_access(

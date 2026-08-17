@@ -31,7 +31,6 @@ from cairn_api.api.schemas import (
     SupportSessionResponse,
 )
 from cairn_api.auth.permissions import Permission
-from cairn_api.db.models import User
 from cairn_api.db.support_models import SupportSession
 from cairn_api.internal import support
 
@@ -67,7 +66,7 @@ async def list_support_sessions(
             .limit(limit)
         )
     )
-    return await _responses(db, rows)
+    return await _responses(rows)
 
 
 @router.post(
@@ -113,7 +112,7 @@ async def decide_support_session(
         approved=body.approve,
         decided_by=str(context.user.id),
     )
-    return (await _responses(db, [row]))[0]
+    return (await _responses([row]))[0]
 
 
 @router.post(
@@ -138,7 +137,7 @@ async def revoke_support_session(
     row = await _session_or_404(db, context, session_id)
     await support.revoke(db, support_session=row, revoker_user_id=context.user.id)
     await db.commit()
-    return (await _responses(db, [row]))[0]
+    return (await _responses([row]))[0]
 
 
 async def _session_or_404(
@@ -163,20 +162,24 @@ async def _session_or_404(
     return row
 
 
-async def _responses(db: AsyncSession, rows: list[SupportSession]) -> list[SupportSessionResponse]:
+async def _responses(rows: list[SupportSession]) -> list[SupportSessionResponse]:
     """Attach the human names a customer needs to read the record.
 
     Staff are shown by email rather than by id: "approved access for someone" is
     not an answer anybody can act on. One query for every name rather than one
     per row.
+
+    Resolved outside the tenant session deliberately. The requester is CAIRN
+    staff and is a member of no customer workspace, so the `users` policy hides
+    the one name this record exists to report — see
+    `support.resolve_participant_emails` for why that is safe here.
     """
-    ids = {row.requested_by_user_id for row in rows} | {
-        row.decided_by_user_id for row in rows if row.decided_by_user_id
-    }
-    emails: dict[uuid.UUID, str] = {}
-    if ids:
-        found = await db.execute(select(User.id, User.email).where(User.id.in_(ids)))
-        emails = dict(found.all())  # type: ignore[arg-type]
+    ids = (
+        {row.requested_by_user_id for row in rows}
+        | {row.decided_by_user_id for row in rows if row.decided_by_user_id}
+        | {row.revoked_by_user_id for row in rows if row.revoked_by_user_id}
+    )
+    emails = await support.resolve_participant_emails(ids)
 
     return [
         SupportSessionResponse(
@@ -193,6 +196,7 @@ async def _responses(db: AsyncSession, rows: list[SupportSession]) -> list[Suppo
             decided_by=emails.get(row.decided_by_user_id) if row.decided_by_user_id else None,
             expires_at=row.expires_at,
             revoked_at=row.revoked_at,
+            revoked_by=emails.get(row.revoked_by_user_id) if row.revoked_by_user_id else None,
             break_glass=row.break_glass,
             events=[
                 SupportAccessEventResponse(

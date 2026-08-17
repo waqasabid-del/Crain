@@ -39,7 +39,7 @@ import uuid
 from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cairn_api.db.identity_models import (
@@ -49,6 +49,7 @@ from cairn_api.db.identity_models import (
     Person,
     PersonKind,
 )
+from cairn_api.db.models import User
 from cairn_api.github.bots import is_ai_agent, is_bot
 from cairn_api.github.trailers import Contributor
 
@@ -145,7 +146,63 @@ async def resolve(
         matched.display_name = contributor.name
 
     await _attach_claims(session, matched, claims, tenant_id=tenant_id)
+    await _link_account(session, matched, claims)
     return matched
+
+
+async def _link_account(
+    session: AsyncSession,
+    person: Person,
+    claims: list[tuple[IdentityKind, str]],
+) -> None:
+    """Connect this person to the account that signs in as them, if there is one.
+
+    Without this link the employee-owned record has no owner. `me/week` and the
+    correction endpoints both resolve the caller with
+    `Person.user_id == current user`, so a person nobody linked can never read
+    their own record and can never correct it — md/05 §B.2.3's central promise
+    with no reachable path. Nothing else in the application ever set this column,
+    which is why the layer existed and production never called it.
+
+    **Matched on a verified address only.** A commit's author email is whatever
+    the author's git config says, so linking on an unverified address would let
+    anyone who can push a commit claim a colleague's record — including the
+    right to rewrite it. Requiring `email_verified_at` means the address has been
+    proved by somebody who received mail at it.
+
+    Row-level security does the rest: the session is tenant-scoped, and the
+    `users` policy only reveals accounts sharing a workspace with the current
+    context, so a matching address in another company's workspace is invisible
+    here rather than merely unmatched.
+
+    Never overwrites. Re-pointing an existing link would move ownership of a
+    record between people, which is a merge decision, not an inference.
+    """
+    if person.user_id is not None:
+        return
+
+    addresses = [value for kind, value in claims if kind is IdentityKind.EMAIL]
+    if not addresses:
+        return
+
+    user_id: uuid.UUID | None = await session.scalar(
+        select(User.id).where(
+            func.lower(User.email).in_([address.lower() for address in addresses]),
+            User.email_verified_at.is_not(None),
+        )
+    )
+    if user_id is None:
+        return
+
+    person.user_id = user_id
+    await session.flush()
+    await logger.ainfo(
+        "identity.person_linked_to_account",
+        person_id=str(person.id),
+        # The address itself is deliberately absent: an address in the log store
+        # escapes the erasure path the product promises.
+        user_id=str(user_id),
+    )
 
 
 async def _attach_claims(

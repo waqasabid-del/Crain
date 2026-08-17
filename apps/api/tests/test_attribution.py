@@ -16,6 +16,7 @@ person whose work was erased.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from cairn_api.db.identity_models import (
@@ -25,7 +26,7 @@ from cairn_api.db.identity_models import (
     Person,
     PersonKind,
 )
-from cairn_api.db.models import Tenant, User
+from cairn_api.db.models import Membership, Tenant, TenantRole, User
 from cairn_api.db.tenancy import tenant_session
 from cairn_api.github.attribution import attribute
 from cairn_api.github.bots import is_ai_agent, is_bot, is_bot_login, partition
@@ -498,6 +499,111 @@ class TestIdentityResolution:
                 "tom@personal.example",
             }
             assert await session.get(Person, absorb.id) is None
+
+
+class TestAPersonIsLinkedToTheirAccount:
+    """The link that makes the record *theirs*.
+
+    `me/week` and every correction endpoint resolve the caller with
+    `Person.user_id == current user`. Nothing in the application ever set that
+    column, so My Week was permanently empty for every real account and every
+    correction returned "not your record" — md/05 §B.2.3's employee-owned record
+    with no reachable path to it. A browser test caught it; no component test
+    could, because each layer worked in isolation.
+    """
+
+    async def test_a_verified_address_links_the_person_to_the_account(
+        self, tenant_id: uuid.UUID, platform: AsyncSession
+    ) -> None:
+        address = f"linked-{uuid.uuid4().hex[:10]}@example.com"
+        user = User(email=address, email_verified_at=datetime.now(UTC))
+        platform.add(user)
+        await platform.commit()
+        platform.add(Membership(tenant_id=tenant_id, user_id=user.id, role=TenantRole.MEMBER))
+        await platform.commit()
+
+        async with tenant_session(tenant_id) as session:
+            person = await resolve(
+                session,
+                Contributor(email=address, name="Linked Person", login="linked"),
+                tenant_id=tenant_id,
+            )
+            await session.commit()
+
+        assert person.user_id == user.id
+
+    async def test_an_unverified_address_does_not_link(
+        self, tenant_id: uuid.UUID, platform: AsyncSession
+    ) -> None:
+        """A commit's author email is whatever the author's git config says.
+
+        Linking on an unverified address would let anyone who can push a commit
+        claim a colleague's record — including the right to rewrite it.
+        """
+        address = f"unverified-{uuid.uuid4().hex[:10]}@example.com"
+        user = User(email=address)
+        platform.add(user)
+        await platform.commit()
+        platform.add(Membership(tenant_id=tenant_id, user_id=user.id, role=TenantRole.MEMBER))
+        await platform.commit()
+
+        async with tenant_session(tenant_id) as session:
+            person = await resolve(
+                session,
+                Contributor(email=address, name="Unverified", login="unverified"),
+                tenant_id=tenant_id,
+            )
+            await session.commit()
+
+        assert person.user_id is None
+
+    async def test_an_existing_link_is_never_repointed(
+        self, tenant_id: uuid.UUID, platform: AsyncSession
+    ) -> None:
+        """Moving ownership of a record between people is a merge decision, not
+        something a later commit gets to infer."""
+        first = f"first-{uuid.uuid4().hex[:10]}@example.com"
+        second = f"second-{uuid.uuid4().hex[:10]}@example.com"
+        users = [
+            User(email=first, email_verified_at=datetime.now(UTC)),
+            User(email=second, email_verified_at=datetime.now(UTC)),
+        ]
+        platform.add_all(users)
+        await platform.commit()
+        for user in users:
+            platform.add(Membership(tenant_id=tenant_id, user_id=user.id, role=TenantRole.MEMBER))
+        await platform.commit()
+
+        async with tenant_session(tenant_id) as session:
+            person = await resolve(
+                session,
+                Contributor(email=first, login="shared"),
+                tenant_id=tenant_id,
+            )
+            await resolve(
+                session,
+                Contributor(email=second, login="shared"),
+                tenant_id=tenant_id,
+            )
+            await session.commit()
+
+        assert person.user_id == users[0].id
+
+    async def test_a_contributor_with_no_account_is_left_unlinked(
+        self, tenant_id: uuid.UUID
+    ) -> None:
+        """The normal case. Most contributors to a workspace never sign up, and
+        an unlinked person is a complete record of their work — just not one they
+        can log in and correct."""
+        async with tenant_session(tenant_id) as session:
+            person = await resolve(
+                session,
+                Contributor(email=f"stranger-{uuid.uuid4().hex[:8]}@example.com", login="stranger"),
+                tenant_id=tenant_id,
+            )
+            await session.commit()
+
+        assert person.user_id is None
 
 
 class TestIdentityIsolation:
