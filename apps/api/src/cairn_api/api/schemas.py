@@ -349,6 +349,12 @@ class SupportSessionResponse(ApiModel):
     expires_at: datetime | None = None
     revoked_at: datetime | None = None
 
+    #: Who ended it, which is not necessarily who approved it. Reported
+    #: separately because a record that names only the approver next to "ended
+    #: early" attributes the ending to the wrong person. Null for sessions
+    #: revoked before this was recorded — unknown is stated, never guessed.
+    revoked_by: EmailStr | None = None
+
     #: Always false today. No break-glass path exists, and the field says so
     #: rather than leaving the question open — see md/16 Step 28.
     break_glass: bool = False
@@ -373,6 +379,175 @@ class SupportDecision(ApiModel):
     """A workspace's answer to a support request."""
 
     approve: bool
+
+
+class PipelineHealth(ApiModel):
+    """How ingestion is going, in counts and ages.
+
+    Every field is a number or a timestamp. There is nowhere here to put a
+    statement, a brief or a payload, which is the point: operations data leaves
+    the product for dashboards and exporters that md/05's promises do not cover.
+    """
+
+    deliveries_last_hour: int
+    deliveries_unprocessed: int
+    oldest_unprocessed_minutes: float | None = None
+    facts_last_hour: int
+    workspaces_ingesting: int
+
+
+class QueueHealth(ApiModel):
+    """Queue state, from the durable record rather than from memory."""
+
+    backfill_runs_active: int
+    backfill_runs_failed: int
+    deliveries_awaiting_processing: int
+
+    #: True when the in-memory broker is configured. Jobs are lost on restart,
+    #: silently, so an operator reading this screen has to know.
+    in_memory_broker: bool
+
+    #: Scheduler state. Zero on any other backend, because only the PostgreSQL
+    #: scheduler holds a queue every replica can see the same way.
+    scheduled_waiting: int = 0
+    scheduled_running: int = 0
+
+    #: Distinct workspaces with work eligible to run right now, and how long the
+    #: one waiting longest has been waiting. Together they are the starvation
+    #: signal: one tenant far above the rest means fairness is not holding.
+    #:
+    #: Counts of jobs, not of people. Nothing here measures anyone's output.
+    tenants_waiting: int = 0
+    longest_wait_minutes: float | None = None
+
+
+class ModelSpendLine(ApiModel):
+    """Spend for one stage, and how close it came to the ceiling.
+
+    Tokens, calls and ratios. Never content, and never a workspace: which stage
+    is running out of budget is an operations question, which workspace it
+    belongs to is a support session's.
+    """
+
+    stage: str
+    calls: int
+    tokens: int
+
+    #: Times a unit of work in this stage came within the warning fraction of
+    #: its ceiling, and times the ceiling actually refused a call.
+    warnings: int = 0
+    refusals: int = 0
+
+    #: The highest fraction of a ceiling any single unit of work reached here.
+    #: `None` when no ceiling is configured — which is not the same as nothing
+    #: having been spent, and reads very differently on a screen.
+    #:
+    #: Can exceed 1.0, and is not clamped. A ceiling is checked before a call
+    #: and recorded after, because a call's cost is unknowable until it returns,
+    #: so one call of overshoot is permitted by design. A value far above 1
+    #: means one call costs more than the whole ceiling, which is a
+    #: configuration error an operator has to be able to see.
+    closest_approach: float | None = None
+
+
+class ModelSpend(ApiModel):
+    """What the model boundary cost, and whether the ceiling is being hit.
+
+    Read from the same counters the pipeline records against, so this screen and
+    the bill cannot disagree.
+
+    Capping without signalling is how a ceiling that refuses work every day goes
+    unnoticed until a customer asks why their briefs stopped. `warnings` and
+    `refusals` are the two numbers OPERATIONS.md's cost row alerts on.
+    """
+
+    live: bool
+    backend: str
+    total_calls: int
+    total_tokens: int
+    by_stage: list[ModelSpendLine] = Field(default_factory=list)
+
+    #: The configured per-tenant ceilings, so "how close" on each line has
+    #: something to be close to. `None` means that ceiling is disabled.
+    ceiling_tokens: int | None = None
+    ceiling_calls: int | None = None
+
+    #: Platform totals since this process started.
+    warnings: int = 0
+    refusals: int = 0
+
+    #: Distinct workspaces that have had work refused, as a count. One is a
+    #: backfill; many is a ceiling set too low for the platform. Neither answer
+    #: needs anybody named.
+    workspaces_refused: int = 0
+
+    #: Why the numbers may be lower than the invoice. Served rather than printed
+    #: by the client so every surface says the same thing.
+    note: str | None = None
+
+
+class SloObjective(ApiModel):
+    """One service level objective, its target, and what it currently reads.
+
+    `measured` is nullable and that is the point: an objective the current
+    infrastructure cannot measure reports `measurable: false` with the reason,
+    rather than a number nobody can defend.
+    """
+
+    key: str
+    title: str
+    rationale: str
+
+    target: float
+    unit: str
+    direction: str
+    window_minutes: float
+
+    #: The exact column, pair of columns or instrument the number comes from.
+    #: Without it a target is a slogan with a decimal point.
+    measured_from: str
+
+    measurable: bool
+    measured: float | None = None
+
+    #: `None` when there is no measurement. An unmeasured objective is neither
+    #: met nor breached, and reporting it as met is how an outage shows green.
+    met: bool | None = None
+
+    #: Why there is no number, when there is none.
+    note: str | None = None
+
+
+class SloStatus(ApiModel):
+    """Every objective, as of one moment.
+
+    Counts of machine work only. There is deliberately no objective here about
+    how quickly a person replies to anything — see md/05 §B.2.
+    """
+
+    measured_at: datetime
+    objectives: list[SloObjective] = Field(default_factory=list)
+
+    #: Objectives the current infrastructure cannot measure at all. Surfaced as
+    #: its own number so that "four of five green" cannot be read as healthy
+    #: when the fifth is availability.
+    unmeasurable: int = 0
+    breaching: int = 0
+
+
+class EvaluationSummary(ApiModel):
+    """The last recorded evaluation run.
+
+    Scores and failure modes. The cases themselves stay in the repository, where
+    they are reviewed by a person rather than exported to a dashboard.
+    """
+
+    available: bool
+    cases: int = 0
+    passed: int = 0
+    failed: int = 0
+    failure_modes: dict[str, int] = Field(default_factory=dict)
+    note: str | None = None
 
 
 class StaffTenantSummary(ApiModel):

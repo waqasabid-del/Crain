@@ -1,0 +1,10 @@
+{
+  "//": "The browser suite is not shipped, so it is not in the app's tsconfig `include`. Without a project of its own, typescript-eslint's project service reports 'not found by the project service' and `pnpm lint` fails on files it cannot parse — and nothing would type-check these files at all. Same strictness as the app: it extends the app's config rather than relaxing it.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"]
+}

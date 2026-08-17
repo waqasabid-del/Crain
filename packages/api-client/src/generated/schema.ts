@@ -273,6 +273,130 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/internal/operations/evaluation": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The last recorded evaluation run
+     * @description Scores and failure modes from the committed baseline.
+     *
+     *     The cases stay in the repository. A dashboard that showed the golden cases
+     *     would be exporting the customer corrections they were built from.
+     */
+    get: operations["evaluation_summary_v1_internal_operations_evaluation_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/operations/pipeline": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Ingestion health across every workspace
+     * @description Counts and ages, no tenant named.
+     *
+     *     Deliberately platform-wide: a per-workspace view of what a customer is
+     *     producing is a support session's business, not a dashboard's.
+     */
+    get: operations["pipeline_health_v1_internal_operations_pipeline_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/operations/queue": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Queue and backfill state
+     * @description Read from the durable record.
+     *
+     *     Queue depth from the broker would be per-instance and momentary; the rows
+     *     waiting in PostgreSQL are the same on every replica.
+     */
+    get: operations["queue_health_v1_internal_operations_queue_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/operations/slo": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Each service level objective, its target, and what it currently reads
+     * @description The objectives, measured where the infrastructure allows it.
+     *
+     *     An objective this deployment cannot measure reports `measurable: false` and
+     *     says why. Nothing here substitutes the target for a missing measurement:
+     *     an operator who reads a fabricated number acts on it, and the action is
+     *     always "nothing is wrong".
+     */
+    get: operations["slo_status_v1_internal_operations_slo_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/internal/operations/spend": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * What the model boundary cost this process, and how close it is to the ceiling
+     * @description The process's own spend counters, and the ceiling signals.
+     *
+     *     In-process, so this is one replica's view — stated rather than implied,
+     *     because a spend figure that looks global and is not is how a cost incident
+     *     gets missed. The durable version arrives with the metrics exporter.
+     *
+     *     Read from `SPEND_SIGNALS` rather than from a ledger. A ledger belongs to one
+     *     unit of work and is discarded with it, so building a fresh one here — which
+     *     is what this endpoint used to do — reported zero however much the process
+     *     had spent, and the screen could not have shown a cost incident if one had
+     *     been happening while it was open.
+     */
+    get: operations["model_spend_v1_internal_operations_spend_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/internal/staff/{user_id}": {
     parameters: {
       query?: never;
@@ -1622,6 +1746,38 @@ export interface components {
       replacement?: components["schemas"]["FactResponse"] | null;
     };
     /**
+     * EvaluationSummary
+     * @description The last recorded evaluation run.
+     *
+     *     Scores and failure modes. The cases themselves stay in the repository, where
+     *     they are reviewed by a person rather than exported to a dashboard.
+     */
+    EvaluationSummary: {
+      /** Available */
+      available: boolean;
+      /**
+       * Cases
+       * @default 0
+       */
+      cases: number;
+      /**
+       * Failed
+       * @default 0
+       */
+      failed: number;
+      /** Failuremodes */
+      failureModes?: {
+        [key: string]: number;
+      };
+      /** Note */
+      note?: string | null;
+      /**
+       * Passed
+       * @default 0
+       */
+      passed: number;
+    };
+    /**
      * FacetPerson
      * @description Somebody at least one current fact is about.
      */
@@ -1885,6 +2041,78 @@ export interface components {
       userId: string;
     };
     /**
+     * ModelSpend
+     * @description What the model boundary cost, and whether the ceiling is being hit.
+     *
+     *     Read from the same counters the pipeline records against, so this screen and
+     *     the bill cannot disagree.
+     *
+     *     Capping without signalling is how a ceiling that refuses work every day goes
+     *     unnoticed until a customer asks why their briefs stopped. `warnings` and
+     *     `refusals` are the two numbers OPERATIONS.md's cost row alerts on.
+     */
+    ModelSpend: {
+      /** Backend */
+      backend: string;
+      /** Bystage */
+      byStage?: components["schemas"]["ModelSpendLine"][];
+      /** Ceilingcalls */
+      ceilingCalls?: number | null;
+      /** Ceilingtokens */
+      ceilingTokens?: number | null;
+      /** Live */
+      live: boolean;
+      /** Note */
+      note?: string | null;
+      /**
+       * Refusals
+       * @default 0
+       */
+      refusals: number;
+      /** Totalcalls */
+      totalCalls: number;
+      /** Totaltokens */
+      totalTokens: number;
+      /**
+       * Warnings
+       * @default 0
+       */
+      warnings: number;
+      /**
+       * Workspacesrefused
+       * @default 0
+       */
+      workspacesRefused: number;
+    };
+    /**
+     * ModelSpendLine
+     * @description Spend for one stage, and how close it came to the ceiling.
+     *
+     *     Tokens, calls and ratios. Never content, and never a workspace: which stage
+     *     is running out of budget is an operations question, which workspace it
+     *     belongs to is a support session's.
+     */
+    ModelSpendLine: {
+      /** Calls */
+      calls: number;
+      /** Closestapproach */
+      closestApproach?: number | null;
+      /**
+       * Refusals
+       * @default 0
+       */
+      refusals: number;
+      /** Stage */
+      stage: string;
+      /** Tokens */
+      tokens: number;
+      /**
+       * Warnings
+       * @default 0
+       */
+      warnings: number;
+    };
+    /**
      * NotificationStatus
      * @description Worker notification across the workspace.
      */
@@ -1963,6 +2191,26 @@ export interface components {
       userId: string;
     };
     /**
+     * PipelineHealth
+     * @description How ingestion is going, in counts and ages.
+     *
+     *     Every field is a number or a timestamp. There is nowhere here to put a
+     *     statement, a brief or a payload, which is the point: operations data leaves
+     *     the product for dashboards and exporters that md/05's promises do not cover.
+     */
+    PipelineHealth: {
+      /** Deliverieslasthour */
+      deliveriesLastHour: number;
+      /** Deliveriesunprocessed */
+      deliveriesUnprocessed: number;
+      /** Factslasthour */
+      factsLastHour: number;
+      /** Oldestunprocessedminutes */
+      oldestUnprocessedMinutes?: number | null;
+      /** Workspacesingesting */
+      workspacesIngesting: number;
+    };
+    /**
      * PrivacySettings
      * @description What happens to this workspace's raw activity.
      *
@@ -1985,6 +2233,37 @@ export interface components {
     PrivacyUpdate: {
       /** Retentiondays */
       retentionDays: number;
+    };
+    /**
+     * QueueHealth
+     * @description Queue state, from the durable record rather than from memory.
+     */
+    QueueHealth: {
+      /** Backfillrunsactive */
+      backfillRunsActive: number;
+      /** Backfillrunsfailed */
+      backfillRunsFailed: number;
+      /** Deliveriesawaitingprocessing */
+      deliveriesAwaitingProcessing: number;
+      /** Inmemorybroker */
+      inMemoryBroker: boolean;
+      /** Longestwaitminutes */
+      longestWaitMinutes?: number | null;
+      /**
+       * Scheduledrunning
+       * @default 0
+       */
+      scheduledRunning: number;
+      /**
+       * Scheduledwaiting
+       * @default 0
+       */
+      scheduledWaiting: number;
+      /**
+       * Tenantswaiting
+       * @default 0
+       */
+      tenantsWaiting: number;
     };
     /**
      * Region
@@ -2082,6 +2361,66 @@ export interface components {
       workspaceName: string;
       /** Workspaceslug */
       workspaceSlug: string;
+    };
+    /**
+     * SloObjective
+     * @description One service level objective, its target, and what it currently reads.
+     *
+     *     `measured` is nullable and that is the point: an objective the current
+     *     infrastructure cannot measure reports `measurable: false` with the reason,
+     *     rather than a number nobody can defend.
+     */
+    SloObjective: {
+      /** Direction */
+      direction: string;
+      /** Key */
+      key: string;
+      /** Measurable */
+      measurable: boolean;
+      /** Measured */
+      measured?: number | null;
+      /** Measuredfrom */
+      measuredFrom: string;
+      /** Met */
+      met?: boolean | null;
+      /** Note */
+      note?: string | null;
+      /** Rationale */
+      rationale: string;
+      /** Target */
+      target: number;
+      /** Title */
+      title: string;
+      /** Unit */
+      unit: string;
+      /** Windowminutes */
+      windowMinutes: number;
+    };
+    /**
+     * SloStatus
+     * @description Every objective, as of one moment.
+     *
+     *     Counts of machine work only. There is deliberately no objective here about
+     *     how quickly a person replies to anything — see md/05 §B.2.
+     */
+    SloStatus: {
+      /**
+       * Breaching
+       * @default 0
+       */
+      breaching: number;
+      /**
+       * Measuredat
+       * Format: date-time
+       */
+      measuredAt: string;
+      /** Objectives */
+      objectives?: components["schemas"]["SloObjective"][];
+      /**
+       * Unmeasurable
+       * @default 0
+       */
+      unmeasurable: number;
     };
     /**
      * SourceConsent
@@ -2298,6 +2637,8 @@ export interface components {
       requestedScope: components["schemas"]["SupportScope"];
       /** Revokedat */
       revokedAt?: string | null;
+      /** Revokedby */
+      revokedBy?: string | null;
       status: components["schemas"]["SupportSessionStatus"];
     };
     /**
@@ -2817,6 +3158,161 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["AuditVerification"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  evaluation_summary_v1_internal_operations_evaluation_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["EvaluationSummary"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  pipeline_health_v1_internal_operations_pipeline_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PipelineHealth"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  queue_health_v1_internal_operations_queue_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["QueueHealth"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  slo_status_v1_internal_operations_slo_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SloStatus"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  model_spend_v1_internal_operations_spend_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ModelSpend"];
         };
       };
       /** @description Validation Error */

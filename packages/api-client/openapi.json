@@ -529,6 +529,52 @@
         "title": "CorrectionResponse",
         "type": "object"
       },
+      "EvaluationSummary": {
+        "additionalProperties": false,
+        "description": "The last recorded evaluation run.\n\nScores and failure modes. The cases themselves stay in the repository, where\nthey are reviewed by a person rather than exported to a dashboard.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "cases": {
+            "default": 0,
+            "title": "Cases",
+            "type": "integer"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "failureModes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Failuremodes",
+            "type": "object"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "passed": {
+            "default": 0,
+            "title": "Passed",
+            "type": "integer"
+          }
+        },
+        "required": ["available"],
+        "title": "EvaluationSummary",
+        "type": "object"
+      },
       "FacetPerson": {
         "additionalProperties": false,
         "description": "Somebody at least one current fact is about.",
@@ -996,6 +1042,128 @@
         "title": "MembershipResponse",
         "type": "object"
       },
+      "ModelSpend": {
+        "additionalProperties": false,
+        "description": "What the model boundary cost, and whether the ceiling is being hit.\n\nRead from the same counters the pipeline records against, so this screen and\nthe bill cannot disagree.\n\nCapping without signalling is how a ceiling that refuses work every day goes\nunnoticed until a customer asks why their briefs stopped. `warnings` and\n`refusals` are the two numbers OPERATIONS.md's cost row alerts on.",
+        "properties": {
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "byStage": {
+            "items": {
+              "$ref": "#/components/schemas/ModelSpendLine"
+            },
+            "title": "Bystage",
+            "type": "array"
+          },
+          "ceilingCalls": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ceilingcalls"
+          },
+          "ceilingTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ceilingtokens"
+          },
+          "live": {
+            "title": "Live",
+            "type": "boolean"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "refusals": {
+            "default": 0,
+            "title": "Refusals",
+            "type": "integer"
+          },
+          "totalCalls": {
+            "title": "Totalcalls",
+            "type": "integer"
+          },
+          "totalTokens": {
+            "title": "Totaltokens",
+            "type": "integer"
+          },
+          "warnings": {
+            "default": 0,
+            "title": "Warnings",
+            "type": "integer"
+          },
+          "workspacesRefused": {
+            "default": 0,
+            "title": "Workspacesrefused",
+            "type": "integer"
+          }
+        },
+        "required": ["live", "backend", "totalCalls", "totalTokens"],
+        "title": "ModelSpend",
+        "type": "object"
+      },
+      "ModelSpendLine": {
+        "additionalProperties": false,
+        "description": "Spend for one stage, and how close it came to the ceiling.\n\nTokens, calls and ratios. Never content, and never a workspace: which stage\nis running out of budget is an operations question, which workspace it\nbelongs to is a support session's.",
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "closestApproach": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closestapproach"
+          },
+          "refusals": {
+            "default": 0,
+            "title": "Refusals",
+            "type": "integer"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "tokens": {
+            "title": "Tokens",
+            "type": "integer"
+          },
+          "warnings": {
+            "default": 0,
+            "title": "Warnings",
+            "type": "integer"
+          }
+        },
+        "required": ["stage", "calls", "tokens"],
+        "title": "ModelSpendLine",
+        "type": "object"
+      },
       "NotificationStatus": {
         "additionalProperties": false,
         "description": "Worker notification across the workspace.",
@@ -1119,6 +1287,47 @@
         "title": "PersonNotification",
         "type": "object"
       },
+      "PipelineHealth": {
+        "additionalProperties": false,
+        "description": "How ingestion is going, in counts and ages.\n\nEvery field is a number or a timestamp. There is nowhere here to put a\nstatement, a brief or a payload, which is the point: operations data leaves\nthe product for dashboards and exporters that md/05's promises do not cover.",
+        "properties": {
+          "deliveriesLastHour": {
+            "title": "Deliverieslasthour",
+            "type": "integer"
+          },
+          "deliveriesUnprocessed": {
+            "title": "Deliveriesunprocessed",
+            "type": "integer"
+          },
+          "factsLastHour": {
+            "title": "Factslasthour",
+            "type": "integer"
+          },
+          "oldestUnprocessedMinutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldestunprocessedminutes"
+          },
+          "workspacesIngesting": {
+            "title": "Workspacesingesting",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deliveriesLastHour",
+          "deliveriesUnprocessed",
+          "factsLastHour",
+          "workspacesIngesting"
+        ],
+        "title": "PipelineHealth",
+        "type": "object"
+      },
       "PrivacySettings": {
         "additionalProperties": false,
         "description": "What happens to this workspace's raw activity.\n\nThe bounds are returned with the value so the interface states the range it\nwill accept before somebody is refused for typing outside it.",
@@ -1154,6 +1363,62 @@
         },
         "required": ["retentionDays"],
         "title": "PrivacyUpdate",
+        "type": "object"
+      },
+      "QueueHealth": {
+        "additionalProperties": false,
+        "description": "Queue state, from the durable record rather than from memory.",
+        "properties": {
+          "backfillRunsActive": {
+            "title": "Backfillrunsactive",
+            "type": "integer"
+          },
+          "backfillRunsFailed": {
+            "title": "Backfillrunsfailed",
+            "type": "integer"
+          },
+          "deliveriesAwaitingProcessing": {
+            "title": "Deliveriesawaitingprocessing",
+            "type": "integer"
+          },
+          "inMemoryBroker": {
+            "title": "Inmemorybroker",
+            "type": "boolean"
+          },
+          "longestWaitMinutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longestwaitminutes"
+          },
+          "scheduledRunning": {
+            "default": 0,
+            "title": "Scheduledrunning",
+            "type": "integer"
+          },
+          "scheduledWaiting": {
+            "default": 0,
+            "title": "Scheduledwaiting",
+            "type": "integer"
+          },
+          "tenantsWaiting": {
+            "default": 0,
+            "title": "Tenantswaiting",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "backfillRunsActive",
+          "backfillRunsFailed",
+          "deliveriesAwaitingProcessing",
+          "inMemoryBroker"
+        ],
+        "title": "QueueHealth",
         "type": "object"
       },
       "Region": {
@@ -1302,6 +1567,125 @@
         },
         "required": ["password", "email", "workspaceName", "workspaceSlug"],
         "title": "SignupRequest",
+        "type": "object"
+      },
+      "SloObjective": {
+        "additionalProperties": false,
+        "description": "One service level objective, its target, and what it currently reads.\n\n`measured` is nullable and that is the point: an objective the current\ninfrastructure cannot measure reports `measurable: false` with the reason,\nrather than a number nobody can defend.",
+        "properties": {
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "measurable": {
+            "title": "Measurable",
+            "type": "boolean"
+          },
+          "measured": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured"
+          },
+          "measuredFrom": {
+            "title": "Measuredfrom",
+            "type": "string"
+          },
+          "met": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Met"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "number"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "windowMinutes": {
+            "title": "Windowminutes",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "rationale",
+          "target",
+          "unit",
+          "direction",
+          "windowMinutes",
+          "measuredFrom",
+          "measurable"
+        ],
+        "title": "SloObjective",
+        "type": "object"
+      },
+      "SloStatus": {
+        "additionalProperties": false,
+        "description": "Every objective, as of one moment.\n\nCounts of machine work only. There is deliberately no objective here about\nhow quickly a person replies to anything \u2014 see md/05 \u00a7B.2.",
+        "properties": {
+          "breaching": {
+            "default": 0,
+            "title": "Breaching",
+            "type": "integer"
+          },
+          "measuredAt": {
+            "format": "date-time",
+            "title": "Measuredat",
+            "type": "string"
+          },
+          "objectives": {
+            "items": {
+              "$ref": "#/components/schemas/SloObjective"
+            },
+            "title": "Objectives",
+            "type": "array"
+          },
+          "unmeasurable": {
+            "default": 0,
+            "title": "Unmeasurable",
+            "type": "integer"
+          }
+        },
+        "required": ["measuredAt"],
+        "title": "SloStatus",
         "type": "object"
       },
       "SourceConsent": {
@@ -1651,6 +2035,18 @@
               }
             ],
             "title": "Revokedat"
+          },
+          "revokedBy": {
+            "anyOf": [
+              {
+                "format": "email",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revokedby"
           },
           "status": {
             "$ref": "#/components/schemas/SupportSessionStatus"
@@ -2432,6 +2828,246 @@
           }
         },
         "summary": "Check the audit chain end to end",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/operations/evaluation": {
+      "get": {
+        "description": "Scores and failure modes from the committed baseline.\n\nThe cases stay in the repository. A dashboard that showed the golden cases\nwould be exporting the customer corrections they were built from.",
+        "operationId": "evaluation_summary_v1_internal_operations_evaluation_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "The last recorded evaluation run",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/operations/pipeline": {
+      "get": {
+        "description": "Counts and ages, no tenant named.\n\nDeliberately platform-wide: a per-workspace view of what a customer is\nproducing is a support session's business, not a dashboard's.",
+        "operationId": "pipeline_health_v1_internal_operations_pipeline_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineHealth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ingestion health across every workspace",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/operations/queue": {
+      "get": {
+        "description": "Read from the durable record.\n\nQueue depth from the broker would be per-instance and momentary; the rows\nwaiting in PostgreSQL are the same on every replica.",
+        "operationId": "queue_health_v1_internal_operations_queue_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueHealth"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Queue and backfill state",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/operations/slo": {
+      "get": {
+        "description": "The objectives, measured where the infrastructure allows it.\n\nAn objective this deployment cannot measure reports `measurable: false` and\nsays why. Nothing here substitutes the target for a missing measurement:\nan operator who reads a fabricated number acts on it, and the action is\nalways \"nothing is wrong\".",
+        "operationId": "slo_status_v1_internal_operations_slo_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SloStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Each service level objective, its target, and what it currently reads",
+        "tags": ["internal"]
+      }
+    },
+    "/v1/internal/operations/spend": {
+      "get": {
+        "description": "The process's own spend counters, and the ceiling signals.\n\nIn-process, so this is one replica's view \u2014 stated rather than implied,\nbecause a spend figure that looks global and is not is how a cost incident\ngets missed. The durable version arrives with the metrics exporter.\n\nRead from `SPEND_SIGNALS` rather than from a ledger. A ledger belongs to one\nunit of work and is discarded with it, so building a fresh one here \u2014 which\nis what this endpoint used to do \u2014 reported zero however much the process\nhad spent, and the screen could not have shown a cost incident if one had\nbeen happening while it was open.",
+        "operationId": "model_spend_v1_internal_operations_spend_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelSpend"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "What the model boundary cost this process, and how close it is to the ceiling",
         "tags": ["internal"]
       }
     },

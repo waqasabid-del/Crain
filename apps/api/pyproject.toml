@@ -36,6 +36,8 @@ dependencies = [
     # hand-cast strings. The extension itself is already required by the
     # initial migration (md/06 §4.4).
     "pgvector>=0.4",
+    "opentelemetry-api>=1.44.0",
+    "opentelemetry-sdk>=1.44.0",
 ]
 
 [build-system]

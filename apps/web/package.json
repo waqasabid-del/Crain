@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "e2e": "playwright test",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -28,6 +29,7 @@
   "devDependencies": {
     "@cairn/config": "workspace:*",
     "@opennextjs/cloudflare": "catalog:",
+    "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@testing-library/user-event": "catalog:",

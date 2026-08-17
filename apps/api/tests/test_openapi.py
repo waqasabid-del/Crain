@@ -117,12 +117,26 @@ class TestContract:
         logs of every intermediary.
         """
         forbidden = ("password", "token", "hash", "secret")
+
+        def carries_text(spec: dict[str, Any]) -> bool:
+            """Whether this field could hold a credential at all.
+
+            A credential is a string. An integer named `totalTokens` is a count
+            of model usage and cannot be one — narrowing by type keeps the check
+            blunt where it matters instead of pushing somebody to rename an
+            accurate domain word until the detector stops complaining.
+            """
+            types = {spec.get("type")} | {
+                option.get("type") for option in spec.get("anyOf", []) if isinstance(option, dict)
+            }
+            return "string" in types or types == {None}
+
         offenders = [
             f"{name}.{field}"
             for name, definition in schema["components"]["schemas"].items()
             if not name.endswith("Request")
-            for field in definition.get("properties", {})
-            if any(word in field.lower() for word in forbidden)
+            for field, spec in definition.get("properties", {}).items()
+            if any(word in field.lower() for word in forbidden) and carries_text(spec)
         ]
 
         assert offenders == []

@@ -54,6 +54,16 @@ export type Notifications =
 export type SupportSession =
   paths["/v1/workspaces/{workspace_id}/support-sessions"]["get"]["responses"][200]["content"]["application/json"][number];
 
+/**
+ * How far a support session reaches.
+ *
+ * Derived from the generated schema rather than restated, so that a scope added
+ * on the server becomes a compile error in every consumer that describes one to
+ * a customer — the alternative is a new, broader scope silently displayed with
+ * the narrower one's wording.
+ */
+export type SupportScope = SupportSession["requestedScope"];
+
 /** The Trust & Privacy Center for one workspace (md/05 §B.6). */
 export type Trust =
   paths["/v1/workspaces/{workspace_id}/trust"]["get"]["responses"][200]["content"]["application/json"];

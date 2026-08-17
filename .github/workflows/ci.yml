@@ -299,6 +299,92 @@ jobs:
         # See baseline-real.json for the numbers and the diagnosis.
         run: uv run python -m cairn_api.evaluation.runner --pipeline real
 
+  test-e2e:
+    name: Browser — end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # The one job that runs the product rather than a piece of it: a real
+    # browser, a real session cookie, a real cross-origin call to a real API on
+    # a real PostgreSQL. Everything else in `apps/web` is jsdom with a mocked
+    # client, which cannot see the auth gate, the cookie, or row-level
+    # security — the three things a regression here would break first.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: cairn
+          POSTGRES_PASSWORD: cairn_local_dev
+          POSTGRES_DB: cairn
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cairn"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          uv sync --all-extras --dev
+
+      - name: Migrate
+        run: cd apps/api && uv run alembic upgrade head
+
+      - name: Seed
+        # `scripted` here as well as when serving. The seed runs the *production*
+        # understanding handler over the webhook deliveries it writes, so
+        # without a model backend it correctly extracts nothing and the test
+        # would open an empty Brief.
+        env:
+          CAIRN_MODEL_BACKEND: scripted
+        run: uv run python -m cairn_api.db.seed
+
+      - name: Type-check the browser suite
+        # Not covered by `pnpm typecheck`: the suite is not shipped, so it is
+        # not in the app's tsconfig `include`. It has a project of its own
+        # (apps/web/e2e/tsconfig.json) with the same strictness.
+        run: pnpm --filter @cairn/web exec tsc --noEmit -p e2e/tsconfig.json
+
+      - name: Install the browser
+        # Chromium only, matching the single project in playwright.config.ts.
+        # `--with-deps` installs the system libraries the runner image lacks.
+        run: pnpm --filter @cairn/web exec playwright install --with-deps chromium
+
+      - name: Test
+        # The API and the web app are started by `webServer` in
+        # playwright.config.ts rather than here, so the same command reproduces
+        # this run on a laptop. `CI` makes it refuse to reuse a stray server and
+        # refuse a stray `test.only`.
+        run: pnpm --filter @cairn/web e2e
+
+      - name: Upload the trace of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-trace
+          path: apps/web/test-results/
+          retention-days: 7
+
   # -------------------------------------------------------------------------
   # Container
   # -------------------------------------------------------------------------
@@ -390,7 +476,24 @@ jobs:
   ci-passed:
     name: CI passed
     runs-on: ubuntu-latest
-    needs: [quality-ts, quality-py, cloudflare-worker, test-ts, test-py, docker-build, security]
+    # `test-e2e` is required like everything else, and is expected to fail today.
+    # It is red on a real product gap it found, not on a flaw of its own: nothing
+    # in the application ever links a `Person` to a `User`, so My Week is empty
+    # for every account and every correction is a 403 — see the note at the foot
+    # of apps/web/e2e/record-correction.e2e.ts. Left required on the same
+    # reasoning as the evaluation gate above: a job that is honestly red about a
+    # real measurement is worth more than one nobody is obliged to look at.
+    needs:
+      [
+        quality-ts,
+        quality-py,
+        cloudflare-worker,
+        test-ts,
+        test-py,
+        test-e2e,
+        docker-build,
+        security,
+      ]
     if: always()
     steps:
       - name: Verify every job succeeded

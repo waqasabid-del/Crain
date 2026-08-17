@@ -1464,6 +1464,197 @@ separate append-only sink exists, a database-owner compromise can delete the who
 
 ---
 
+**✅ Step 29 — Observability. Complete.**
+
+Delivered: a telemetry module over OpenTelemetry, spans across the existing flow, trace context that
+survives the queue, metrics for stages, models, queue and evaluation, and four staff-only operations
+read models. 23 telemetry tests, 6 operations tests. 1,014 Python tests.
+
+**The exit criterion** — a bad output traceable to its stage, context, model and cost — is met by one
+trace: the webhook's span, the job span the worker links to it through the envelope's `traceparent`,
+a span per pipeline stage, and a model span carrying the tokens the spend ledger recorded.
+
+**The allow-list is the load-bearing part.** Telemetry leaves the product: it goes to an exporter, a
+vendor, a dashboard and a retention policy none of which md/05's promises cover. So attributes are an
+allow-list, not a deny-list — a deny-list of "prompt, statement, quote" fails the first time somebody
+adds a field nobody thought to ban. Every allowed attribute is a _shape_: an identifier, a category,
+a number. A tenant id names a customer without describing them; a statement describes them.
+
+**A leak the tests caught.** OpenTelemetry records an exception's message and stack trace onto the
+span by default, and an exception message routinely contains the row that broke. `record_exception`
+and `set_status_on_exception` are off; the error's class name is recorded instead.
+
+Decisions worth recording:
+
+- **Instrumentation never fails the work it describes.** An attribute outside the allow-list drops
+  the span's attributes and logs loudly rather than raising into the caller. An observability bug
+  must not become an outage.
+- **Trace context is captured when an envelope is constructed**, not passed by callers. A worker span
+  that does not link back to its request is the one nobody can follow when a brief is wrong.
+- **Model metrics report the ledger's own numbers**, never a second count: a dashboard that disagrees
+  with the bill is worse than no dashboard.
+- **Operations data is platform-wide and names no workspace.** A per-workspace view of what a
+  customer is producing is a support session's business, and "which team shipped most" is the metric
+  md/05 §B.2 forbids outright.
+- **`operations/spend` says it is one replica's view.** A spend figure that looks global and is not is
+  how a cost incident gets missed.
+- **The secret-detection contract test was narrowed by type, not by exception.** It flagged
+  `totalTokens`; a token _count_ is an integer and cannot be a credential, so the rule now checks
+  string-typed fields. Renaming an accurate domain word until a detector stops complaining is the
+  wrong repair.
+
+**Deferred:** no exporter is configured, so spans and metrics are emitted into a no-op. That is the
+intended local behaviour — instrumentation runs everywhere and costs nothing until an exporter
+exists — but it means nothing has been seen in a real backend yet, and the alert thresholds in
+docs/OPERATIONS.md are reasoned rather than measured.
+
+---
+
+**✅ Step 30 — Scheduling, priority and tenant fairness. Complete.**
+
+Delivered: a PostgreSQL-backed queue implementing the existing `JobQueue` protocol, one migration,
+one table, per-tenant caps, durable leasing, a fairness signal on the operations screen, and 17
+scheduling tests.
+
+**The exit criterion** — one heavy tenant cannot starve others, and backfill never delays live
+processing — is met by two ordering rules in a single claim statement. Priority is absolute: a live
+push outranks a backfill however long the backfill has waited, because backfill is work nobody is
+waiting for and a push is somebody watching a screen. Within a priority, a job is scored by what it
+costs its tenant's share, so a tenant's second queued job loses to another tenant's first. The test
+that proves it queues a hundred bulk jobs for one workspace and one push for another; the push is
+claimed on the next poll.
+
+**The smallest correct change was a new implementation, not a modified worker.** `Priority` and the
+`JobQueue` protocol already existed and the worker already spoke only `receive`/`ack`/`retry`/
+`dead_letter`. Satisfying the same protocol meant the scheduler is selected by configuration and no
+call site moved.
+
+**Fairness inside one batch, not only across workers.** Scoring on live leases alone was wrong in a
+way that only appears under the load it exists to handle: every row in a `receive(max_messages=4)` is
+scored against the same pre-statement state, so ten queued jobs from one tenant all score zero and
+one tenant takes the whole batch. Adding the job's position in its own tenant's backlog fixes it, and
+the same expression bounds the claim — live leases and this batch's claims counted together.
+
+Decisions worth recording:
+
+- **The queue table is deliberately not under row-level security.** A worker claims work _before_ it
+  can know whose work it is; the tenant is what the claimed envelope carries. A policy keyed on the
+  current tenant would hide the queue from the only process whose purpose is draining it. Isolation
+  moves to where the job runs, which is where every read the handler performs is scoped anyway. It is
+  named in `NOT_TENANT_SCOPED` rather than matched by a pattern, so opting out stays a decision
+  somebody makes.
+- **Over the per-tenant queue limit, work is deferred and never dropped.** `available_at` moves
+  forward and the row stays. A queue that sheds load silently cannot be reconciled against what was
+  sent to it, and load is exactly when that reconciliation matters.
+- **Success is the only path that deletes a row.** A dead-lettered job keeps its row and its reason,
+  because a job that vanished is indistinguishable from one that was never sent.
+- **`SKIP LOCKED` rather than an application lock.** Two workers never lease the same job, and
+  neither waits on the other — decided in the database, where all the workers actually meet.
+- **The fairness numbers count jobs, not people.** `tenantsWaiting` and `longestWaitMinutes` are on
+  the operations screen so starvation is visible before a customer reports it. Nothing here measures
+  anyone's output, per md/05 §B.2.
+
+**Deferred:** the backlog-position subquery is correlated and linear in a tenant's queued backlog —
+correct at these caps, and the first thing to revisit if claim latency grows. The caps themselves
+(four in flight, five hundred queued, five-minute leases) are reasoned from the shape of the work
+rather than measured under production load, and are named in docs/OPERATIONS.md as pilot-tunable.
+
+---
+
+**Post-Step-30 audit of Steps 28–30.** Steps 28, 29 and 30 were re-verified against code, tests,
+migrations, API contracts and runtime wiring rather than against these notes. Six issues were found
+and fixed; each has a test that fails without the fix.
+
+**P1 — the customer's support record did not name the staff member who asked.** `_responses`
+resolved emails through the tenant-scoped session, and the `users` policy shows a person only to
+contexts sharing a workspace with them. CAIRN staff are members of no customer workspace, which is
+the entire point of the support model — so the requester resolved to nothing and the history read
+`unknown@cairn.dev`. The one name the record exists to report was the one name it could not show,
+and every other field being correct made it read as complete. Now resolved through
+`support.resolve_participant_emails`, bounded by ids that row-level security already scoped to the
+caller's workspace. `test_the_history_names_who_what_why_and_when` asserts the actual address.
+
+**P1 — deployment guidance pointed operators away from fair scheduling.** The in-memory refusal said
+"Set CAIRN_QUEUE_BACKEND=pubsub", and `.env.example` listed only `memory | pubsub`. An operator
+following that message deployed the one durable backend with no per-tenant fairness and no priority
+— reaching exactly the failure Step 30 exists to prevent by doing what the error told them to do.
+The message now names `postgres`, `.env.example` explains the three backends, and a deployed
+environment selecting Pub/Sub logs `queue.fairness_not_enforced` naming what it gives up.
+
+**P2 — revoking a rejected request overwrote the refusal.** `revoke` set the status unconditionally,
+so "we said no" became "we ended it" in the customer's own record — the one piece of evidence that
+record keeps on their behalf. A rejection now keeps its status; the timestamp is still stamped, so
+the action is not lost either.
+
+**P2 — the consent gate did not lock the session it checked.** A customer clicking revoke while
+staff were mid-request committed against a row the gate had already read and passed, and the read
+completed under permission that no longer existed. `active_session_for` now takes `FOR UPDATE`, so
+the two serialise and the loser sees the other's outcome rather than a stale copy of it.
+
+**P2 — a deployed environment could run blind.** Telemetry is a no-op until an SDK exporter is
+installed, and nothing checked that one was. Every call site looked instrumented, every span was
+built and discarded, and it would have been discovered during the incident it was meant to explain.
+The API and the worker now refuse to start in a deployed environment with no OTLP endpoint, unless
+`CAIRN_TELEMETRY_OPTIONAL=true` states the decision — the same shape as the queue and email guards.
+
+**P2 — queue metrics existed only on the scheduler.** Retry and dead-letter are the two outcomes an
+operator alerts on, and the in-memory broker recorded neither, so the metric had no test coverage of
+its failure paths at all. The in-memory broker now records the same five outcomes. Pub/Sub still
+records none; that is stated in docs/OPERATIONS.md rather than left to be discovered.
+
+**Not fixed, deliberately.** Break-glass remains absent — the notification and security-review
+conditions md/15 §5.2 requires still do not exist, and two of three conditions is an unapproved
+access path wearing a label.
+
+---
+
+**Release-readiness pass — the browser test that found the missing half of the product.**
+
+The audit's standing gap was that 234 component tests and 1,046 backend tests had never once driven a
+real browser. One Playwright test now does: sign in through the real form, open the Brief, follow a
+citation, correct a fact on My Week, reload, and assert the corrected sentence still carries the same
+evidence id — then, with the same session, attempt to read a second workspace and require a refusal.
+
+It failed on its first run, and it was right to. **`Person.user_id` was never set by any code path in
+the application.** `me/week` and every correction endpoint resolve the caller with
+`Person.user_id == current user`, so on a real database — 0 of 18 people linked — My Week was
+permanently "Nothing about you yet" for every account, and every correction returned "not your
+record". md/05 §B.2.3's employee-owned record, the product's own headline commitment, had no
+reachable path to it. Every layer worked in isolation and nothing joined them, which is exactly the
+failure the vertical-slice rule exists to catch; no component test could see it, because each half
+was correct.
+
+`identity/resolution.py` now links a person to the account that signs in as them, on a **verified**
+address only — a commit's author email is whatever the author's git config says, so linking on an
+unverified one would let anyone who can push a commit claim a colleague's record, including the right
+to rewrite it. Existing links are never re-pointed: moving ownership of a record between people is a
+merge decision, not an inference. Four tests cover it, and the browser test passes end to end.
+
+**Release gates are now code, not prose.** `uv run python -m cairn_api.ops.gates_cli` reports every
+external dependency as `PASS`, `BLOCK` or `MANUAL`, and exits non-zero while any of them blocks.
+`MANUAL` — configured but unproven — blocks exactly as firmly as `BLOCK`, because a GitHub App id in
+an environment variable proves somebody set a variable and nothing else. Six gates: queue passes;
+telemetry, email, GitHub, Vertex and the audit sink do not.
+
+**Production can no longer silently lose fairness.** A deployed environment on Pub/Sub used to log a
+warning and continue. It now refuses to start unless `CAIRN_QUEUE_FAIRNESS_OPTIONAL=true` records the
+decision, because Pub/Sub has neither per-tenant fairness nor retry and dead-letter metrics — so the
+DLQ alert would have had nothing to fire on, and the first person to notice would have been the
+customer whose live events were stuck behind somebody else's import.
+
+**The audit sink is tracked as a gate rather than a paragraph.** The chain resists the application —
+`INSERT` and `SELECT`, no `UPDATE`, no `DELETE` — but not the database owner. Until a separate
+append-only sink exists it must not be described externally as immutable or customer-verifiable, and
+a test now asserts the gate says so.
+
+Also closed: dead-letter alerting on its own metric with the reason reduced to a bounded category so
+no customer row reaches telemetry; a durable correlation id from webhook to brief that survives with
+no tracer installed; a restore rehearsal proven by making it fail on a truncated dump; spend signals
+for approaching and refusing a ceiling; and five SLOs, three measurable today and two that report
+"not measurable" rather than a number nobody could produce.
+
+---
+
 **→ Not Stage E yet.** The audit's recommended order is email delivery, then one browser-level
 end-to-end test, then a live GitHub App and a Vertex project — which is Stage B and Stage C answered
 with evidence rather than assumed. Stage E's back-office and deployment work follows that, not the

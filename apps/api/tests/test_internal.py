@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from cairn_api.api.routers import internal
@@ -39,6 +40,20 @@ pytestmark = pytest.mark.integration
 
 PASSWORD = "correct-horse-battery"  # noqa: S105
 TEST_ORIGIN = "http://localhost:3000"
+
+
+class _FixedProvider:
+    """A model that always reports the same usage.
+
+    Enough to drive the ledger past a ceiling so the operations screen has a
+    refusal to show. Deliberately not `ScriptedProvider`, which reports zero
+    tokens and would never reach a token ceiling.
+    """
+
+    async def complete(self, request: object) -> Any:
+        from cairn_api.pipeline.provider import ModelResponse
+
+        return ModelResponse(text="{}", input_tokens=50, output_tokens=0, model="fixed")
 
 
 class Actor:
@@ -297,6 +312,209 @@ class TestLeastPrivilege:
         ]
 
         assert not undeclared, f"routes with no staff-role requirement: {undeclared}"
+
+
+class TestOperationsData:
+    """Step 29's read models. Metadata only, and only for the roles that run
+    the system."""
+
+    OPERATIONS = (
+        "/v1/internal/operations/pipeline",
+        "/v1/internal/operations/queue",
+        "/v1/internal/operations/spend",
+        "/v1/internal/operations/evaluation",
+        "/v1/internal/operations/slo",
+    )
+
+    def test_every_operations_route_is_in_this_list(self) -> None:
+        """Otherwise a new one is gated by nothing anybody checked.
+
+        The role and content assertions below are parametrised over `OPERATIONS`,
+        so a route missing from it is a route with no test — and it would be
+        added by somebody in a hurry to see a number during an incident.
+        """
+        declared = {path.removeprefix("/v1") for path in self.OPERATIONS}
+        actual = {
+            route.path
+            for route in internal.router.routes
+            if isinstance(route, APIRoute) and route.path.startswith("/internal/operations/")
+        }
+        assert actual == declared
+
+    @pytest.mark.parametrize("path", OPERATIONS)
+    @pytest.mark.parametrize("role", ["support", "billing", "engineering", "security"])
+    async def test_only_engineering_and_security_may_read_it(
+        self, app: FastAPI, platform: AsyncSession, path: str, role: str
+    ) -> None:
+        """md/15 §6 gives pipeline health, cost and evaluation to Engineering.
+        Security is included because an incident is when this data is most
+        needed and least convenient to request."""
+        staff = await as_staff(platform, await signed_up(app), StaffRole(role))
+
+        response = await staff.client.get(path)
+
+        if role in {"engineering", "security"}:
+            assert response.status_code == 200, response.text
+        else:
+            assert response.status_code == 403, f"{role} read {path}"
+
+    async def test_a_customer_cannot_reach_operations_data(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        customer = await signed_up(app)
+
+        for path in self.OPERATIONS:
+            assert (await customer.client.get(path)).status_code == 404
+
+    async def test_pipeline_health_names_no_workspace(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """Counts and ages, platform-wide.
+
+        A per-workspace view of what a customer is producing is a support
+        session's business, not a dashboard's — and "which team shipped most"
+        is the shape of the metric md/05 §B.2 forbids.
+        """
+        staff = await as_staff(platform, await signed_up(app), StaffRole.ENGINEERING)
+        customer = await signed_up(app)
+
+        body = (await staff.client.get("/v1/internal/operations/pipeline")).json()
+
+        assert set(body) == {
+            "deliveriesLastHour",
+            "deliveriesUnprocessed",
+            "oldestUnprocessedMinutes",
+            "factsLastHour",
+            "workspacesIngesting",
+        }
+        assert customer.workspace_id not in str(body)
+
+    async def test_spend_reports_the_ledger_and_says_whose_view_it_is(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """In-process, so one replica's view — stated rather than implied,
+        because a spend figure that looks global and is not is how a cost
+        incident gets missed."""
+        staff = await as_staff(platform, await signed_up(app), StaffRole.ENGINEERING)
+
+        body = (await staff.client.get("/v1/internal/operations/spend")).json()
+
+        assert body["live"] is False
+        assert set(body) == {
+            "live",
+            "backend",
+            "totalCalls",
+            "totalTokens",
+            "byStage",
+            "ceilingTokens",
+            "ceilingCalls",
+            "warnings",
+            "refusals",
+            "workspacesRefused",
+            "note",
+        }
+        assert "replica" in (body["note"] or "")
+
+    async def test_the_spend_screen_shows_the_ceiling_signals(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """Capping without signalling is a cost incident nobody hears about.
+
+        The refusal has to reach the screen an operator is already looking at,
+        by stage, and with the configured ceiling beside it so "how close" has
+        something to be close to.
+        """
+        from cairn_api.pipeline.provider import ModelRequest
+        from cairn_api.pipeline.spend import SPEND_SIGNALS, BudgetedProvider, SpendCeilingError
+        from cairn_api.pipeline.spend import TokenLedger as Ledger
+
+        staff = await as_staff(platform, await signed_up(app), StaffRole.ENGINEERING)
+
+        SPEND_SIGNALS.reset()
+        try:
+            provider = BudgetedProvider(
+                inner=_FixedProvider(),
+                ledger=Ledger(tenant=str(uuid.uuid4()), max_tokens=10, max_calls=None),
+                stage="synthesize",
+            )
+            await provider.complete(ModelRequest(instruction="go", untrusted_data="secret"))
+            with pytest.raises(SpendCeilingError):
+                await provider.complete(ModelRequest(instruction="go", untrusted_data="secret"))
+
+            body = (await staff.client.get("/v1/internal/operations/spend")).json()
+        finally:
+            SPEND_SIGNALS.reset()
+
+        assert body["refusals"] == 1
+        assert body["workspacesRefused"] == 1
+        line = next(item for item in body["byStage"] if item["stage"] == "synthesize")
+        assert line["refusals"] == 1
+        assert line["closestApproach"] is not None
+        # No workspace and no request text, on a screen a staff role can open
+        # without any customer's approval.
+        assert "secret" not in str(body)
+
+    async def test_the_slo_screen_reports_a_target_and_a_source_for_every_objective(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """ "Slow" is only a number somebody agreed to if the number is on a
+        screen next to where it came from."""
+        from cairn_api.ops import slo
+
+        staff = await as_staff(platform, await signed_up(app), StaffRole.ENGINEERING)
+
+        body = (await staff.client.get("/v1/internal/operations/slo")).json()
+
+        assert {item["key"] for item in body["objectives"]} == {
+            objective.key for objective in slo.OBJECTIVES
+        }
+        for item in body["objectives"]:
+            assert item["target"] > 0
+            assert item["measuredFrom"]
+            assert item["windowMinutes"] > 0
+
+    async def test_an_unmeasurable_objective_reports_unmeasurable_rather_than_met(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """The failure mode this endpoint exists to avoid.
+
+        Availability has no measurement today, and a status screen that showed
+        it as met would be a fabricated number somebody makes a decision with.
+        `met` is null and the reason is on the row.
+        """
+        staff = await as_staff(platform, await signed_up(app), StaffRole.ENGINEERING)
+
+        body = (await staff.client.get("/v1/internal/operations/slo")).json()
+        availability = next(item for item in body["objectives"] if item["key"] == "availability")
+
+        assert availability["measurable"] is False
+        assert availability["measured"] is None
+        assert availability["met"] is None
+        assert availability["note"]
+        assert body["unmeasurable"] >= 1
+
+    async def test_the_slo_screen_names_no_workspace(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """Platform-wide counts. A per-workspace latency view is a support
+        session's business, and "which team is slowest" is the shape md/05 §B.2
+        forbids outright."""
+        staff = await as_staff(platform, await signed_up(app), StaffRole.ENGINEERING)
+        customer = await signed_up(app)
+
+        response = await staff.client.get("/v1/internal/operations/slo")
+
+        assert customer.workspace_id not in response.text
+
+    async def test_the_queue_view_says_when_jobs_are_lost_on_restart(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """The in-memory broker loses jobs silently. An operator reading this
+        screen has to know that before they read the depth."""
+        staff = await as_staff(platform, await signed_up(app), StaffRole.ENGINEERING)
+
+        body = (await staff.client.get("/v1/internal/operations/queue")).json()
+        assert body["inMemoryBroker"] is True
 
 
 class TestStaffCannotReachCustomerContent:

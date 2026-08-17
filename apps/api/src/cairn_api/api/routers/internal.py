@@ -22,6 +22,7 @@ product's central claim; it belongs in a separate app.
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
@@ -32,20 +33,27 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cairn_api.api.dependencies import CurrentUser, PlatformDb
+from cairn_api.api.dependencies import CurrentUser, PlatformDb, SettingsDep
 from cairn_api.api.errors import ProblemDetailError
 from cairn_api.api.routers.facts import _fact_response
 from cairn_api.api.schemas import (
     AuditEntryResponse,
     AuditVerification,
+    EvaluationSummary,
     FactResponse,
+    ModelSpend,
+    ModelSpendLine,
+    PipelineHealth,
+    QueueHealth,
+    SloObjective,
+    SloStatus,
     StaffTenantDetail,
     StaffTenantSummary,
     SubscriptionInspection,
     SupportSessionRequest,
     SupportSessionResponse,
 )
-from cairn_api.db.backfill_models import BackfillRun
+from cairn_api.db.backfill_models import BackfillRun, BackfillState
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.github_models import GitHubInstallation, WebhookDelivery
 from cairn_api.db.models import Membership, Tenant, User
@@ -53,6 +61,8 @@ from cairn_api.db.staff_models import InternalAuditEntry, StaffMember, StaffRole
 from cairn_api.db.support_models import SupportScope, SupportSession
 from cairn_api.db.tenancy import tenant_session
 from cairn_api.internal import audit, support
+from cairn_api.ops import measure
+from cairn_api.pipeline.spend import SPEND_SIGNALS
 
 logger = structlog.get_logger(__name__)
 
@@ -169,6 +179,266 @@ def audited(action: str) -> Callable[..., Coroutine[Any, Any, StaffContext]]:
         return staff
 
     return dependency
+
+
+# --------------------------------------------------------------------------
+# Operations
+#
+# Metadata only, and structurally so: every response model here holds counts,
+# ages and categories. `test_telemetry.py` and `test_internal.py` both assert
+# that no field on this router can carry a statement, a brief or a payload.
+#
+# md/15 §6 gives pipeline health, cost and evaluation to Engineering. Security
+# is included because an incident is when this data is most needed and least
+# convenient to request.
+# --------------------------------------------------------------------------
+
+OPERATIONS_ROLES = (StaffRole.ENGINEERING, StaffRole.SECURITY)
+
+
+@router.get(
+    "/operations/pipeline",
+    response_model=PipelineHealth,
+    summary="Ingestion health across every workspace",
+)
+async def pipeline_health(
+    db: PlatformDb,
+    staff: Annotated[StaffContext, Depends(requires_staff(*OPERATIONS_ROLES))],
+) -> PipelineHealth:
+    """Counts and ages, no tenant named.
+
+    Deliberately platform-wide: a per-workspace view of what a customer is
+    producing is a support session's business, not a dashboard's.
+    """
+    hour_ago = datetime.now(UTC) - timedelta(hours=1)
+
+    recent = await db.scalar(
+        select(func.count())
+        .select_from(WebhookDelivery)
+        .where(WebhookDelivery.created_at >= hour_ago)
+    )
+    unprocessed = await db.scalar(
+        select(func.count())
+        .select_from(WebhookDelivery)
+        .where(WebhookDelivery.processed_at.is_(None))
+    )
+    oldest = await db.scalar(
+        select(func.min(WebhookDelivery.created_at)).where(WebhookDelivery.processed_at.is_(None))
+    )
+    workspaces = await db.scalar(
+        select(func.count(func.distinct(WebhookDelivery.tenant_id))).where(
+            WebhookDelivery.created_at >= hour_ago
+        )
+    )
+    facts = await db.scalar(
+        select(func.count()).select_from(FactRow).where(FactRow.created_at >= hour_ago)
+    )
+
+    _ = staff
+    return PipelineHealth(
+        deliveries_last_hour=int(recent or 0),
+        deliveries_unprocessed=int(unprocessed or 0),
+        oldest_unprocessed_minutes=(
+            (datetime.now(UTC) - oldest).total_seconds() / 60 if oldest else None
+        ),
+        facts_last_hour=int(facts or 0),
+        workspaces_ingesting=int(workspaces or 0),
+    )
+
+
+@router.get(
+    "/operations/queue",
+    response_model=QueueHealth,
+    summary="Queue and backfill state",
+)
+async def queue_health(
+    db: PlatformDb,
+    settings: SettingsDep,
+    staff: Annotated[StaffContext, Depends(requires_staff(*OPERATIONS_ROLES))],
+) -> QueueHealth:
+    """Read from the durable record.
+
+    Queue depth from the broker would be per-instance and momentary; the rows
+    waiting in PostgreSQL are the same on every replica.
+    """
+    active = await db.scalar(
+        select(func.count()).select_from(BackfillRun).where(BackfillRun.completed_at.is_(None))
+    )
+    failed = await db.scalar(
+        select(func.count())
+        .select_from(BackfillRun)
+        .where(BackfillRun.state == BackfillState.FAILED)
+    )
+    waiting = await db.scalar(
+        select(func.count())
+        .select_from(WebhookDelivery)
+        .where(WebhookDelivery.processed_at.is_(None))
+    )
+
+    # The scheduler's own numbers, and only when it is the configured backend.
+    # Starvation is what Step 30 prevents, so an operator needs to be able to
+    # see it happening rather than learn about it from a customer.
+    scheduled_waiting = scheduled_running = tenants_waiting = 0
+    longest_wait_minutes: float | None = None
+
+    if settings.queue_backend == "postgres":
+        from cairn_api.jobs.postgres import PostgresJobQueue
+
+        scheduler = PostgresJobQueue()
+        depth = await scheduler.depth()
+        fairness = await scheduler.fairness()
+
+        scheduled_waiting = depth.pending
+        scheduled_running = depth.in_flight
+        tenants_waiting = fairness.tenants_waiting
+        longest_wait_minutes = fairness.max_wait_seconds / 60
+
+    _ = staff
+    return QueueHealth(
+        backfill_runs_active=int(active or 0),
+        backfill_runs_failed=int(failed or 0),
+        deliveries_awaiting_processing=int(waiting or 0),
+        in_memory_broker=settings.queue_backend == "memory",
+        scheduled_waiting=scheduled_waiting,
+        scheduled_running=scheduled_running,
+        tenants_waiting=tenants_waiting,
+        longest_wait_minutes=longest_wait_minutes,
+    )
+
+
+@router.get(
+    "/operations/spend",
+    response_model=ModelSpend,
+    summary="What the model boundary cost this process, and how close it is to the ceiling",
+)
+async def model_spend(
+    settings: SettingsDep,
+    staff: Annotated[StaffContext, Depends(requires_staff(*OPERATIONS_ROLES))],
+) -> ModelSpend:
+    """The process's own spend counters, and the ceiling signals.
+
+    In-process, so this is one replica's view — stated rather than implied,
+    because a spend figure that looks global and is not is how a cost incident
+    gets missed. The durable version arrives with the metrics exporter.
+
+    Read from `SPEND_SIGNALS` rather than from a ledger. A ledger belongs to one
+    unit of work and is discarded with it, so building a fresh one here — which
+    is what this endpoint used to do — reported zero however much the process
+    had spent, and the screen could not have shown a cost incident if one had
+    been happening while it was open.
+    """
+    from cairn_api.pipeline.jobs import build_providers
+
+    providers = build_providers()
+    signals = SPEND_SIGNALS.snapshot()
+
+    _ = staff
+    return ModelSpend(
+        live=providers.live,
+        backend=type(providers.model).__name__,
+        total_calls=SPEND_SIGNALS.total_calls,
+        total_tokens=SPEND_SIGNALS.total_tokens,
+        by_stage=[
+            ModelSpendLine(
+                stage=signal.stage,
+                calls=signal.calls,
+                tokens=signal.tokens,
+                warnings=signal.warnings,
+                refusals=signal.refusals,
+                closest_approach=signal.closest_approach,
+            )
+            for signal in signals
+        ],
+        ceiling_tokens=settings.model_max_tokens_per_tenant,
+        ceiling_calls=settings.model_max_calls_per_tenant,
+        warnings=SPEND_SIGNALS.warnings,
+        refusals=SPEND_SIGNALS.refusals,
+        workspaces_refused=SPEND_SIGNALS.workspaces_refused,
+        note=(
+            "Counted in this process since it started. On N replicas the real "
+            "figure is higher. Ceilings are per workspace per unit of work."
+        ),
+    )
+
+
+@router.get(
+    "/operations/slo",
+    response_model=SloStatus,
+    summary="Each service level objective, its target, and what it currently reads",
+)
+async def slo_status(
+    db: PlatformDb,
+    settings: SettingsDep,
+    staff: Annotated[StaffContext, Depends(requires_staff(*OPERATIONS_ROLES))],
+) -> SloStatus:
+    """The objectives, measured where the infrastructure allows it.
+
+    An objective this deployment cannot measure reports `measurable: false` and
+    says why. Nothing here substitutes the target for a missing measurement:
+    an operator who reads a fabricated number acts on it, and the action is
+    always "nothing is wrong".
+    """
+    measurements = await measure.measure_all(db, settings)
+
+    _ = staff
+    return SloStatus(
+        measured_at=datetime.now(UTC),
+        objectives=[
+            SloObjective(
+                key=item.objective.key,
+                title=item.objective.title,
+                rationale=item.objective.rationale,
+                target=item.objective.target,
+                unit=item.objective.unit.value,
+                direction=item.objective.direction.value,
+                window_minutes=item.objective.window.total_seconds() / 60,
+                measured_from=item.objective.measured_from,
+                measurable=item.objective.measurable,
+                measured=item.measured,
+                met=item.met,
+                note=item.note,
+            )
+            for item in measurements
+        ],
+        unmeasurable=sum(1 for item in measurements if not item.objective.measurable),
+        # `met is False` rather than `not met`: an objective with no measurement
+        # is `None`, and counting it as breaching would page for missing
+        # instrumentation while counting it as met hides an outage.
+        breaching=sum(1 for item in measurements if item.met is False),
+    )
+
+
+@router.get(
+    "/operations/evaluation",
+    response_model=EvaluationSummary,
+    summary="The last recorded evaluation run",
+)
+async def evaluation_summary(
+    staff: Annotated[StaffContext, Depends(requires_staff(*OPERATIONS_ROLES))],
+) -> EvaluationSummary:
+    """Scores and failure modes from the committed baseline.
+
+    The cases stay in the repository. A dashboard that showed the golden cases
+    would be exporting the customer corrections they were built from.
+    """
+    from cairn_api.evaluation.gate import BASELINE_PATH
+
+    _ = staff
+    if not BASELINE_PATH.exists():
+        return EvaluationSummary(
+            available=False,
+            note="No baseline recorded. Run `make eval` to produce one.",
+        )
+
+    baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+    modes = baseline.get("failure_modes", {})
+    return EvaluationSummary(
+        available=True,
+        cases=int(baseline.get("cases", 0)),
+        passed=int(baseline.get("passed", 0)),
+        failed=int(baseline.get("failed", 0)),
+        failure_modes={str(key): int(value) for key, value in modes.items()},
+    )
 
 
 # --------------------------------------------------------------------------
