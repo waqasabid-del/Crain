@@ -52,7 +52,13 @@ function messageForApiError(error: ApiError, action: string, context?: ErrorCont
           ". Signing in again will fix it.";
   }
   if (error.status === 403) {
-    return "This account does not have access to that. If that looks wrong, a workspace admin can change it.";
+    // Names who can change it in the product's own role words — "a workspace
+    // admin" is not somebody a reader can go and find, and "Owner or Admin" is
+    // what the member list and every read-only note on the connector surfaces
+    // already say. No verb about what did or did not happen: the same 403
+    // answers a refused read and a refused write, and "nothing was changed"
+    // would be a claim about only one of them.
+    return "This account does not have access to that. An Owner or an Admin of this workspace decides who can, in Workspace settings.";
   }
   if (error.status === 404) {
     return "CAIRN could not find that. It may have been removed, or the link may point somewhere that no longer exists.";

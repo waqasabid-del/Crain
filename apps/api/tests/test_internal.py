@@ -19,22 +19,42 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+import pytest_asyncio
+from asgi_lifespan import LifespanManager
+from cairn_api.api.app import create_app
 from cairn_api.api.routers import internal
+from cairn_api.config import Settings
+from cairn_api.connectors.credentials import SecretValue, store_secret
+from cairn_api.db.connector_models import (
+    ConnectionHealth,
+    ConnectionState,
+    ConnectorErrorCategory,
+    ConnectorProvider,
+    SourceConnection,
+)
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.fact_models import FactSource
+from cairn_api.db.gchat_models import (
+    GoogleChatSpaceSelection,
+    GoogleChatSubscription,
+    GoogleChatSubscriptionState,
+)
 from cairn_api.db.github_models import GitHubInstallation, WebhookDelivery
+from cairn_api.db.models import Tenant, User
 from cairn_api.db.staff_models import InternalAuditEntry, StaffMember, StaffRole
 from cairn_api.db.tenancy import tenant_session
 from cairn_api.internal import audit
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select, text
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 pytestmark = pytest.mark.integration
 
@@ -516,6 +536,331 @@ class TestOperationsData:
 
         body = (await staff.client.get("/v1/internal/operations/queue")).json()
         assert body["inMemoryBroker"] is True
+
+
+@dataclass(frozen=True)
+class ChatConnection:
+    """A workspace with an authorised Google Chat connection."""
+
+    tenant_id: uuid.UUID
+    connection_id: uuid.UUID
+    user_id: uuid.UUID
+
+
+async def a_chat_connection(platform: AsyncSession) -> ChatConnection:
+    """A tenant, a user and a connected Google Chat source.
+
+    Built directly rather than through the install flow, which cannot complete:
+    `chat.messages.readonly` is a restricted scope and no authorisation succeeds
+    without a CASA assessment. The rows are what the renewal loop and this
+    aggregate actually read, so they are what the test provides.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    tenant = Tenant(name="Acme", slug=f"acme-ops-{suffix}")
+    user = User(email=f"owner-{suffix}@acme.example")
+    platform.add_all([tenant, user])
+    await platform.flush()
+
+    connection = SourceConnection(
+        tenant_id=tenant.id,
+        provider=ConnectorProvider.GOOGLE_CHAT,
+        external_account_id=f"client:{suffix}",
+        installation_id=f"client:{suffix}",
+        scopes=["chat.spaces.readonly", "chat.messages.readonly"],
+        state=ConnectionState.CONNECTED,
+        health=ConnectionHealth.UNKNOWN,
+        connected_at=datetime.now(UTC),
+        authorised_by_user_id=user.id,
+        authorised_at=datetime.now(UTC),
+    )
+    store_secret(connection, SecretValue("a-refresh-token"))
+    platform.add(connection)
+    await platform.commit()
+    return ChatConnection(tenant_id=tenant.id, connection_id=connection.id, user_id=user.id)
+
+
+#: Every field the subscription aggregate may carry. Asserted as an exact set
+#: rather than by checking a few names, so a field added later — the way a space
+#: name or a tenant id would arrive — fails here instead of reaching a screen.
+SUBSCRIPTION_FIELDS = {
+    "provider",
+    "subscriptionsByState",
+    "subscriptionsByErrorCategory",
+    "subscriptionsExpected",
+    "subscriptionsLive",
+    "subscriptionsSuspended",
+    "subscriptionsExpired",
+    "subscriptionsMissing",
+    "nearestExpiryMinutes",
+    "renewalDueWithinMinutes",
+    "expiryIsPermanentLoss",
+    "observable",
+    "subscriptionsUnobservableReason",
+}
+
+
+class TestGoogleChatSubscriptionHealth:
+    """The renewal loop, visible to the staff who would be paged for it.
+
+    Google Chat is the only connector that stops delivering on a timer: a lease
+    is four hours, an expired one is **deleted** at Google rather than renewable,
+    and while that happens the connection still reads `connected` and every
+    credential check still passes. `subscriptionsMissing` is the only number in
+    the product that moves, so until it could be read from somewhere it existed
+    without being observable — the layer-nobody-reaches shape.
+
+    Staff-role gating and the customer's 404 are covered by
+    `TestOperationsData`, which parametrises both over every operations route
+    including this one. What is left to prove is that the numbers are real, that
+    the empty and unconfigured cases are distinguishable, and that nothing a
+    customer owns can travel out on this field.
+    """
+
+    @staticmethod
+    async def _lease(
+        platform: AsyncSession,
+        tenant_id: uuid.UUID,
+        connection_id: uuid.UUID,
+        *,
+        space: str,
+        state: GoogleChatSubscriptionState,
+        expires_at: datetime | None = None,
+        category: ConnectorErrorCategory | None = None,
+    ) -> None:
+        platform.add(
+            GoogleChatSubscription(
+                tenant_id=tenant_id,
+                connection_id=connection_id,
+                space_name=space,
+                state=state,
+                expire_time=expires_at,
+                suspension_category=category,
+            )
+        )
+        await platform.commit()
+
+    async def test_an_unconfigured_deployment_reports_unobservable_not_zero(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """Zeros would read as a healthy renewal loop.
+
+        The shared `app` fixture has no Google Chat credentials, so there can be
+        no leases at all. "0 live, 0 suspended, 0 expired" is indistinguishable
+        on a screen from a loop that is working perfectly — which is the most
+        reassuring possible rendering of "this was never set up".
+        """
+        staff = await as_staff(platform, await signed_up(app), StaffRole.ENGINEERING)
+
+        body = (await staff.client.get("/v1/internal/operations/connectors")).json()
+        subscriptions = body["subscriptions"]
+
+        assert subscriptions["observable"] is False
+        assert subscriptions["subscriptionsUnobservableReason"]
+        assert subscriptions["subscriptionsByState"] == {}
+        # Not merely absent: unknowable. A zero here would be a claim.
+        assert subscriptions["subscriptionsMissing"] is None
+
+    async def test_the_response_carries_counts_and_nothing_identifying(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """The shape is the safety property, so the shape is asserted exactly."""
+        staff = await as_staff(platform, await signed_up(app), StaffRole.ENGINEERING)
+
+        body = (await staff.client.get("/v1/internal/operations/connectors")).json()
+
+        assert set(body["subscriptions"]) == SUBSCRIPTION_FIELDS
+        assert body["subscriptions"]["provider"] == "google_chat"
+        assert body["subscriptions"]["expiryIsPermanentLoss"] is True
+
+
+class TestSubscriptionHealthAgainstRealRows:
+    """The same aggregate, on a deployment that has credentials and leases.
+
+    Builds its own application because the shared `app` fixture is deliberately
+    unconfigured, and reaches the rows through the platform session — the read is
+    fleet-wide, and under a tenant-scoped session row-level security would narrow
+    it to one workspace while the result stayed labelled as the whole fleet.
+    """
+
+    @pytest_asyncio.fixture(autouse=True)
+    async def _only_this_test_s_leases(self, platform: AsyncSession) -> AsyncIterator[None]:
+        """Start each test with no Google Chat rows anywhere.
+
+        This aggregate is deliberately fleet-wide — it sums every workspace's
+        leases — so a row another test left behind is counted by this one, and
+        the tests become order-dependent in a way that looks like flakiness.
+        Truncating is the honest fix: loosening the assertions to ranges would
+        hide exactly the miscount the aggregate exists to surface.
+
+        Cleared **before** as well as after. Clearing only afterwards isolates
+        these tests from each other and leaves them exposed to every other file
+        in the suite — `test_gchat_subscriptions.py` and `test_gchat_api.py`
+        both create leases — so the class passes alone and fails in a full run,
+        which is the failure mode that gets diagnosed as flakiness and retried.
+        """
+        await self._clear(platform)
+        yield
+        await self._clear(platform)
+
+    @staticmethod
+    async def _clear(platform: AsyncSession) -> None:
+        await platform.execute(delete(GoogleChatSubscription))
+        await platform.execute(delete(GoogleChatSpaceSelection))
+        await platform.commit()
+
+    @pytest_asyncio.fixture
+    async def configured(self, engine: AsyncEngine) -> AsyncIterator[FastAPI]:
+        instance = create_app(
+            Settings(
+                environment="test",
+                cors_allowed_origins=(TEST_ORIGIN,),
+                google_chat_client_id="1234.apps.googleusercontent.com",
+                google_chat_client_secret="not-a-real-client-secret",  # noqa: S106
+                google_chat_redirect_uri="https://cairn.test/v1/integrations/google-chat/callback",
+                google_chat_project_id="cairn-test",
+                google_chat_pubsub_topic="projects/cairn-test/topics/chat",
+                google_chat_service_account="chat-events@cairn-test.iam.gserviceaccount.com",
+            )
+        )
+        async with LifespanManager(instance):
+            yield instance
+
+    async def test_no_leases_yet_is_zero_and_observable(
+        self, configured: FastAPI, platform: AsyncSession
+    ) -> None:
+        """Configured and empty is a real, sayable state.
+
+        Distinct from the unconfigured case above: here the counts mean
+        something, and what they mean is that nothing has been subscribed yet.
+        """
+        staff = await as_staff(platform, await signed_up(configured), StaffRole.ENGINEERING)
+
+        body = (await staff.client.get("/v1/internal/operations/connectors")).json()
+        subscriptions = body["subscriptions"]
+
+        assert subscriptions["observable"] is True
+        assert subscriptions["subscriptionsLive"] == 0
+        assert subscriptions["subscriptionsExpected"] == 0
+        assert subscriptions["subscriptionsMissing"] == 0
+
+    async def test_it_counts_live_suspended_and_expired_leases_from_the_database(
+        self, configured: FastAPI, platform: AsyncSession
+    ) -> None:
+        """Real rows, across two workspaces, reduced to one fleet-wide answer."""
+        staff = await as_staff(platform, await signed_up(configured), StaffRole.ENGINEERING)
+        first = await a_chat_connection(platform)
+        second = await a_chat_connection(platform)
+        now = datetime.now(UTC)
+
+        await TestGoogleChatSubscriptionHealth._lease(
+            platform,
+            first.tenant_id,
+            first.connection_id,
+            space="spaces/AAAA1",
+            state=GoogleChatSubscriptionState.ACTIVE,
+            expires_at=now + timedelta(hours=3),
+        )
+        await TestGoogleChatSubscriptionHealth._lease(
+            platform,
+            first.tenant_id,
+            first.connection_id,
+            space="spaces/AAAA2",
+            state=GoogleChatSubscriptionState.SUSPENDED,
+            category=ConnectorErrorCategory.PERMISSION_REVOKED,
+        )
+        await TestGoogleChatSubscriptionHealth._lease(
+            platform,
+            second.tenant_id,
+            second.connection_id,
+            space="spaces/BBBB1",
+            state=GoogleChatSubscriptionState.EXPIRED,
+        )
+
+        body = (await staff.client.get("/v1/internal/operations/connectors")).json()
+        subscriptions = body["subscriptions"]
+
+        assert subscriptions["subscriptionsLive"] == 1
+        assert subscriptions["subscriptionsSuspended"] == 1
+        assert subscriptions["subscriptionsExpired"] == 1
+        assert subscriptions["subscriptionsByErrorCategory"] == {"permission_revoked": 1}
+        # Only a live lease has an expiry worth counting down. A suspended one is
+        # already not delivering and an expired one is already gone, so counting
+        # either would make this number *improve* as subscriptions died.
+        assert 0 < subscriptions["nearestExpiryMinutes"] <= 3 * 60
+
+    async def test_a_selected_space_with_no_live_lease_is_reported_missing(
+        self, configured: FastAPI, platform: AsyncSession
+    ) -> None:
+        """The number this whole surface exists for.
+
+        Two spaces selected, one lease and it has expired. The connection still
+        reads connected, the credential is still valid, and half the customer's
+        chosen spaces are delivering nothing.
+        """
+        staff = await as_staff(platform, await signed_up(configured), StaffRole.ENGINEERING)
+        connection = await a_chat_connection(platform)
+
+        for space in ("spaces/CCCC1", "spaces/CCCC2"):
+            platform.add(
+                GoogleChatSpaceSelection(
+                    tenant_id=connection.tenant_id,
+                    connection_id=connection.connection_id,
+                    space_name=space,
+                    selected_by_user_id=connection.user_id,
+                )
+            )
+        await platform.commit()
+        await TestGoogleChatSubscriptionHealth._lease(
+            platform,
+            connection.tenant_id,
+            connection.connection_id,
+            space="spaces/CCCC1",
+            state=GoogleChatSubscriptionState.EXPIRED,
+        )
+
+        body = (await staff.client.get("/v1/internal/operations/connectors")).json()
+        subscriptions = body["subscriptions"]
+
+        assert subscriptions["subscriptionsExpected"] == 2
+        assert subscriptions["subscriptionsLive"] == 0
+        assert subscriptions["subscriptionsMissing"] == 2
+
+    async def test_no_space_name_tenant_or_credential_reaches_the_response(
+        self, configured: FastAPI, platform: AsyncSession
+    ) -> None:
+        """The disclosure test.
+
+        A space resource name is customer data — `google_chat_space_selections`
+        has no display-name column precisely so a name cannot leak — and a tenant
+        id turns a fleet aggregate into a per-workspace report of what a customer
+        is producing, which md/05 §B.2 forbids on any dashboard.
+        """
+        staff = await as_staff(platform, await signed_up(configured), StaffRole.ENGINEERING)
+        connection = await a_chat_connection(platform)
+        platform.add(
+            GoogleChatSpaceSelection(
+                tenant_id=connection.tenant_id,
+                connection_id=connection.connection_id,
+                space_name="spaces/SECRET1",
+                selected_by_user_id=connection.user_id,
+            )
+        )
+        await platform.commit()
+        await TestGoogleChatSubscriptionHealth._lease(
+            platform,
+            connection.tenant_id,
+            connection.connection_id,
+            space="spaces/SECRET1",
+            state=GoogleChatSubscriptionState.ACTIVE,
+            expires_at=datetime.now(UTC) + timedelta(hours=2),
+        )
+
+        raw = (await staff.client.get("/v1/internal/operations/connectors")).text
+
+        assert "SECRET1" not in raw
+        assert "spaces/" not in raw
+        assert str(connection.tenant_id) not in raw
+        assert str(connection.connection_id) not in raw
 
 
 class TestStaffCannotReachCustomerContent:

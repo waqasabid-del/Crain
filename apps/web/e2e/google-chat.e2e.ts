@@ -50,7 +50,7 @@ async function signInAndOpenConnections(page: Page, account: SeededAccount): Pro
   await page.getByLabel("Password").fill(account.password);
   await page.getByRole("button", { name: "Sign in" }).click();
 
-  await expect(page.getByRole("heading", { level: 1, name: "Brief" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
 
   // `/admin` directly rather than through the nav: `AppShell` hides the
   // "Workspace" link from anyone who does not administer, and the whole point of
@@ -146,7 +146,7 @@ test("a Member is shown the same Google Chat record with nothing to press", asyn
   // one is not, and `ConnectionCard` computes `connectable` from `canManage`
   // rather than rendering and greying it.
   await expect(chat).toContainText(
-    "An Owner or an Admin of this workspace connects and disconnects sources.",
+    "An Owner or an Admin of this workspace connects and disconnects sources, in Workspace settings.",
   );
   await expect(chat.getByRole("button", { name: "Connect Google Chat" })).toHaveCount(0);
   await expect(chat.getByRole("button", { name: "Reconnect Google Chat" })).toHaveCount(0);

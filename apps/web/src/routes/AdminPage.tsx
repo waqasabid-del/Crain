@@ -30,6 +30,7 @@ import {
   ConnectionsLoading,
   GOOGLE_CHAT_CONNECTED_DETAIL,
   GOOGLE_CHAT_DISCONNECT_EFFECT,
+  GOOGLE_CHAT_NOT_LIVE,
   GOOGLE_CHAT_REFUSALS,
   GOOGLE_CHAT_SCOPES,
   GOOGLE_CHAT_WORKSPACE_ACCOUNT,
@@ -92,7 +93,7 @@ export function AdminPage(): ReactNode {
   if (activeWorkspace === null) {
     return (
       <>
-        <PageHeader title="Workspace" />
+        <PageHeader title="Workspace settings" />
         <EmptyState title="No workspace yet">
           This account is not a member of a workspace, so there is nothing to administer.
         </EmptyState>
@@ -102,8 +103,12 @@ export function AdminPage(): ReactNode {
 
   return (
     <>
+      {/* Named "Workspace settings" rather than "Workspace" so that every screen
+          pointing here — the connection cards, both pickers, the Trust page's
+          read-only notes — can name a destination the reader will recognise when
+          they arrive. The sidebar's shorter "Workspace" is the same place. */}
       <PageHeader
-        title="Workspace"
+        title="Workspace settings"
         description="Who is here, what CAIRN is connected to, and what happens to what it records."
       />
 
@@ -692,7 +697,7 @@ function googleChatCardProps({
     // Kept on screen whether or not Google Chat is connected: reconnecting needs
     // the same kind of account, and somebody reading the record is entitled to
     // know which kind of account CAIRN is reading through.
-    notice: googleChatNotice(install),
+    notice: googleChatNotice(install, connected),
     onConnect,
     connecting,
     onDisconnect,
@@ -707,16 +712,34 @@ function googleChatCardProps({
  * What to read before authorising, and — once an install has begun — how long
  * the link that was just minted is good for.
  *
+ * **The unavailability comes first**, because it is the fact that decides
+ * whether any of the rest matters: `chat.messages.readonly` is a restricted
+ * scope and no authorisation can complete until Google's verification and the
+ * CASA assessment are done. It is stated only while the connection is not
+ * `connected` — a card describing a live connection must not carry a sentence
+ * saying that connection is impossible, whichever of the two turns out to be
+ * wrong.
+ *
  * The server's own sentence is added when there is one, alongside rather than
  * instead of the account requirement: the two say different things, and the
  * `state` nonce being single-use and time-boxed is exactly the failure whose
  * only explanation is this line.
  */
-function googleChatNotice(install: GoogleChatInstall | null): ReactNode {
-  if (install === null) return GOOGLE_CHAT_WORKSPACE_ACCOUNT;
+function googleChatNotice(install: GoogleChatInstall | null, connected: boolean): ReactNode {
+  const unavailable = connected ? null : <>{GOOGLE_CHAT_NOT_LIVE} </>;
+
+  if (install === null) {
+    return (
+      <>
+        {unavailable}
+        {GOOGLE_CHAT_WORKSPACE_ACCOUNT}
+      </>
+    );
+  }
 
   return (
     <>
+      {unavailable}
       {GOOGLE_CHAT_WORKSPACE_ACCOUNT} {install.notice} Sending you to Google now. This link stops
       working at <time dateTime={install.expiresAt}>{formatDayAndTime(install.expiresAt)}</time> —
       if nothing happens, or you come back to this later, start again.

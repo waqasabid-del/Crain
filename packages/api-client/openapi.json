@@ -439,6 +439,16 @@
             "title": "Providersconfiguredbutunverified",
             "type": "integer"
           },
+          "subscriptions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionHealthView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "workspacesFailing": {
             "default": 0,
             "title": "Workspacesfailing",
@@ -2343,6 +2353,113 @@
         },
         "required": ["id", "name", "slug", "region", "createdAt", "memberCount"],
         "title": "StaffTenantSummary",
+        "type": "object"
+      },
+      "SubscriptionHealthView": {
+        "additionalProperties": false,
+        "description": "Every Google Chat lease at one moment, as counts and one age.\n\nAnswers the three questions an operator has about a renewal loop \u2014 how many\nleases are alive, how many are broken, how long until the next lapses \u2014 and\nnone of the questions a support session exists for. **Every field is an\ninteger, an age, a closed-enum mapping or the provider name; there is\nnowhere here to put a space, a workspace or a person**, which is a property\nof the shape rather than of the care taken filling it in.\n\nDerived from `SubscriptionRecord`, which the reader in\n`gchat/subscriptions.py` builds without an identifier of any kind, so no\naggregation choice made downstream can reintroduce one.",
+        "properties": {
+          "expiryIsPermanentLoss": {
+            "default": false,
+            "title": "Expiryispermanentloss",
+            "type": "boolean"
+          },
+          "nearestExpiryMinutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nearestexpiryminutes"
+          },
+          "observable": {
+            "default": true,
+            "title": "Observable",
+            "type": "boolean"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "renewalDueWithinMinutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Renewalduewithinminutes"
+          },
+          "subscriptionsByErrorCategory": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Subscriptionsbyerrorcategory",
+            "type": "object"
+          },
+          "subscriptionsByState": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Subscriptionsbystate",
+            "type": "object"
+          },
+          "subscriptionsExpected": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscriptionsexpected"
+          },
+          "subscriptionsExpired": {
+            "default": 0,
+            "title": "Subscriptionsexpired",
+            "type": "integer"
+          },
+          "subscriptionsLive": {
+            "default": 0,
+            "title": "Subscriptionslive",
+            "type": "integer"
+          },
+          "subscriptionsMissing": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscriptionsmissing"
+          },
+          "subscriptionsSuspended": {
+            "default": 0,
+            "title": "Subscriptionssuspended",
+            "type": "integer"
+          },
+          "subscriptionsUnobservableReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscriptionsunobservablereason"
+          }
+        },
+        "required": ["provider"],
+        "title": "SubscriptionHealthView",
         "type": "object"
       },
       "SubscriptionInspection": {

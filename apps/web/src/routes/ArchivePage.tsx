@@ -9,6 +9,7 @@ import { useAuth } from "../auth/context.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { useAsync } from "../hooks/useAsync.js";
+import utility from "../styles/utility.module.css";
 import styles from "./ArchivePage.module.css";
 
 /**
@@ -20,7 +21,7 @@ export function ArchivePage(): ReactNode {
   const { activeWorkspace } = useAuth();
 
   if (activeWorkspace === null) {
-    return <LoadingState label="your workspace" />;
+    return <LoadingState label="your workspace" shape="rows" />;
   }
 
   return <WorkspaceArchive workspaceId={activeWorkspace.id} />;
@@ -38,17 +39,29 @@ function WorkspaceArchive({ workspaceId }: { workspaceId: string }): ReactNode {
   return (
     <>
       <PageHeader
-        title="Archive"
-        description="Every brief CAIRN has written for this workspace, as it was written."
+        title="History"
+        description="Every brief CAIRN has written for this workspace, exactly as it was written. A finished period is never re-generated, so what you read here is what the team read at the time."
+        actions={
+          <Link className={utility.actionLink} href="/">
+            Today&rsquo;s brief
+          </Link>
+        }
       />
 
-      {state.status === "loading" && <LoadingState label="your past briefs" />}
+      {state.status === "loading" && (
+        <LoadingState label="your past briefs" shape="rows" lines={5} />
+      )}
 
       {state.status === "failed" && (
         <ErrorState
-          title="CAIRN could not load your archive"
+          title="Your history could not be loaded"
           error={state.error}
           onRetry={reload}
+          action={
+            <Link className={utility.actionLink} href="/">
+              Read today&rsquo;s brief
+            </Link>
+          }
         />
       )}
 
@@ -62,8 +75,16 @@ function ArchiveList({ archive }: { archive: BriefArchive }): ReactNode {
 
   if (items.length === 0) {
     return (
-      <EmptyState title="No briefs yet">
-        Briefs are kept once the period they cover has ended. Today&rsquo;s appears here tomorrow.
+      <EmptyState
+        title="No briefs yet"
+        action={
+          <Link className={utility.actionLink} href="/">
+            Read today&rsquo;s brief
+          </Link>
+        }
+      >
+        A brief is kept once the period it covers has ended, so today&rsquo;s appears here tomorrow
+        and stays unchanged after that.
       </EmptyState>
     );
   }

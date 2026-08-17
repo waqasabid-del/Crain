@@ -303,6 +303,17 @@ describe("what a role is offered", () => {
     ).toBeVisible();
   });
 
+  it("names the read-only list, in the same words the space picker uses", () => {
+    // "Selected channels" and "Selected spaces" are one pair of words across
+    // both providers: a reader moving between the Slack card and the Google
+    // Chat card is looking at one product, not two screens that were built
+    // separately. It names the list for a screen reader too, which otherwise
+    // meets a bare `<ul>` after a sentence and has to infer the relation.
+    render(<ChannelPicker selection={SELECTION} canManage={false} />);
+
+    expect(screen.getByRole("list", { name: /selected channels/i })).toBeVisible();
+  });
+
   it("takes a note for a surface where somebody else decides", () => {
     render(
       <ChannelPicker

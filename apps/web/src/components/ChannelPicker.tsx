@@ -100,6 +100,15 @@ interface PickerCopy {
   /** Names the `<fieldset>`, which is otherwise an unlabelled group of
    * checkboxes to a screen reader. */
   groupLabel: string;
+  /**
+   * Heads the read-only list — "Selected channels", "Selected spaces".
+   *
+   * The same two words on both providers, because a reader moving between the
+   * Slack card and the Google Chat card is looking at one product. It also
+   * names the list for a screen reader, which otherwise meets an unlabelled
+   * `<ul>` immediately after a summary sentence and has to infer the relation.
+   */
+  selectedLabel: string;
   /** One room, then many. Used for the count and nothing else. */
   unit: [string, string];
   /** Said while a save is in flight, in place of whatever the row said before —
@@ -277,14 +286,19 @@ function SourcePicker({
             not delivering, and a list that omits that says the opposite.
           */}
           {selected.length > 0 && (
-            <ul className={styles.readOnlyList}>
-              {selected.map((item) => (
-                <li key={item.id}>
-                  {item.label}
-                  {item.note !== null && <p className={styles.rowNote}>{item.note}</p>}
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className={styles.readOnlyHeading} id={`${baseId}-selected`}>
+                {copy.selectedLabel}
+              </p>
+              <ul className={styles.readOnlyList} aria-labelledby={`${baseId}-selected`}>
+                {selected.map((item) => (
+                  <li key={item.id}>
+                    {item.label}
+                    {item.note !== null && <p className={styles.rowNote}>{item.note}</p>}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
           <p className={styles.readOnly}>{readOnlyNote}</p>
         </>
@@ -447,7 +461,7 @@ export interface ChannelPickerProps {
 
 /** Said to a reader whose role may not change the selection. */
 export const CHANNEL_READ_ONLY_NOTE =
-  "An Owner or an Admin of this workspace chooses which channels CAIRN reads. This is the same list they see.";
+  "An Owner or an Admin of this workspace chooses which channels CAIRN reads, in Workspace settings. This is the same list they see.";
 
 const CHANNEL_COPY: PickerCopy = {
   heading: "Channels CAIRN reads",
@@ -456,6 +470,7 @@ const CHANNEL_COPY: PickerCopy = {
   searchLabel: "Search channels",
   searchHint: "Public channels only. CAIRN cannot list private channels or direct messages.",
   groupLabel: "Public channels CAIRN reads",
+  selectedLabel: "Selected channels",
   unit: ["channel", "channels"],
   savingNote: "Saving your choice. Nothing changes until Slack and CAIRN both confirm it.",
   noMatch: (query) => `No public channel matches “${query}”.`,
@@ -565,7 +580,7 @@ export function ChannelPickerLoading(): ReactNode {
 
 /** Said to a reader whose role may not change the selection. */
 export const SPACE_READ_ONLY_NOTE =
-  "An Owner or an Admin of this workspace chooses which Google Chat spaces CAIRN reads. This is the same list they see.";
+  "An Owner or an Admin of this workspace chooses which Google Chat spaces CAIRN reads, in Workspace settings. This is the same list they see.";
 
 const SPACE_COPY: PickerCopy = {
   heading: "Spaces CAIRN reads",
@@ -575,6 +590,7 @@ const SPACE_COPY: PickerCopy = {
   searchHint:
     "The spaces the Google Workspace account that authorised CAIRN can already see. CAIRN cannot list direct messages, and does not ask Google for them.",
   groupLabel: "Google Chat spaces CAIRN reads",
+  selectedLabel: "Selected spaces",
   unit: ["space", "spaces"],
   savingNote: "Saving your choice. Nothing changes until Google and CAIRN both confirm it.",
   noMatch: (query) => `No space matches “${query}”.`,

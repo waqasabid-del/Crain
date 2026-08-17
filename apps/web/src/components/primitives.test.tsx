@@ -333,6 +333,50 @@ describe("States", () => {
     await userEvent.click(screen.getByRole("button", { name: /try again/i }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
+
+  it("does not offer to retry a failure that will be refused identically forever", () => {
+    // A permission or configuration refusal is not an outage. "Try again" in
+    // front of one is a promise the product cannot keep, and the reader clicks
+    // it three times before thinking to ask somebody.
+    render(
+      <ErrorState
+        title="You do not have access to that"
+        error={PROBLEM}
+        onRetry={vi.fn()}
+        retryable={false}
+        action={<a href="/trust">Trust Center</a>}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
+    // Still somewhere to go: a dead end is what the retry button was covering.
+    expect(screen.getByRole("link", { name: "Trust Center" })).toBeVisible();
+  });
+
+  it("gives an empty state somewhere to go, not just an explanation", () => {
+    render(
+      <EmptyState title="Nothing recorded yet" action={<a href="/trust">See what is connected</a>}>
+        Nothing is read until a source is connected.
+      </EmptyState>,
+    );
+
+    expect(screen.getByRole("link", { name: "See what is connected" })).toBeVisible();
+  });
+
+  it("shapes the skeleton like the content it stands in for", () => {
+    // The point of a skeleton is that nothing moves when the content lands, so
+    // the number of placeholders has to match the rows that are coming.
+    const { container, rerender } = render(
+      <LoadingState label="the team feed" shape="rows" lines={4} />,
+    );
+    expect(container.querySelectorAll("[aria-hidden='true']")).toHaveLength(4);
+
+    rerender(<LoadingState label="the people in this workspace" shape="table" lines={2} />);
+    expect(container.querySelectorAll("[aria-hidden='true']")).toHaveLength(2);
+    // Whatever the shape, the announcement is the only thing a screen reader
+    // gets from any of it.
+    expect(screen.getByRole("status")).toHaveTextContent("Loading the people in this workspace.");
+  });
 });
 
 describe("AuthCard", () => {

@@ -1,13 +1,16 @@
 "use client";
 
 import type { Member } from "@cairn/api-client";
+import Link from "next/link";
 import { useCallback, type ReactNode } from "react";
 
 import { useApiClient } from "../api/context.js";
 import { useAuth } from "../auth/context.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
+import { StatusNote } from "../components/StatusNote.js";
 import { useAsync } from "../hooks/useAsync.js";
+import utility from "../styles/utility.module.css";
 import styles from "./PeoplePage.module.css";
 
 /** Who is in this workspace — md/15 §4.2 screen 18, read-only for now. The list
@@ -18,9 +21,20 @@ export function PeoplePage(): ReactNode {
   if (activeWorkspace === null) {
     return (
       <>
-        <PageHeader title="People" />
-        <EmptyState title="No workspace yet">
-          This account is not a member of a workspace, so there is nobody to list.
+        <PageHeader
+          title="Team"
+          description="Everyone in this workspace, and what each of them can configure."
+        />
+        <EmptyState
+          title="Join a workspace to see the team"
+          action={
+            <Link className={utility.actionLink} href="/settings">
+              Check which account you are using
+            </Link>
+          }
+        >
+          This account is not a member of a workspace yet, so there is nobody to list. An invitation
+          from a colleague adds you to theirs.
         </EmptyState>
       </>
     );
@@ -40,29 +54,62 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
   return (
     <>
       <PageHeader
-        title="People"
-        description="Everyone in this workspace, and what they can configure. Roles govern settings, never how much CAIRN shows about a person — everyone sees the same categories of information about everyone, including leadership."
-        meta={state.status === "ready" ? `${String(state.data.length)} members` : undefined}
+        title="Team"
+        description="Everyone in this workspace, and what each of them can configure. A role governs settings, never how much CAIRN shows about a person — everyone sees the same categories of information about everyone, including about leadership."
+        meta={state.status === "ready" ? membersLabel(state.data.length) : undefined}
+        actions={
+          <Link className={utility.actionLink} href="/trust">
+            Trust Center
+          </Link>
+        }
       />
 
-      {state.status === "loading" && <LoadingState label="the people in this workspace" />}
+      {state.status === "loading" && (
+        <LoadingState label="the people in this workspace" shape="table" lines={4} />
+      )}
 
       {state.status === "failed" && (
         <ErrorState
-          title="The people list could not be loaded"
+          title="The team could not be loaded"
           error={state.error}
           onRetry={reload}
+          action={
+            <Link className={utility.actionLink} href="/trust">
+              Who can see what
+            </Link>
+          }
         />
       )}
 
       {state.status === "ready" &&
         (state.data.length === 0 ? (
-          <EmptyState title="Nobody here yet">
-            Once colleagues accept an invitation they appear here. An invited person joins this
+          <EmptyState
+            title="Nobody here yet"
+            action={
+              <Link className={utility.actionLink} href="/settings">
+                Workspace settings
+              </Link>
+            }
+          >
+            Colleagues appear here once they accept an invitation. An invited person joins this
             workspace rather than starting one of their own.
           </EmptyState>
         ) : (
-          <MembersTable members={state.data} />
+          <>
+            <MembersTable members={state.data} />
+            {/*
+              Read-only, and said plainly rather than left to be discovered by a
+              click that does nothing. `live={false}`: this is standing guidance
+              on first paint, not the result of an action, and a live region
+              that was never live is noise a screen-reader user cannot mute.
+            */}
+            <div className={styles.readOnly}>
+              <StatusNote live={false}>
+                This list is read-only here. Roles and invitations are changed in Workspace
+                settings, by an admin.
+              </StatusNote>
+            </div>
+          </>
         ))}
     </>
   );
@@ -108,6 +155,11 @@ function MembersTable({ members }: { members: Member[] }): ReactNode {
       </table>
     </div>
   );
+}
+
+/** Singular when there is one of them: "1 members" is the sound of a machine. */
+function membersLabel(count: number): string {
+  return count === 1 ? "1 person" : `${String(count)} people`;
 }
 
 function formatDate(iso: string): string {

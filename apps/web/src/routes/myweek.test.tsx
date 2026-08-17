@@ -198,10 +198,10 @@ describe("correcting", () => {
 });
 
 describe("the shell", () => {
-  it("offers My week in the navigation", async () => {
+  it("offers this screen in the navigation, under the name the screen uses", async () => {
     render();
 
     const nav = await screen.findByRole("navigation", { name: /primary/i });
-    expect(within(nav).getByRole("link", { name: /my week/i })).toHaveAttribute("href", "/me");
+    expect(within(nav).getByRole("link", { name: /your record/i })).toHaveAttribute("href", "/me");
   });
 });

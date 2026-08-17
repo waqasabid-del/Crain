@@ -2,6 +2,7 @@
 
 import type { Facets, FactQuery } from "@cairn/api-client";
 import { Button } from "@cairn/ui";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
@@ -23,6 +24,7 @@ import { SampleBanner } from "../components/SampleBanner.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { describeError, type DescribedError } from "../errors.js";
 import { useAsync } from "../hooks/useAsync.js";
+import utility from "../styles/utility.module.css";
 import styles from "./FeedPage.module.css";
 
 /** Blockers and open questions first: they are what a reader can act on, and
@@ -128,9 +130,20 @@ export function FeedPage(): ReactNode {
   if (activeWorkspace === null) {
     return (
       <>
-        <PageHeader title="Feed" />
-        <EmptyState title="No workspace yet">
-          This account is not a member of a workspace, so there is no activity to show.
+        <PageHeader
+          title="Activity"
+          description="Everything CAIRN has recorded, with the evidence behind it."
+        />
+        <EmptyState
+          title="Join a workspace to see activity"
+          action={
+            <Link className={utility.actionLink} href="/settings">
+              Check which account you are using
+            </Link>
+          }
+        >
+          Activity belongs to a workspace, and this account is not a member of one yet. An
+          invitation from a colleague is the usual way in.
         </EmptyState>
       </>
     );
@@ -177,8 +190,13 @@ function WorkspaceFeed({ workspaceId }: { workspaceId: string }): ReactNode {
   return (
     <>
       <PageHeader
-        title="Feed"
-        description="Everything CAIRN has recorded, with the evidence it rests on. The same information everyone on the team can see — including about leadership."
+        title="Activity"
+        description="Everything CAIRN has recorded, with the evidence it rests on. This is the same information everyone on the team can see — including about leadership."
+        actions={
+          <Link className={utility.actionLink} href="/trust">
+            Trust Center
+          </Link>
+        }
       />
 
       {IS_SAMPLE_CONTENT && <SampleBanner />}
@@ -193,9 +211,9 @@ function WorkspaceFeed({ workspaceId }: { workspaceId: string }): ReactNode {
       />
 
       {applied.q === "" ? (
-        <Stream content={content} workspaceId={workspaceId} narrowing={applied} />
+        <Stream content={content} workspaceId={workspaceId} narrowing={applied} onClear={clear} />
       ) : (
-        <Results content={content} workspaceId={workspaceId} narrowing={applied} />
+        <Results content={content} workspaceId={workspaceId} narrowing={applied} onClear={clear} />
       )}
     </>
   );
@@ -390,10 +408,12 @@ function Stream({
   content,
   workspaceId,
   narrowing,
+  onClear,
 }: {
   content: ContentSource;
   workspaceId: string;
   narrowing: Narrowing;
+  onClear: () => void;
 }): ReactNode {
   const query = useMemo(() => asQuery(narrowing), [narrowing]);
   const load = useCallback(
@@ -435,23 +455,54 @@ function Stream({
     }
   }
 
-  if (state.status === "loading") return <LoadingState label="the team feed" lines={4} />;
+  // Rows, not prose: what arrives is a list of statements, so the placeholder
+  // holds that space and nothing jumps when it lands.
+  if (state.status === "loading") {
+    return <LoadingState label="the team feed" shape="rows" lines={5} />;
+  }
   if (state.status === "failed") {
-    return <ErrorState title="The feed could not be loaded" error={state.error} onRetry={reload} />;
+    return (
+      <ErrorState
+        title="Activity could not be loaded"
+        error={state.error}
+        onRetry={reload}
+        action={
+          <Link className={utility.actionLink} href="/">
+            Read the latest brief
+          </Link>
+        }
+      />
+    );
   }
 
   const facts = [...state.data.items, ...more];
 
   if (facts.length === 0) {
     return isNarrowed(narrowing) ? (
-      <EmptyState title="Nothing matches these filters">
+      <EmptyState
+        title="Nothing matches these filters"
+        /* "Show everything" rather than "Clear": it names the outcome, and the
+          filter bar above already has a control called Clear. */
+        action={
+          <Button type="button" onClick={onClear}>
+            Show everything
+          </Button>
+        }
+      >
         CAIRN has activity for this workspace, but none of it matches what you asked for. Widening
-        the dates is usually the one that helps.
+        the dates is usually the change that helps.
       </EmptyState>
     ) : (
-      <EmptyState title="Nothing recorded yet">
-        CAIRN has not received any activity for this workspace. Connecting a source in Settings is
-        what starts it — nothing is captured until someone turns it on.
+      <EmptyState
+        title="Nothing recorded yet"
+        action={
+          <Link className={utility.actionLink} href="/trust">
+            See what is connected
+          </Link>
+        }
+      >
+        No activity has reached CAIRN for this workspace. Nothing is read until a source is
+        connected and switched on, which an admin does in Workspace settings.
       </EmptyState>
     );
   }
@@ -514,10 +565,12 @@ function Results({
   content,
   workspaceId,
   narrowing,
+  onClear,
 }: {
   content: ContentSource;
   workspaceId: string;
   narrowing: Narrowing;
+  onClear: () => void;
 }): ReactNode {
   const query = useMemo(() => ({ ...asQuery(narrowing), q: narrowing.q }), [narrowing]);
   const load = useCallback(
@@ -526,9 +579,21 @@ function Results({
   );
   const { state, reload } = useAsync(load, "search this workspace");
 
-  if (state.status === "loading") return <LoadingState label="the results" lines={3} />;
+  if (state.status === "loading")
+    return <LoadingState label="the results" shape="rows" lines={3} />;
   if (state.status === "failed") {
-    return <ErrorState title="The search could not be run" error={state.error} onRetry={reload} />;
+    return (
+      <ErrorState
+        title="The search could not be run"
+        error={state.error}
+        onRetry={reload}
+        action={
+          <Button type="button" variant="secondary" onClick={onClear}>
+            Show everything
+          </Button>
+        }
+      />
+    );
   }
 
   const items = state.data.items ?? [];
@@ -537,9 +602,16 @@ function Results({
 
   if (items.length === 0) {
     return (
-      <EmptyState title={`Nothing recorded matches “${narrowing.q}”`}>
+      <EmptyState
+        title={`Nothing recorded matches “${narrowing.q}”`}
+        action={
+          <Button type="button" onClick={onClear}>
+            Show everything
+          </Button>
+        }
+      >
         CAIRN only searches what it has recorded, so a word that never appeared in a pull request, a
-        message or a meeting will not be here. Try the words the team actually used.
+        message or a meeting will not be here. The words the team actually used usually find it.
       </EmptyState>
     );
   }

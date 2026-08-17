@@ -168,7 +168,12 @@ describe("where CAIRN opens", () => {
     // the first question a sceptical person has is what it says about them.
     renderWelcome(role);
 
-    const onward = await screen.findByRole("link", { name: label });
+    // Scoped to `main`: the sidebar now names its destinations the same way the
+    // welcome screen does ("Your record"), which is the point — but it makes an
+    // unscoped query ambiguous for a reason that has nothing to do with this
+    // assertion. The onward step is the one in the page.
+    const main = await screen.findByRole("main");
+    const onward = within(main).getByRole("link", { name: label });
     expect(onward).toHaveAttribute("href", href);
   });
 
@@ -177,7 +182,8 @@ describe("where CAIRN opens", () => {
     // which is precisely the situation.
     renderWelcome(null);
 
-    expect(await screen.findByRole("link", { name: /team brief/i })).toHaveAttribute("href", "/");
+    const main = await screen.findByRole("main");
+    expect(within(main).getByRole("link", { name: /team brief/i })).toHaveAttribute("href", "/");
   });
 });
 
@@ -239,8 +245,12 @@ describe("the designer's own record", () => {
       // The heading's own block: the title and the sentence under it, which is
       // the whole of what somebody reads before deciding how they feel about
       // this screen.
-      const heading = await screen.findByRole("heading", { name: /my week/i });
-      expect(heading.parentElement?.textContent ?? "").not.toMatch(/commits?\b/i);
+      const heading = await screen.findByRole("heading", { level: 1, name: /your record/i });
+      // The whole page header, not the heading's immediate parent: the shared
+      // `PageHeader` nests the title beside its actions, so a parent-only
+      // assertion would stop covering the sentence underneath — which is the
+      // half of this block that actually says the wrong thing when it is wrong.
+      expect(heading.closest("header")?.textContent ?? "").not.toMatch(/commits?\b/i);
 
       unmount();
     }

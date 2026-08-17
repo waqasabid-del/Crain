@@ -50,17 +50,21 @@ from cairn_api.api.schemas import (
     SloStatus,
     StaffTenantDetail,
     StaffTenantSummary,
+    SubscriptionHealthView,
     SubscriptionInspection,
     SupportSessionRequest,
     SupportSessionResponse,
 )
+from cairn_api.config import Settings
 from cairn_api.db.backfill_models import BackfillRun, BackfillState
+from cairn_api.db.connector_models import ConnectorProvider
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.github_models import GitHubInstallation, WebhookDelivery
 from cairn_api.db.models import Membership, Tenant, User
 from cairn_api.db.staff_models import InternalAuditEntry, StaffMember, StaffRole
 from cairn_api.db.support_models import SupportScope, SupportSession
 from cairn_api.db.tenancy import tenant_session
+from cairn_api.gchat import subscriptions as gchat_subscriptions
 from cairn_api.internal import audit, support
 from cairn_api.ops import connectors as connector_ops
 from cairn_api.ops import measure
@@ -467,7 +471,53 @@ async def connector_health(
     """
     _ = staff
     fleet = await connector_ops.connector_health(db, settings)
-    return ConnectorFleetView.model_validate(fleet, from_attributes=True)
+    view = ConnectorFleetView.model_validate(fleet, from_attributes=True)
+    view.subscriptions = await _google_chat_subscription_health(db, settings)
+    return view
+
+
+async def _google_chat_subscription_health(
+    db: AsyncSession, settings: Settings
+) -> SubscriptionHealthView:
+    """Google Chat's lease health, fleet-wide.
+
+    Composed here rather than inside `connector_ops.connector_health` because
+    `gchat` imports `ops.connectors` for `SubscriptionRecord`; reading the leases
+    from inside the read model would make that a cycle. The route is the layer
+    that already knows about both.
+
+    **An unconfigured deployment reports unobservable, not zero.** With no
+    credentials there can be no leases, and "0 live, 0 suspended, 0 expired" is
+    indistinguishable on a screen from a renewal loop that is working — which is
+    the most reassuring possible rendering of "this connector was never set up".
+    `subscription_health(None)` says so instead.
+
+    Read on the platform session the route already holds. Under a tenant-scoped
+    session row-level security would narrow the leases to one workspace and the
+    result would still be labelled as the fleet.
+    """
+    configured = ConnectorProvider.GOOGLE_CHAT in connector_ops.configured_providers(settings)
+    records = await gchat_subscriptions.fleet_subscription_records(db) if configured else None
+    expected = await gchat_subscriptions.fleet_selected_space_count(db) if configured else None
+
+    health = connector_ops.subscription_health(
+        records, provider=ConnectorProvider.GOOGLE_CHAT, expected=expected
+    )
+    return SubscriptionHealthView(
+        provider=health.provider.value,
+        subscriptions_by_state=dict(health.subscriptions_by_state),
+        subscriptions_by_error_category=dict(health.subscriptions_by_error_category),
+        subscriptions_expected=health.subscriptions_expected,
+        subscriptions_live=health.subscriptions_live,
+        subscriptions_suspended=health.subscriptions_suspended,
+        subscriptions_expired=health.subscriptions_expired,
+        subscriptions_missing=health.subscriptions_missing,
+        nearest_expiry_minutes=health.nearest_expiry_minutes,
+        renewal_due_within_minutes=health.renewal_due_within_minutes,
+        expiry_is_permanent_loss=health.expiry_is_permanent_loss,
+        observable=health.observable,
+        subscriptions_unobservable_reason=health.subscriptions_unobservable_reason,
+    )
 
 
 # --------------------------------------------------------------------------

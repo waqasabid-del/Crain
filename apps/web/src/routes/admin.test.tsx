@@ -958,10 +958,10 @@ describe("what a role is offered", () => {
 
     const nav = await screen.findByRole("navigation", { name: /primary/i });
     expect(within(nav).queryByRole("link", { name: /^workspace$/i })).not.toBeInTheDocument();
-    // Trust and privacy is for everybody, and its slot in the navigation is
+    // The Trust Center is for everybody, and its slot in the navigation is
     // deliberate: a page about what is recorded that somebody has to go looking
     // for is one they conclude was hidden.
-    expect(within(nav).getByRole("link", { name: /trust and privacy/i })).toBeVisible();
+    expect(within(nav).getByRole("link", { name: /trust center/i })).toBeVisible();
   });
 
   it("passes an axe audit", async () => {
@@ -1079,7 +1079,7 @@ describe("the trust and privacy centre", () => {
 
     await screen.findByRole("heading", { name: /github — acme-inc/i });
     expect(
-      within(card(/github — acme-inc/i)).getByText(/disconnect this on the workspace screen/i),
+      within(card(/github — acme-inc/i)).getByText(/disconnect this in workspace settings/i),
     ).toBeVisible();
   });
 
@@ -1161,7 +1161,7 @@ describe("the trust and privacy centre", () => {
       await screen.findByText(/cairn is reading 1 channel/i);
       expect(screen.queryByRole("button", { name: /choose channels/i })).not.toBeInTheDocument();
       expect(
-        screen.getByText(/an owner or an admin chooses these on the workspace screen/i),
+        screen.getByText(/an owner or an admin chooses these in workspace settings/i),
       ).toBeVisible();
     });
 
@@ -1192,6 +1192,21 @@ describe("the trust and privacy centre", () => {
       expect(slack.getByText(/\/invite @CAIRN/i)).toBeVisible();
       expect(slack.getByText(/no permission to write anything to slack/i)).toBeVisible();
     });
+  });
+
+  it("does not let the record imply Google Chat is available", async () => {
+    // The record has to explain why the answer is "not connected", and here the
+    // reason is not that nobody got round to it: the restricted scope is
+    // unverified, so no authorisation can complete. A trust page that lists a
+    // source as merely unconnected, on a screen whose whole claim is that its
+    // statements can be checked, is the wrong sentence in the worst place.
+    renderTrust();
+
+    await screen.findByRole("heading", { name: /^google chat$/i });
+    const chat = within(card(/^google chat$/i));
+
+    expect(chat.getByText(/cannot be connected yet/i)).toBeVisible();
+    expect(chat.getByText(/casa security assessment/i)).toBeVisible();
   });
 
   it("carries no reassurance", async () => {
@@ -1715,6 +1730,26 @@ describe("connecting Google Chat", () => {
 
       expect(chat.getByText(/a personal gmail account cannot authorise this/i)).toBeVisible();
       expect(chat.getByText(/belong to a google workspace organisation/i)).toBeVisible();
+    });
+
+    it("says plainly that Google Chat cannot be connected yet, and why", async () => {
+      // **Google Chat is not live.** `chat.messages.readonly` is a RESTRICTED
+      // scope: it needs Google's OAuth verification and an independent CASA
+      // assessment, and until both are finished no authorisation can succeed
+      // (docs/runbooks/connectors.md). The Connect button is real, so without
+      // this sentence the only possible outcome is an opaque Google error the
+      // reader cannot tell from a broken product or a wrong account.
+      //
+      // The scope name and the assessment are the checkable half. "Coming soon"
+      // would be the same claim with the evidence removed.
+      renderAdmin(unconnectedGoogleClient());
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+      const chat = within(card(/^google chat$/i));
+
+      expect(chat.getByText(/cannot be connected yet/i)).toBeVisible();
+      expect(chat.getByText(/google classes as restricted/i)).toBeVisible();
+      expect(chat.getByText(/casa security assessment/i)).toBeVisible();
     });
   });
 

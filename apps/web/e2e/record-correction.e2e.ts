@@ -69,7 +69,7 @@ test("a reader signs in, corrects their record with its evidence intact, and can
 
   // -- 2. The Brief, and the promise it rests on ---------------------------
 
-  await expect(page.getByRole("heading", { level: 1, name: "Brief" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
 
   const claims = page.getByRole("list", { name: "Claims in today's brief" });
   const firstClaim = claims.getByRole("listitem").first();
@@ -87,7 +87,13 @@ test("a reader signs in, corrects their record with its evidence intact, and can
   // the app (routes/MyWeekPage.tsx), and inventing a control on the Brief would
   // be testing a product that does not exist.
 
-  await page.getByRole("link", { name: "My week" }).click();
+  // Scoped to the primary navigation. The page a reader is on also links to
+  // their record in prose, so an unscoped query matches two elements and fails
+  // as ambiguous — and the point here is that the *navigation* reaches it.
+  await page
+    .getByRole("navigation", { name: /primary/i })
+    .getByRole("link", { name: "Your record" })
+    .click();
 
   const record = page.getByRole("list", { name: "What CAIRN believes about you" });
   const firstFact = record.getByRole("listitem").first();

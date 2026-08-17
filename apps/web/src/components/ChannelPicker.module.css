@@ -138,6 +138,19 @@
   color: var(--fg-muted);
 }
 
+/* "Selected channels" / "Selected spaces". A label rather than a heading: the
+   picker's own heading already sits in the document outline just above, and a
+   second one for a two-line list would add a rung to heading navigation without
+   adding a section. It names the list through `aria-labelledby` instead. */
+.readOnlyHeading {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
 /* Read-only readers get the list itself. What CAIRN reads from their workspace
    is a fact about their own messages, and a count they cannot expand is one they
    have to take on trust. */

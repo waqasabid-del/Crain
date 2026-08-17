@@ -3,8 +3,70 @@
 .loading {
   display: flex;
   flex-direction: column;
+}
+
+/*
+ * Three shapes, because the placeholder's job is to hold the space the real
+ * content will take. Prose lines standing in for a table of people is a layout
+ * shift with extra steps.
+ */
+.prose {
+  composes: loading;
   gap: var(--space-3);
   max-width: var(--prose-max-width);
+}
+
+/*
+ * Rows: the list layouts — past briefs, the feed, a person's own record. The
+ * borders and vertical padding are the ones those lists use, so the rows land
+ * where the placeholders were.
+ */
+.rows {
+  composes: loading;
+  gap: 0;
+  border-top: var(--border-thin) solid var(--border-default);
+}
+
+/* Table rows sit inside a bordered box, matching the members table. */
+.table {
+  composes: loading;
+  gap: 0;
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-2);
+  border-bottom: var(--border-thin) solid var(--border-default);
+}
+
+.table .row {
+  padding: var(--space-4) var(--space-5);
+}
+
+.table .row:last-child {
+  border-bottom: 0;
+}
+
+.rowPrimary,
+.rowSecondary {
+  display: block;
+  height: 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-muted);
+}
+
+.rowPrimary {
+  max-width: 44ch;
+}
+
+.rowSecondary {
+  height: 0.75rem;
+  max-width: 18ch;
 }
 
 /*
@@ -41,7 +103,9 @@
  * rule is ever narrowed.
  */
 @media (prefers-reduced-motion: no-preference) {
-  .line {
+  .line,
+  .rowPrimary,
+  .rowSecondary {
     animation: pulse 1.6s var(--easing-standard) infinite;
   }
 }
@@ -80,8 +144,11 @@
   line-height: var(--leading-relaxed);
 }
 
+/* Wraps, because two actions side by side do not fit at 320px. */
 .actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-3);
   margin-top: var(--space-5);
 }

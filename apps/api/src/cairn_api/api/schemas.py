@@ -732,6 +732,71 @@ class ConnectorHealthView(ApiModel):
     inbound_verified: bool = False
 
 
+class SubscriptionHealthView(ApiModel):
+    """Every Google Chat lease at one moment, as counts and one age.
+
+    Answers the three questions an operator has about a renewal loop — how many
+    leases are alive, how many are broken, how long until the next lapses — and
+    none of the questions a support session exists for. **Every field is an
+    integer, an age, a closed-enum mapping or the provider name; there is
+    nowhere here to put a space, a workspace or a person**, which is a property
+    of the shape rather than of the care taken filling it in.
+
+    Derived from `SubscriptionRecord`, which the reader in
+    `gchat/subscriptions.py` builds without an identifier of any kind, so no
+    aggregation choice made downstream can reintroduce one.
+    """
+
+    provider: str
+
+    #: Leases keyed by subscription state. A closed enum, grouped rather than
+    #: reduced to working/not-working: `suspended` is reactivatable and
+    #: `expired` is deleted at Google, and a renewal loop treating them alike
+    #: spends its passes renewing subscriptions that no longer exist.
+    subscriptions_by_state: dict[str, int] = Field(default_factory=dict)
+
+    #: Leases that are not delivering, keyed by `ConnectorErrorCategory`. Never
+    #: Google's suspension text, which names the space it failed on.
+    subscriptions_by_error_category: dict[str, int] = Field(default_factory=dict)
+
+    #: How many leases should exist — one per selected space, fleet-wide.
+    #: `null` when it cannot be counted, which is not the same as zero.
+    subscriptions_expected: int | None = None
+
+    subscriptions_live: int = 0
+    subscriptions_suspended: int = 0
+    subscriptions_expired: int = 0
+
+    #: **The number this surface exists for.** An expired Chat subscription is
+    #: deleted rather than renewed, so the live count falls below the number of
+    #: selected spaces while the connection still reads `connected` and every
+    #: credential check passes. Nothing else in this product moves when that
+    #: happens.
+    subscriptions_missing: int | None = None
+
+    #: Minutes until the nearest live lease expires. Signed — a negative value
+    #: means one has already lapsed, and clamping it to zero would hide the only
+    #: case renewing cannot fix.
+    nearest_expiry_minutes: float | None = None
+
+    #: How long before the renewal loop must have run.
+    renewal_due_within_minutes: float | None = None
+
+    #: Whether letting a lease lapse costs delivery rather than time. True for
+    #: Google Chat: "we are behind" and "we lost that" are different incidents,
+    #: and only the second is a disclosure.
+    expiry_is_permanent_loss: bool = False
+
+    #: Whether the counts above mean anything.
+    observable: bool = True
+
+    #: Why they do not. Empty counts with a reason, never zeros — "0 suspended,
+    #: 0 expired" describes a healthy renewal loop, and reporting that for a
+    #: connector nobody has configured is the most reassuring possible rendering
+    #: of "this cannot be seen from here".
+    subscriptions_unobservable_reason: str | None = None
+
+
 class ConnectorFleetView(ApiModel):
     """Every source at one moment, and the numbers worth alerting on."""
 
@@ -745,6 +810,12 @@ class ConnectorFleetView(ApiModel):
     #: gate and this screen cannot disagree.
     providers_configured_but_unverified: int = 0
     oldest_unsuccessful_sync_minutes: float | None = None
+
+    #: Google Chat's lease health. Its own field rather than a member of
+    #: `providers`, because it answers a question no other provider has: Slack
+    #: and GitHub deliver until their credential is revoked, and Chat stops
+    #: delivering on a four-hour timer unless a loop keeps renewing it.
+    subscriptions: SubscriptionHealthView | None = None
 
 
 class PrivacySettings(ApiModel):

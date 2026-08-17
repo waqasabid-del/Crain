@@ -2036,6 +2036,7 @@ export interface components {
        * @default 0
        */
       providersConfiguredButUnverified: number;
+      subscriptions?: components["schemas"]["SubscriptionHealthView"] | null;
       /**
        * Workspacesfailing
        * @default 0
@@ -3104,6 +3105,68 @@ export interface components {
       region: components["schemas"]["Region"];
       /** Slug */
       slug: string;
+    };
+    /**
+     * SubscriptionHealthView
+     * @description Every Google Chat lease at one moment, as counts and one age.
+     *
+     *     Answers the three questions an operator has about a renewal loop — how many
+     *     leases are alive, how many are broken, how long until the next lapses — and
+     *     none of the questions a support session exists for. **Every field is an
+     *     integer, an age, a closed-enum mapping or the provider name; there is
+     *     nowhere here to put a space, a workspace or a person**, which is a property
+     *     of the shape rather than of the care taken filling it in.
+     *
+     *     Derived from `SubscriptionRecord`, which the reader in
+     *     `gchat/subscriptions.py` builds without an identifier of any kind, so no
+     *     aggregation choice made downstream can reintroduce one.
+     */
+    SubscriptionHealthView: {
+      /**
+       * Expiryispermanentloss
+       * @default false
+       */
+      expiryIsPermanentLoss: boolean;
+      /** Nearestexpiryminutes */
+      nearestExpiryMinutes?: number | null;
+      /**
+       * Observable
+       * @default true
+       */
+      observable: boolean;
+      /** Provider */
+      provider: string;
+      /** Renewalduewithinminutes */
+      renewalDueWithinMinutes?: number | null;
+      /** Subscriptionsbyerrorcategory */
+      subscriptionsByErrorCategory?: {
+        [key: string]: number;
+      };
+      /** Subscriptionsbystate */
+      subscriptionsByState?: {
+        [key: string]: number;
+      };
+      /** Subscriptionsexpected */
+      subscriptionsExpected?: number | null;
+      /**
+       * Subscriptionsexpired
+       * @default 0
+       */
+      subscriptionsExpired: number;
+      /**
+       * Subscriptionslive
+       * @default 0
+       */
+      subscriptionsLive: number;
+      /** Subscriptionsmissing */
+      subscriptionsMissing?: number | null;
+      /**
+       * Subscriptionssuspended
+       * @default 0
+       */
+      subscriptionsSuspended: number;
+      /** Subscriptionsunobservablereason */
+      subscriptionsUnobservableReason?: string | null;
     };
     /**
      * SubscriptionInspection

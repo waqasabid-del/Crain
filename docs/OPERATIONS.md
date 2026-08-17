@@ -8,27 +8,27 @@ rather than discovered during the first incident. Stage E (Steps 27–30) closes
 
 ## What exists today
 
-| Concern            | State                                                                                                         |
-| ------------------ | ------------------------------------------------------------------------------------------------------------- |
-| Structured logging | ✅ `structlog`, JSON in non-local environments, tenant id on every job log line                               |
-| Health endpoints   | ✅ `GET /healthz` (liveness, no database) and `GET /readyz` (readiness, 503 when not)                         |
-| Container image    | ✅ Multi-stage, non-root, one image with two entrypoints                                                      |
-| Migrations         | ✅ Alembic, round-trip tested in CI                                                                           |
-| Metrics            | ✅ Stage, model, cost, queue and evaluation counters — exported only when an OTLP endpoint is set             |
-| Tracing            | ✅ Spans across every pipeline stage, carried over the queue by the envelope's `traceparent`                  |
-| Fair scheduling    | ✅ On `CAIRN_QUEUE_BACKEND=postgres`: priority and per-tenant limits. Not on Pub/Sub                          |
-| Backup / restore   | ⚠️ Rehearsable and self-verifying (`make restore-rehearsal`) — rehearsed locally, never in production         |
-| SLOs               | ⚠️ Defined with stated measurement sources (`docs/SLOS.md`) — three of five measurable today                  |
-| Release gates      | ✅ `uv run python -m cairn_api.ops.gates_cli`, non-zero while anything blocks                                 |
-| Connector health   | ⚠️ `GET /v1/internal/operations/connectors`, counts and categories only — no source has ever delivered        |
-| Slack limits       | ⚠️ Ack budget, retries and the 30,000/hour ceiling recorded as constants — none of the three is measured      |
-| Google Chat limits | ⚠️ Lease TTL, scopes, ack deadline and suspension reasons recorded as constants — none is measured yet        |
-| Chat subscriptions | ⚠️ Tables and renewal sweep landed and running; `subscription_health` still on no API response                |
-| Chat connect flow  | ⚠️ Card, install route, callback and space picker wired — no authorisation can complete until Google approves |
-| Chat launch        | ❌ Blocked on a restricted-scope third-party security assessment — weeks to months, re-taken annually         |
-| Alerting           | ❌ Thresholds are written below; no rules and no destination are configured                                   |
-| Dashboards         | ❌ None                                                                                                       |
-| On-call            | ❌ No rotation, no escalation path                                                                            |
+| Concern            | State                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| Structured logging | ✅ `structlog`, JSON in non-local environments, tenant id on every job log line                                          |
+| Health endpoints   | ✅ `GET /healthz` (liveness, no database) and `GET /readyz` (readiness, 503 when not)                                    |
+| Container image    | ✅ Multi-stage, non-root, one image with two entrypoints                                                                 |
+| Migrations         | ✅ Alembic, round-trip tested in CI                                                                                      |
+| Metrics            | ✅ Stage, model, cost, queue and evaluation counters — exported only when an OTLP endpoint is set                        |
+| Tracing            | ✅ Spans across every pipeline stage, carried over the queue by the envelope's `traceparent`                             |
+| Fair scheduling    | ✅ On `CAIRN_QUEUE_BACKEND=postgres`: priority and per-tenant limits. Not on Pub/Sub                                     |
+| Backup / restore   | ⚠️ Rehearsable and self-verifying (`make restore-rehearsal`) — rehearsed locally, never in production                    |
+| SLOs               | ⚠️ Defined with stated measurement sources (`docs/SLOS.md`) — three of five measurable today                             |
+| Release gates      | ✅ `uv run python -m cairn_api.ops.gates_cli`, non-zero while anything blocks                                            |
+| Connector health   | ⚠️ `GET /v1/internal/operations/connectors`, counts and categories only — no source has ever delivered                   |
+| Slack limits       | ⚠️ Ack budget, retries and the 30,000/hour ceiling recorded as constants — none of the three is measured                 |
+| Google Chat limits | ⚠️ Lease TTL, scopes, ack deadline and suspension reasons recorded as constants — none is measured yet                   |
+| Chat subscriptions | ✅ Tables, renewal sweep and `subscription_health` on `GET /v1/internal/operations/connectors` (Engineering or Security) |
+| Chat connect flow  | ⚠️ Card, install route, callback and space picker wired — no authorisation can complete until Google approves            |
+| Chat launch        | ❌ Blocked on a restricted-scope third-party security assessment — weeks to months, re-taken annually                    |
+| Alerting           | ❌ Thresholds are written below; no rules and no destination are configured                                              |
+| Dashboards         | ❌ None                                                                                                                  |
+| On-call            | ❌ No rotation, no escalation path                                                                                       |
 
 **The honest reading:** the system can be started, will tell you what it is doing, and can now be
 asked what it is doing — the counters and spans exist and carry a trace from webhook to brief.
@@ -391,14 +391,14 @@ Honest gaps, so they are read here rather than discovered during an incident.
   in any environment that has not received a real webhook — it is derived from
   recorded deliveries, not from configuration. The `connectors` release gate says
   the same thing at release time.
-- **Google Chat's subscription counts are computable but unreadable.** The
-  migration landed (`20260817_0300_google_chat.py`, `c5a92f7e4d18`) and
-  `gchat/subscriptions.subscription_records` reduces each row to a state, a
-  category and an expiry — so this is no longer a database gap. It is an API
-  gap: **no route calls `subscription_health`**, and the connectors response does
-  not carry it. `subscriptionsMissing`, the number the worst Chat failure moves,
-  is reachable only from a Python shell or a test. Every threshold in the Chat
-  rows above therefore has a source and still has no screen.
+- **Google Chat's subscription counts are readable.** Closed.
+  `GET /v1/internal/operations/connectors` carries a `subscriptions` object —
+  state and error-category breakdowns, live, suspended, expired,
+  `subscriptionsMissing`, nearest expiry and renewal-due minutes — restricted to
+  the Engineering and Security staff roles, like every other operations read.
+  Every threshold in the Chat rows above now has both a source and a screen.
+  An unconfigured deployment reports `observable: false` with a reason rather
+  than zeros, because "0 live, 0 suspended" reads as a healthy renewal loop.
 - **Nothing measures whether a Chat renewal ran.** Still true.
   `cairn.connector.subscription_renewals` exists and is tested; the sweep is
   wired and running; and `gchat/subscriptions.py` never calls the counter. A

@@ -39,14 +39,14 @@ const AXE_OPTIONS = {
 /** Every label in the primary navigation, so a destination added to the shell
  * without being reachable on a phone fails here rather than in the field. */
 const DESTINATIONS = [
-  "Brief",
-  "My week",
+  "Daily brief",
+  "Your record",
+  "Activity",
+  "Team",
   "Archive",
-  "Feed",
-  "People",
-  "Workspace",
-  "Trust and privacy",
-  "Settings",
+  "Workspace settings",
+  "Preferences",
+  "Trust Center",
 ] as const;
 
 describe("routing", () => {
@@ -101,7 +101,7 @@ describe("the shell", () => {
       .filter((link) => link.getAttribute("aria-current") === "page");
 
     expect(current).toHaveLength(1);
-    expect(current[0]?.textContent).toMatch(/feed/i);
+    expect(current[0]?.textContent).toMatch(/activity/i);
   });
 
   it("has a skip link that points at the main region", async () => {
@@ -207,11 +207,13 @@ describe("the narrow-viewport navigation", () => {
     // Focus lands inside the panel, so the next key press acts on the menu the
     // reader just opened rather than on the page behind it.
     const nav = screen.getByRole("navigation", { name: /primary/i });
-    expect(within(nav).getByRole("link", { name: "Brief" })).toHaveFocus();
+    expect(within(nav).getByRole("link", { name: "Daily brief" })).toHaveFocus();
 
-    // Not a trap: Tab continues through the destinations in order.
+    // Tab continues through the destinations in order. The cycle is closed —
+    // the panel covers the top of the page at this width — but it is closed
+    // around the trigger, so the way out is one Shift+Tab away.
     await userEvent.tab();
-    expect(within(nav).getByRole("link", { name: "My week" })).toHaveFocus();
+    expect(within(nav).getByRole("link", { name: "Your record" })).toHaveFocus();
   });
 
   it("closes on Escape and returns focus to the trigger", async () => {
@@ -234,7 +236,7 @@ describe("the narrow-viewport navigation", () => {
 
     const trigger = await openMenu();
     const nav = screen.getByRole("navigation", { name: /primary/i });
-    await userEvent.click(within(nav).getByRole("link", { name: "Trust and privacy" }));
+    await userEvent.click(within(nav).getByRole("link", { name: "Trust Center" }));
 
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();

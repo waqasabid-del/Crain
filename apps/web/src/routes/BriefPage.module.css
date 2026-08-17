@@ -13,6 +13,15 @@
   line-height: var(--leading-relaxed);
 }
 
+/*
+ * The brief reads as one document, so it is one flow with a single measure
+ * rather than a stack of cards. Only the claim list, which carries its own
+ * sources, is allowed to be wider than the prose.
+ */
+.brief {
+  display: block;
+}
+
 .sectionTitle {
   margin: 0 0 var(--space-4);
   font-size: var(--text-sm);
@@ -20,6 +29,28 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--fg-subtle);
+}
+
+/* One sentence under the section rule, telling the reader what the list below
+ * is for. Set to the prose measure, like everything else that is read. */
+.sectionNote {
+  max-width: var(--prose-max-width);
+  margin: 0 0 var(--space-5);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/* The correction affordance md/05 §A.3 requires of a medium-risk output. At the
+ * end, where somebody who has just disagreed with a sentence is looking. */
+.footNote {
+  max-width: var(--prose-max-width);
+  margin: var(--space-8) 0 0;
+  padding-top: var(--space-5);
+  border-top: var(--border-thin) solid var(--border-default);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
 }
 
 /* Back to the archive. A plain link, above the brief rather than beside the

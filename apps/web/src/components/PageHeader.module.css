@@ -1,5 +1,48 @@
+/*
+ * The top of every screen.
+ *
+ * Every value is a token from @cairn/ui. The header is the loudest element on a
+ * page in a monochrome system — it is carried by size and weight alone — so it
+ * gets exactly one size step above everything else and nothing more.
+ */
+
 .header {
   margin-bottom: var(--space-8);
+}
+
+/*
+ * Title and actions on one line, wrapping to two when the row runs out of room.
+ * `flex-wrap` rather than a media query: the trigger is the length of this
+ * page's title and the width of its buttons, which no breakpoint knows.
+ */
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+}
+
+.headingBlock {
+  /* `min-width: 0` so a long unbroken title shrinks instead of forcing the row
+     wider than the page — the usual source of horizontal overflow at 320px. */
+  min-width: 0;
+  flex: 1 1 20ch;
+}
+
+/*
+ * The section this screen belongs to. Uppercase and tracked, matching the
+ * wordmark and the sidebar group headings — the product's one typographic
+ * flourish, used in the three places that label rather than say something.
+ */
+.eyebrow {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .title {
@@ -12,9 +55,37 @@
    * loose when scaled up; this is the only place in the app that adjusts it.
    */
   letter-spacing: -0.015em;
+  /* Long words — a workspace name, a URL — break rather than overflow. */
+  overflow-wrap: anywhere;
+}
+
+/*
+ * A section header inside a page steps down in size. The level attribute drives
+ * it, so the visual weight and the document structure cannot disagree.
+ */
+.title[data-level="2"] {
+  font-size: var(--text-xl);
+}
+
+/*
+ * Right-aligned beside the title, and never squeezed: the actions keep their
+ * intrinsic width and the title yields first, because a button clipped to half
+ * its label is worse than a title on two lines.
+ */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
 }
 
 .description {
+  /*
+   * A reading measure. 68ch from the shared token — comfortable reading is
+   * 45–75 characters, and a description set across a 1600px screen loses the
+   * line on the return sweep.
+   */
   max-width: var(--prose-max-width);
   margin: var(--space-3) 0 0;
   color: var(--fg-muted);
@@ -26,6 +97,7 @@
  * workspace. Small and grey, because it is orientation rather than content.
  */
 .meta {
+  max-width: var(--prose-max-width);
   margin: var(--space-2) 0 0;
   color: var(--fg-subtle);
   font-size: var(--text-sm);

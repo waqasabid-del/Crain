@@ -26,6 +26,7 @@ import {
   connectionRows,
   ConnectionsLoading,
   CONNECTION_READ_ONLY_NOTE,
+  GOOGLE_CHAT_NOT_LIVE,
   GOOGLE_CHAT_REFUSALS,
   GOOGLE_CHAT_SCOPES,
   GOOGLE_CHAT_WORKSPACE_ACCOUNT,
@@ -34,6 +35,7 @@ import {
   SLACK_SCOPES,
 } from "../components/ConnectionCard.js";
 import { PageHeader } from "../components/PageHeader.js";
+import { Section } from "../components/Section.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { useAsync } from "../hooks/useAsync.js";
 import styles from "./TrustPage.module.css";
@@ -64,7 +66,7 @@ export function TrustPage(): ReactNode {
   if (activeWorkspace === null) {
     return (
       <>
-        <PageHeader title="Trust and privacy" />
+        <PageHeader title="Trust Center" />
         <EmptyState title="No workspace yet">
           This account is not a member of a workspace, so there is nothing to describe.
         </EmptyState>
@@ -96,21 +98,23 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
 
   return (
     <>
+      {/* Titled exactly as the sidebar names it. A reader who clicked "Trust
+          Center" and arrived at a page headed something else has to work out
+          whether they are where they meant to be, and this is the one screen
+          that cannot afford a moment of "is this the right page". */}
       <PageHeader
-        title="Trust and privacy"
+        title="Trust Center"
         description="What CAIRN reads about you, what it will never do with it, and what you control. Everything here is true of this workspace right now — the numbers are read from it, not written into the page."
       />
 
-      <section className={styles.section} aria-labelledby="reads">
-        <h2 className={styles.heading} id="reads">
-          What CAIRN reads
-        </h2>
-        <p className={styles.lead}>
-          {connected.length === 0
+      <TrustSection
+        title="What CAIRN reads"
+        description={
+          connected.length === 0
             ? "Nothing is connected yet, so CAIRN is reading nothing. Every source it could ever read is listed here anyway, so you can decide about them before they are switched on."
-            : "Every source CAIRN can read is listed, including the ones this workspace has not connected."}
-        </p>
-
+            : "Every source CAIRN can read is listed, including the ones this workspace has not connected."
+        }
+      >
         <ul className={styles.sources}>
           {sources.map((source) => (
             <li key={source.source} className={styles.source}>
@@ -133,14 +137,11 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
           </Link>
           .
         </p>
-      </section>
+      </TrustSection>
 
       <WorkspaceConnections workspaceId={workspaceId} />
 
-      <section className={styles.section} aria-labelledby="never">
-        <h2 className={styles.heading} id="never">
-          What CAIRN never does
-        </h2>
+      <TrustSection title="What CAIRN never does">
         {/*
           The same list the notification screen shows, from the same place in the
           API. Two hand-maintained lists of promises is one list plus a way for
@@ -151,12 +152,9 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
             <li key={refusal}>{refusal}</li>
           ))}
         </ul>
-      </section>
+      </TrustSection>
 
-      <section className={styles.section} aria-labelledby="how">
-        <h2 className={styles.heading} id="how">
-          How CAIRN works, in practice
-        </h2>
+      <TrustSection title="How CAIRN works, in practice">
         <dl className={styles.commitments}>
           {(trust.commitments ?? []).map((commitment) => (
             <div className={styles.commitment} key={commitment.title}>
@@ -165,12 +163,9 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
             </div>
           ))}
         </dl>
-      </section>
+      </TrustSection>
 
-      <section className={styles.section} aria-labelledby="data">
-        <h2 className={styles.heading} id="data">
-          What happens to the data
-        </h2>
+      <TrustSection title="What happens to the data">
         <dl className={styles.facts}>
           <dt>Raw activity is kept for</dt>
           <dd>
@@ -189,18 +184,14 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
               : `${String(trust.awaitingNotification)} ${trust.awaitingNotification === 1 ? "person has" : "people have"} not been shown it yet. CAIRN attributes nothing to somebody until they have seen it.`}
           </dd>
         </dl>
-      </section>
+      </TrustSection>
 
       <SupportHistory workspaceId={workspaceId} />
 
-      <section className={styles.section} aria-labelledby="subprocessors">
-        <h2 className={styles.heading} id="subprocessors">
-          Who else sees it
-        </h2>
-        <p className={styles.lead}>
-          Every company that processes your activity, named, with what it sees. A general assurance
-          about partners is not an answer to this question.
-        </p>
+      <TrustSection
+        title="Who else sees it"
+        description="Every company that processes your activity, named, with what it sees. A general assurance about partners is not an answer to this question."
+      >
         <dl className={styles.commitments}>
           {(trust.subprocessors ?? []).map((item) => (
             <div className={styles.commitment} key={item.title}>
@@ -209,8 +200,46 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
             </div>
           ))}
         </dl>
-      </section>
+      </TrustSection>
     </>
+  );
+}
+
+/**
+ * The shared `Section`, with this page's reading measure.
+ *
+ * `plain` rather than the workspace screen's eyebrow treatment: these headings
+ * are sentences a reader is meant to take in, not signposts to scan past.
+ *
+ * It also retires six hand-written ids from this file. `id="never"` was written
+ * here *and* on a second route, and a duplicate id makes `aria-labelledby`
+ * resolve to whichever element the document reaches first — silently, on the
+ * page whose entire claim is that what it says can be checked. `Section` mints
+ * its own with `useId`, so a region and the heading that names it stay one
+ * decision.
+ */
+function TrustSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: ReactNode;
+  children: ReactNode;
+}): ReactNode {
+  // Both optional props are spread rather than passed: the CSS-module map is
+  // typed `string | undefined` and `exactOptionalPropertyTypes` is on, so an
+  // absent value has to arrive as an absent property rather than as `undefined`.
+  const className = styles.section;
+
+  return (
+    <Section
+      title={title}
+      {...(className === undefined ? {} : { className })}
+      {...(description === undefined ? {} : { description })}
+    >
+      {children}
+    </Section>
   );
 }
 
@@ -243,19 +272,14 @@ function WorkspaceConnections({ workspaceId }: { workspaceId: string }): ReactNo
 
   const administers = activeRole === "owner" || activeRole === "admin";
   const readOnlyNote = administers
-    ? "You can disconnect this on the workspace screen. It is read-only here because this page is the record, not the control."
+    ? "You can disconnect this in Workspace settings. It is read-only here because this page is the record, not the control."
     : CONNECTION_READ_ONLY_NOTE;
 
   return (
-    <section className={styles.section} aria-labelledby="connections">
-      <h2 className={styles.heading} id="connections">
-        What is connected right now
-      </h2>
-      <p className={styles.lead}>
-        The accounts CAIRN is reading from, as this workspace has them. Everything below is read
-        from the connection; anything CAIRN has not recorded is left out rather than guessed at.
-      </p>
-
+    <TrustSection
+      title="What is connected right now"
+      description="The accounts CAIRN is reading from, as this workspace has them. Everything below is read from the connection; anything CAIRN has not recorded is left out rather than guessed at."
+    >
       {state.status === "loading" && <ConnectionsLoading label="the connected sources" />}
       {state.status === "failed" && (
         <ErrorState
@@ -299,7 +323,20 @@ function WorkspaceConnections({ workspaceId }: { workspaceId: string }): ReactNo
                         ? {
                             requestedScopes: GOOGLE_CHAT_SCOPES,
                             refusals: GOOGLE_CHAT_REFUSALS,
-                            notice: GOOGLE_CHAT_WORKSPACE_ACCOUNT,
+                            // The record has to say why the answer is "not
+                            // connected", and for Google Chat the reason is not
+                            // that nobody got round to it: the restricted scope
+                            // is unverified and no authorisation can complete.
+                            // Said only while it is not connected, so the page
+                            // can never carry both that sentence and a live
+                            // connection.
+                            notice: connected ? (
+                              GOOGLE_CHAT_WORKSPACE_ACCOUNT
+                            ) : (
+                              <>
+                                {GOOGLE_CHAT_NOT_LIVE} {GOOGLE_CHAT_WORKSPACE_ACCOUNT}
+                              </>
+                            ),
                             ...(connected
                               ? { children: <GoogleChatSpaceRecord workspaceId={workspaceId} /> }
                               : {}),
@@ -312,7 +349,7 @@ function WorkspaceConnections({ workspaceId }: { workspaceId: string }): ReactNo
           </ul>
         </>
       )}
-    </section>
+    </TrustSection>
   );
 }
 
@@ -353,7 +390,7 @@ function SlackChannelRecord({ workspaceId }: { workspaceId: string }): ReactNode
     <ChannelPicker
       selection={state.data}
       canManage={false}
-      readOnlyNote="An Owner or an Admin chooses these on the workspace screen. It is read-only here because this page is the record, not the control."
+      readOnlyNote="An Owner or an Admin chooses these in Workspace settings. It is read-only here because this page is the record, not the control."
     />
   );
 }
@@ -398,7 +435,7 @@ function GoogleChatSpaceRecord({ workspaceId }: { workspaceId: string }): ReactN
     <SpacePicker
       spaces={state.data}
       canManage={false}
-      readOnlyNote="An Owner or an Admin chooses these on the workspace screen. It is read-only here because this page is the record, not the control."
+      readOnlyNote="An Owner or an Admin chooses these in Workspace settings. It is read-only here because this page is the record, not the control."
     />
   );
 }
@@ -425,52 +462,40 @@ function SupportHistory({ workspaceId }: { workspaceId: string }): ReactNode {
   if (state.status === "loading") return <LoadingState label="the support history" lines={2} />;
   if (state.status === "failed") {
     return (
-      <section className={styles.section} aria-labelledby="support">
-        <h2 className={styles.heading} id="support">
-          When CAIRN staff have looked
-        </h2>
+      <TrustSection title="When CAIRN staff have looked">
         <ErrorState
           title="The support history could not be loaded"
           error={state.error}
           onRetry={reload}
         />
-      </section>
+      </TrustSection>
     );
   }
 
   const sessions = state.data;
 
   return (
-    <section className={styles.section} aria-labelledby="support">
-      <h2 className={styles.heading} id="support">
-        When CAIRN staff have looked
-      </h2>
-
-      {sessions.length === 0 ? (
-        <p className={styles.lead}>
-          Nobody at CAIRN has asked to look at this workspace. If they ever do, they have to ask an
-          Owner or an Admin first, the access ends by itself, and it appears here whether or not you
-          approve it.
-        </p>
-      ) : (
-        <>
-          <p className={styles.lead}>
-            Requests are listed here whether they were approved or refused. CAIRN staff cannot grant
-            themselves access, and access ends by itself.
-          </p>
-          <ul className={styles.sources}>
-            {sessions.map((session) => (
-              <SessionRecord
-                key={session.id}
-                session={session}
-                workspaceId={workspaceId}
-                onChanged={reload}
-              />
-            ))}
-          </ul>
-        </>
+    <TrustSection
+      title="When CAIRN staff have looked"
+      description={
+        sessions.length === 0
+          ? "Nobody at CAIRN has asked to look at this workspace. If they ever do, they have to ask an Owner or an Admin first, the access ends by itself, and it appears here whether or not you approve it."
+          : "Requests are listed here whether they were approved or refused. CAIRN staff cannot grant themselves access, and access ends by itself."
+      }
+    >
+      {sessions.length > 0 && (
+        <ul className={styles.sources}>
+          {sessions.map((session) => (
+            <SessionRecord
+              key={session.id}
+              session={session}
+              workspaceId={workspaceId}
+              onChanged={reload}
+            />
+          ))}
+        </ul>
       )}
-    </section>
+    </TrustSection>
   );
 }
 

@@ -26,3 +26,32 @@
   white-space: nowrap;
   border: 0;
 }
+
+/*
+ * A link that acts as a page or panel action — "Trust Center" beside a title,
+ * "See what is connected" under an empty state.
+ *
+ * Underlined rather than drawn as a button: it navigates, and a link dressed as
+ * a button lies about what the middle mouse button will do. `--min-target` is
+ * WCAG 2.2 target size (2.5.8), which a one-line link fails without it.
+ *
+ * Shared rather than redefined per screen. Six copies of this rule is six
+ * chances for one page's actions to drift a pixel and a shade away from every
+ * other page's, which is what makes a product feel assembled rather than
+ * designed.
+ */
+.actionLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--min-target);
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.actionLink:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+  border-radius: var(--radius-sm);
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@cairn/ui";
+import Link from "next/link";
 import { useId, type ReactNode } from "react";
 
 import { useAuth } from "../auth/context.js";
@@ -8,6 +9,7 @@ import { PageHeader } from "../components/PageHeader.js";
 import { RoleChoice } from "../components/RoleChoice.js";
 import { useTheme } from "../theme/context.js";
 import { THEME_LABELS, THEME_PREFERENCES, type ThemePreference } from "../theme/theme.js";
+import utility from "../styles/utility.module.css";
 import styles from "./SettingsPage.module.css";
 
 export function SettingsPage(): ReactNode {
@@ -18,8 +20,13 @@ export function SettingsPage(): ReactNode {
   return (
     <>
       <PageHeader
-        title="Settings"
-        description="How CAIRN looks, who you are signed in as, and what CAIRN will not do with what it records."
+        title="Preferences"
+        description="How CAIRN looks, which account you are signed in with, and the boundaries CAIRN keeps whatever anyone configures."
+        actions={
+          <Link className={utility.actionLink} href="/trust">
+            Trust Center
+          </Link>
+        }
       />
 
       <section className={styles.section} aria-labelledby="appearance-heading">
@@ -83,9 +90,8 @@ export function SettingsPage(): ReactNode {
         The trust commitments, in the product rather than in a policy PDF.
 
         md/05 §B.3.4 requires this to be stated in-product, so that employees
-        know the commitment exists and can hold their employer to it. It is a
-        short summary here; the full Trust & Privacy Center is screen 22 and is
-        not built yet.
+        know the commitment exists and can hold their employer to it. A short
+        summary here, with the full statement in the Trust Center.
       */}
       <section className={styles.section} aria-labelledby="commitments-heading">
         <h2 className={styles.sectionTitle} id="commitments-heading">
@@ -101,6 +107,11 @@ export function SettingsPage(): ReactNode {
           Using CAIRN&rsquo;s output as the basis for an employment, disciplinary, or pay decision
           is prohibited by its terms of service. These are permanent product boundaries, not
           settings.
+        </p>
+        <p className={styles.sectionBody}>
+          <Link className={utility.actionLink} href="/trust">
+            Read the full statement in the Trust Center
+          </Link>
         </p>
       </section>
     </>

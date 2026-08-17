@@ -73,7 +73,7 @@ from typing import Final, Protocol, final
 
 import httpx
 import structlog
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -834,6 +834,50 @@ async def subscription_records(
         )
         for row in rows.all()
     )
+
+
+async def fleet_subscription_records(db: AsyncSession) -> tuple[SubscriptionRecord, ...]:
+    """Every lease CAIRN holds, across every workspace, reduced to counts' worth.
+
+    The platform-wide twin of `subscription_records`, for the staff operations
+    surface — which is deliberately never per workspace, because "which customer
+    is connected to what" is a support session's question and a dashboard
+    answers it for everybody at once with nobody's consent.
+
+    The reduction to `SubscriptionRecord` is what makes that safe rather than
+    merely intended: a state, a category and an expiry per lease, and **no
+    identifier at all** — no space, no connection, no tenant. Aggregating rows
+    that still carried a tenant id would leave the grouping a caller's choice,
+    and the caller is a screen.
+
+    Requires a platform session. Under a tenant-scoped session row-level
+    security would silently narrow this to one workspace, and the result would
+    read as the whole fleet.
+    """
+    rows = await db.scalars(select(GoogleChatSubscription))
+    return tuple(
+        SubscriptionRecord(
+            state=row.state,
+            suspension_category=row.suspension_category,
+            expires_at=row.expire_time,
+        )
+        for row in rows.all()
+    )
+
+
+async def fleet_selected_space_count(db: AsyncSession) -> int:
+    """How many spaces are selected across every workspace.
+
+    The `expected` figure `subscription_health` needs: one lease should exist per
+    selected space, and the gap between this number and the live count is the
+    only thing on any screen that moves when a lapsed subscription stops
+    delivering while the connection still reads `connected`.
+
+    A count, never the rows. The selections table is keyed by space resource
+    name, which is customer data.
+    """
+    total = await db.scalar(select(func.count()).select_from(GoogleChatSpaceSelection))
+    return int(total or 0)
 
 
 async def _subscription_for_space(

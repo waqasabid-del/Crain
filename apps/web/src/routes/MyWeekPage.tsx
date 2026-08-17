@@ -1,7 +1,8 @@
 "use client";
 
-import type { CorrectionBody, FactPage } from "@cairn/api-client";
+import { ApiError, type CorrectionBody, type FactPage } from "@cairn/api-client";
 import { Button, CertaintyBadge } from "@cairn/ui";
+import Link from "next/link";
 import { useCallback, useId, useState, type ReactNode, type SyntheticEvent } from "react";
 
 import { useApiClient } from "../api/context.js";
@@ -12,6 +13,7 @@ import { PageHeader } from "../components/PageHeader.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { describeError, type DescribedError } from "../errors.js";
 import { useAsync } from "../hooks/useAsync.js";
+import utility from "../styles/utility.module.css";
 import styles from "./MyWeekPage.module.css";
 
 /**
@@ -34,7 +36,7 @@ import styles from "./MyWeekPage.module.css";
 export function MyWeekPage(): ReactNode {
   const { activeWorkspace } = useAuth();
 
-  if (activeWorkspace === null) return <LoadingState label="your workspace" />;
+  if (activeWorkspace === null) return <LoadingState label="your workspace" shape="rows" />;
   return <WorkspaceWeek workspaceId={activeWorkspace.id} />;
 }
 
@@ -57,12 +59,30 @@ function WorkspaceWeek({ workspaceId }: { workspaceId: string }): ReactNode {
         The default mentions neither code nor design, because it is what
         somebody sees before CAIRN knows anything about them.
       */}
-      <PageHeader title="My week" description={recordLeadFor(activeWorkRole)} />
+      <PageHeader
+        eyebrow="This week"
+        title="Your record"
+        description={recordLeadFor(activeWorkRole)}
+        actions={
+          <Link className={utility.actionLink} href="/trust">
+            Trust Center
+          </Link>
+        }
+      />
 
-      {state.status === "loading" && <LoadingState label="your record" />}
+      {state.status === "loading" && <LoadingState label="your record" shape="rows" lines={4} />}
 
       {state.status === "failed" && (
-        <ErrorState title="CAIRN could not load your record" error={state.error} onRetry={reload} />
+        <ErrorState
+          title="Your record could not be loaded"
+          error={state.error}
+          onRetry={reload}
+          action={
+            <Link className={utility.actionLink} href="/trust">
+              What CAIRN records about you
+            </Link>
+          }
+        />
       )}
 
       {state.status === "ready" && (
@@ -83,9 +103,17 @@ function MyFacts({
 }): ReactNode {
   if (facts.length === 0) {
     return (
-      <EmptyState title="Nothing about you yet">
-        CAIRN has not matched any activity to you this week. That usually means the address on your
-        commits is not one it knows about — Settings can link it.
+      <EmptyState
+        title="Nothing about you yet"
+        action={
+          <Link className={utility.actionLink} href="/feed">
+            See the team&rsquo;s activity
+          </Link>
+        }
+      >
+        CAIRN has not matched any activity to you this week. Almost always that means the address on
+        your commits is not one it knows about yet, rather than a quiet week — an admin can link it
+        in Workspace settings.
       </EmptyState>
     );
   }
@@ -125,20 +153,27 @@ function FactRow({
   const [rewording, setRewording] = useState(fact.statement);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<DescribedError | null>(null);
+  /** Whether the refusal is one that will be repeated forever. See `send`. */
+  const [permanent, setPermanent] = useState(false);
   const [done, setDone] = useState<string | null>(null);
 
   async function send(body: CorrectionBody): Promise<void> {
     setBusy(true);
     setProblem(null);
+    setPermanent(false);
     try {
       await client.correctFact(workspaceId, fact.id, body);
       // Confirmed in words before the list refreshes. A row that simply
       // vanishes leaves the reader unsure whether their correction was
       // recorded or the page merely moved.
-      setDone("Recorded. Thank you — this is used to make CAIRN better.");
+      setDone("Recorded. Your correction is part of your record now, and CAIRN treats it as fact.");
       onChanged();
     } catch (error: unknown) {
       setProblem(describeError(error, "record your correction"));
+      // A refusal is not an outage. Trying again cannot change a permission,
+      // and a screen that implies it can costs somebody an afternoon before
+      // they think to ask an admin instead.
+      setPermanent(error instanceof ApiError && (error.status === 403 || error.status === 404));
     } finally {
       setBusy(false);
     }
@@ -187,7 +222,7 @@ function FactRow({
               right?" buttons with no way to tell them apart.
             */}
             Not right?
-            <span className={styles.visuallyHidden}> — {fact.statement}</span>
+            <span className={utility.visuallyHidden}> — {fact.statement}</span>
           </Button>
         )}
       </div>
@@ -201,6 +236,16 @@ function FactRow({
       {problem !== null && (
         <p className={styles.problem} role="alert">
           {problem.message}
+          {permanent && (
+            <>
+              {" "}
+              Trying again will not change it — a workspace admin can, or CAIRN support can be given
+              the reference below.
+            </>
+          )}
+          {problem.requestId !== undefined && (
+            <span className={styles.reference}>Reference: {problem.requestId}</span>
+          )}
         </p>
       )}
 

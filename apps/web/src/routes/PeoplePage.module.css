@@ -76,6 +76,12 @@
   color: var(--fg-default);
 }
 
+/* The read-only note, under the table it describes. */
+.readOnly {
+  max-width: var(--prose-max-width);
+  margin-top: var(--space-5);
+}
+
 .muted {
   color: var(--fg-muted);
   /* An email address is a single unbreakable word to the line-breaker. */

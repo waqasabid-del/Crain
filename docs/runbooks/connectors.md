@@ -403,13 +403,16 @@ than look for a recovery path that does not exist.
 
 `cairn_api.ops.connectors.subscription_health` — counts, one age, and nothing else.
 
-**It has a source now, and still has no reader.** `gchat/subscriptions.subscription_records` reads
-`google_chat_subscriptions` and reduces each row to a state, a category and an expiry, and the
-migration that creates the table has landed — so the "the tables do not exist yet" caveat that used
-to be here is gone. What is still missing is the last hop: **no route calls either function.**
-`/v1/internal/operations/connectors` does not carry subscription health, so today these readings are
-obtainable only from a Python shell or a test. Treat the table below as the shape of the answer, not
-as a screen somebody can open.
+**Readable from the back-office.** `GET /v1/internal/operations/connectors` carries it as
+`subscriptions`, for the Engineering and Security staff roles only; a customer session gets a 404,
+because the existence of a back-office is not something an ordinary session should confirm.
+`gchat/subscriptions.fleet_subscription_records` reduces every lease, fleet-wide, to a state, a
+category and an expiry — **no space, no connection, no tenant** — so the aggregate has nowhere to put
+an identifier and no grouping choice downstream can reintroduce one.
+
+The read is fleet-wide and deliberately never per workspace: which customer is connected to what is a
+support session's question, and a dashboard answers it for everybody at once with nobody's consent.
+An unconfigured deployment reports `observable: false` with a reason instead of zeros.
 
 | Reading                        | What it counts                                                                      |
 | ------------------------------ | ----------------------------------------------------------------------------------- |
@@ -511,19 +514,19 @@ time.
 Kept as a table because the honest answer is neither "done" nor "not started", and every previous
 version of this page rounded to one of the two.
 
-| Piece                             | State                      | Evidence                                                                                                                                                |
-| --------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tables and row-level security     | **Wired**                  | `migrations/versions/20260817_0300_google_chat.py`, revision `c5a92f7e4d18` on `e7b41c8d0392`; RLS + policy on all three tables                         |
-| Configuration                     | **Wired**                  | seven `google_chat_*` settings in `config.py`, with the redirect-URI HTTPS check                                                                        |
-| Renewal sweep                     | **Wired and called**       | `gchat/subscriptions.renew_expiring_subscriptions`, invoked from `jobs/main.py::run_maintenance`; covered by `test_gchat_subscriptions.py`              |
-| Renewal staggering                | **Wired**                  | `_stagger()` sleeps a uniform random interval between leases, so two workers that started together do not stay in lockstep                              |
-| Recreate-vs-renew                 | **Wired**                  | `_needs_creation()` takes the create path for a lapsed lease, including the case nothing marked expired                                                 |
-| Pub/Sub push receiver             | **Wired**                  | `api/routers/gchat_push.py`                                                                                                                             |
-| Connector + subscription health   | **Computable, unreadable** | `ops/connectors.subscription_health` and `gchat/subscriptions.subscription_records` exist; **no route calls them**                                      |
-| Renewal telemetry                 | Wired                      | `gchat/subscriptions.py` calls `record_subscription_renewal` per lease, and once per tenant whose pass raises; pinned by `test_gchat_subscriptions.py`  |
-| Customer-facing connect flow      | **Wired, unusable**        | `api/routers/gchat.py` (install, callback, spaces, disconnect) and a Google Chat card on the Workspace screen. It cannot complete: see the release gate |
-| Space picker in the app           | **Wired**                  | `GoogleChatSpaces` in `routes/AdminPage.tsx` renders `SpacePicker`, but only once the connection is `connected`                                         |
-| Google approvals and live traffic | **Not started here**       | see the release gate below. Nothing in this repository can change this row                                                                              |
+| Piece                             | State                | Evidence                                                                                                                                                |
+| --------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tables and row-level security     | **Wired**            | `migrations/versions/20260817_0300_google_chat.py`, revision `c5a92f7e4d18` on `e7b41c8d0392`; RLS + policy on all three tables                         |
+| Configuration                     | **Wired**            | seven `google_chat_*` settings in `config.py`, with the redirect-URI HTTPS check                                                                        |
+| Renewal sweep                     | **Wired and called** | `gchat/subscriptions.renew_expiring_subscriptions`, invoked from `jobs/main.py::run_maintenance`; covered by `test_gchat_subscriptions.py`              |
+| Renewal staggering                | **Wired**            | `_stagger()` sleeps a uniform random interval between leases, so two workers that started together do not stay in lockstep                              |
+| Recreate-vs-renew                 | **Wired**            | `_needs_creation()` takes the create path for a lapsed lease, including the case nothing marked expired                                                 |
+| Pub/Sub push receiver             | **Wired**            | `api/routers/gchat_push.py`                                                                                                                             |
+| Connector + subscription health   | Readable             | `GET /v1/internal/operations/connectors` carries `subscriptions`; Engineering and Security roles only, 404 for a customer session                       |
+| Renewal telemetry                 | Wired                | `gchat/subscriptions.py` calls `record_subscription_renewal` per lease, and once per tenant whose pass raises; pinned by `test_gchat_subscriptions.py`  |
+| Customer-facing connect flow      | **Wired, unusable**  | `api/routers/gchat.py` (install, callback, spaces, disconnect) and a Google Chat card on the Workspace screen. It cannot complete: see the release gate |
+| Space picker in the app           | **Wired**            | `GoogleChatSpaces` in `routes/AdminPage.tsx` renders `SpacePicker`, but only once the connection is `connected`                                         |
+| Google approvals and live traffic | **Not started here** | see the release gate below. Nothing in this repository can change this row                                                                              |
 
 `apps/web/e2e/google-chat.e2e.ts` holds the customer-facing half to the code in a real browser: both
 scope strings verbatim and **no third**, the Workspace-account sentence, the connect control present
@@ -633,12 +636,12 @@ To close the gate, in this order:
   webhook boundary yet, so a workspace losing every event to `http_timeout` is visible only as a
   silence. `x-slack-retry-reason` is the evidence, and it is in the provider's request rather than
   in anything CAIRN stores.
-- **Google Chat's subscription counts are computable but not readable.** The migration has landed
-  (`c5a92f7e4d18`) and `gchat/subscriptions.subscription_records` reads the rows, so this is no
-  longer a database gap. It is an API gap: nothing calls `subscription_health`, and
-  `/v1/internal/operations/connectors` does not carry it, so `subscriptionsMissing` — the number
-  this connector's worst failure mode moves — cannot be seen from any screen. Closing it is a
-  response field and a call, not a query.
+- **Google Chat's subscription counts are readable.** Closed.
+  `/v1/internal/operations/connectors` carries `subscriptions`, so `subscriptionsMissing` — the
+  number this connector's worst failure mode moves — can be read by the staff who would be paged for
+  it. Proven by tests over real rows: fleet-wide counts across two workspaces, the empty case, the
+  unconfigured case reporting unobservable rather than zero, and an assertion that no space resource
+  name, tenant id or connection id appears anywhere in the response body.
 - **Whether a Chat renewal actually ran is now measured.** Closed. `gchat/subscriptions.py` calls
   `ops/connectors.record_subscription_renewal` at the per-lease site, carrying the bounded
   `RenewalAction` word as `outcome`, and once with `failed` for a tenant whose entire pass raises —

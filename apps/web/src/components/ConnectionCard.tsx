@@ -92,7 +92,7 @@ export interface Connection {
  * explanation: a Viewer must be able to tell "not mine to do" from "nobody has
  * done it". */
 export const CONNECTION_READ_ONLY_NOTE =
-  "An Owner or an Admin of this workspace connects and disconnects sources. This is the same record they see.";
+  "An Owner or an Admin of this workspace connects and disconnects sources, in Workspace settings. This is the same record they see.";
 
 /**
  * One permission, named twice.
@@ -646,6 +646,28 @@ export const GOOGLE_CHAT_REFUSALS: string[] = [
 export const GOOGLE_CHAT_WORKSPACE_ACCOUNT =
   "A personal Gmail account cannot authorise this. The account you sign in with has to belong to a Google Workspace organisation — Google Chat spaces exist only there, and Google refuses the request from a personal account.";
 
+/**
+ * **Google Chat is not live, and this card must never suggest otherwise.**
+ *
+ * The connect flow is wired end to end — an install route, a callback, a space
+ * picker — and it stops dead at Google. `chat.messages.readonly` is a RESTRICTED
+ * scope: granting it needs Google's own OAuth verification *and* an independent
+ * third-party CASA security assessment, neither of which is complete, so no
+ * authorisation can succeed today (`docs/runbooks/connectors.md`, Google Chat).
+ *
+ * Without this sentence the screen offers a pressable Connect button whose only
+ * possible outcome is an opaque Google error, and the reader has no way to tell
+ * a wrong account, a broken product and an unfinished approval apart. The
+ * control is left in place rather than hidden — it is the real flow, and it is
+ * how the connector gets validated — but it is labelled for what it is.
+ *
+ * It is not shortened. "Coming soon" would be the same claim with the checkable
+ * part removed: the scope name and the assessment are the two facts a buyer's
+ * governance review can look up.
+ */
+export const GOOGLE_CHAT_NOT_LIVE =
+  "Google Chat cannot be connected yet, and pressing Connect will not work. Reading messages needs the chat.messages.readonly scope, which Google classes as restricted: it requires Google's own OAuth verification and an independent CASA security assessment, and until both are finished Google refuses the authorisation. Nothing is being read from Google Chat, and nothing can be until that is done.";
+
 /** No backfill. Said up front, because "we imported your last 90 days" is what
  * people assume a connection does, and discovering otherwise a week later reads
  * as data loss. */
@@ -905,8 +927,13 @@ function describeState(
       // Disconnected rows are listed rather than filtered out: a gap in the feed
       // is explained by "GitHub was disconnected on the 4th" and unexplained by
       // silence.
+      //
+      // The last sentence is the one somebody acts on. Reconnecting is not
+      // undoing: nothing said during the gap is ever recovered, because no
+      // source CAIRN reads offers a backfill, and a reader who assumes otherwise
+      // finds out a week later and reads it as data loss.
       stateDetail:
-        "CAIRN is no longer reading from this account. What it recorded before then stays.",
+        "CAIRN is no longer reading from this account. What it recorded before then stays. Connecting it again starts collection from that moment — nothing said while it was disconnected is recovered.",
     };
   }
   if (integration.suspended) {
@@ -916,10 +943,15 @@ function describeState(
     const label = providerFor(integration.source)?.label ?? integration.source;
     return {
       state: "error",
+      // Each says what is happening and what the person can actually do. The
+      // GitHub sentence names GitHub's own console because CAIRN cannot lift a
+      // suspension from here, and the general one is conditional on purpose:
+      // reconnecting fixes a lapsed or withdrawn grant and fixes nothing else,
+      // so it is not promised as a cure for whatever the provider is refusing.
       stateDetail:
         integration.source === "github"
-          ? "Suspended on GitHub. Nothing is being read while it stays that way."
-          : `${label} has stopped accepting CAIRN's requests. Nothing is being read while it stays that way.`,
+          ? "Suspended on GitHub. Nothing is being read while it stays that way. An owner of the GitHub organisation lifts a suspension in GitHub's own settings — CAIRN cannot do it from here."
+          : `${label} has stopped accepting CAIRN's requests. Nothing is being read while it stays that way. If the authorisation lapsed or was withdrawn, reconnecting is what restores it; if not, the answer is at ${label} rather than here.`,
     };
   }
   return {
