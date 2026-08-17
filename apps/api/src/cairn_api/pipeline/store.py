@@ -10,18 +10,31 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import ColumnElement, Select, and_, any_, false, literal, or_, select, true
+from sqlalchemy import (
+    ColumnElement,
+    Select,
+    and_,
+    any_,
+    false,
+    literal,
+    or_,
+    select,
+    true,
+    update,
+)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Text
 
 from cairn_api import telemetry
+from cairn_api.db.connector_models import ConnectorProvider
 from cairn_api.db.consent_models import SourceOptOut
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.fact_models import FactOrigin, FactPerson, FactSource
 from cairn_api.db.identity_models import Person
 from cairn_api.db.models import Membership
 from cairn_api.domain import Certainty
+from cairn_api.identity import external
 from cairn_api.pipeline import mentions
 from cairn_api.pipeline.facts import Fact, FactKind, SourceRef
 from cairn_api.pipeline.resolve import (
@@ -187,10 +200,15 @@ async def _apply_merge(session: AsyncSession, tenant_id: uuid.UUID, decision: De
                 )
             )
 
-    mentioned = {p.mention for p in row.people}
+    # Keyed on what the row actually stores, not on the incoming string. An
+    # actor row has a null `mention`, so comparing incoming strings against
+    # `{p.mention}` would find no match for a provider account and append a
+    # duplicate on every reprocess — which the partial unique index would then
+    # refuse, turning a redelivery into a failed job.
+    existing = {_person_key(p) for p in row.people}
     for mention in decision.fact.people:
-        if mention not in mentioned:
-            row.people.append(FactPerson(tenant_id=tenant_id, mention=mention))
+        if _incoming_key(mention) not in existing:
+            row.people.append(_person_row(tenant_id, mention))
 
     row.certainty = decision.fact.certainty.value
     row.occurred_at = decision.fact.occurred_at
@@ -236,7 +254,7 @@ async def _insert(session: AsyncSession, tenant_id: uuid.UUID, fact: Fact) -> Fa
             )
             for ref in fact.sources
         ],
-        people=[FactPerson(tenant_id=tenant_id, mention=name) for name in fact.people],
+        people=[_person_row(tenant_id, name) for name in fact.people],
     )
     session.add(row)
     return row
@@ -246,6 +264,73 @@ async def attach_people(session: AsyncSession, *, tenant_id: uuid.UUID, fact_id:
     """Resolve one stored fact's mentions to people; delegates to
     `attach_people_bulk` for a single implementation."""
     await attach_people_bulk(session, tenant_id=tenant_id, fact_ids=[fact_id])
+
+
+async def _resolve_actors(
+    session: AsyncSession, links: Sequence[FactPerson]
+) -> dict[tuple[str | None, str | None], uuid.UUID]:
+    """Every distinct provider account in this batch, resolved once.
+
+    Deduplicated before the lookup because one delivery commonly produces
+    several facts from the same author, and each would otherwise repeat the
+    query. Only `ACTIVE` links resolve — `external.resolve_person` enforces
+    that, so a revoked or disputed account falls through to unresolved here
+    rather than being quietly honoured.
+    """
+    wanted = {
+        (link.provider, link.provider_account_id)
+        for link in links
+        if link.provider_account_id is not None and link.provider is not None
+    }
+    found: dict[tuple[str | None, str | None], uuid.UUID] = {}
+    for provider_value, account_id in wanted:
+        try:
+            provider = ConnectorProvider(provider_value)
+        except ValueError:
+            # Fails closed. An unrecognised provider is not attributed to
+            # anybody, and the row stays as recorded provenance.
+            continue
+        person = await external.resolve_person(
+            session, provider=provider, provider_account_id=account_id
+        )
+        if person is not None:
+            found[(provider_value, account_id)] = person.id
+    return found
+
+
+def _person_key(row: FactPerson) -> tuple[str | None, str | None, str | None]:
+    """What makes a stored `fact_people` row distinct, in either shape."""
+    return (row.mention, row.provider, row.provider_account_id)
+
+
+def _incoming_key(mention: str) -> tuple[str | None, str | None, str | None]:
+    """The same key, computed from an incoming mention string."""
+    actor = mentions.read_provider_actor(mention)
+    if actor is None:
+        return (mention, None, None)
+    return (None, actor.provider.value, actor.account_id)
+
+
+def _person_row(tenant_id: uuid.UUID, mention: str) -> FactPerson:
+    """One `fact_people` row from one incoming mention string.
+
+    **The sentinel never reaches the database.** The pipeline carries a provider
+    account through the in-memory fact as `provider:{provider}:{account_id}`,
+    because the extracted-fact model has one list for "who is this about". This
+    is where that encoding stops: the row is written with structured `provider`
+    and `provider_account_id` columns and a null `mention`, so nothing
+    downstream — a serializer, an export, a log line, a correction screen — can
+    render a private provider identifier as if it were somebody's name.
+    """
+    actor = mentions.read_provider_actor(mention)
+    if actor is None:
+        return FactPerson(tenant_id=tenant_id, mention=mention)
+    return FactPerson(
+        tenant_id=tenant_id,
+        mention=None,
+        provider=actor.provider.value,
+        provider_account_id=actor.account_id,
+    )
 
 
 async def attach_people_bulk(
@@ -265,8 +350,13 @@ async def attach_people_bulk(
     if not links:
         return
 
-    names = sorted({link.mention for link in links})  # sorted for deterministic logs
+    # Two kinds of row, resolved by two different rules, because the evidence
+    # behind them is different in kind. A `mention` is text a model wrote — a
+    # claim about who a statement concerns. An actor is the account the provider
+    # itself named. Only the second may decide ownership.
+    names = sorted({link.mention for link in links if link.mention is not None})
     resolution = await mentions.resolve_mentions(session, tenant_id=tenant_id, names=names)
+    by_actor = await _resolve_actors(session, links)
 
     sources_by_fact = {row.id: {source.source for source in row.sources} for row in rows}
     opted_out = await _opt_outs_for(session, tenant_id, sources_by_fact)
@@ -274,21 +364,27 @@ async def attach_people_bulk(
 
     by_mention = {m.raw: m for m in resolution.mentions}
     for link in links:
-        match = by_mention.get(link.mention)
+        resolved = (
+            by_actor.get((link.provider, link.provider_account_id))
+            if link.provider_account_id is not None
+            else None
+        )
+        match = by_mention.get(link.mention) if link.mention is not None else None
+        person_id = resolved if resolved is not None else (match.person_id if match else None)
         # Only ever set, never cleared — a human-confirmed link must survive an automatic pass.
-        if match is None or match.person_id is None or link.person_id is not None:
+        if person_id is None or link.person_id is not None:
             continue
 
         # Opt-out enforced at attribution time, not read time, so nothing depends on remembering to filter later.
-        blocked = opted_out.get(match.person_id, set())
+        blocked = opted_out.get(person_id, set())
         if blocked & sources_by_fact.get(link.fact_id, set()):
             continue
 
         # Legal obligation, no regional exception (md/05 §B.3.5): no attribution before first-capture notification.
-        if match.person_id in unnotified:
+        if person_id in unnotified:
             continue
 
-        link.person_id = match.person_id
+        link.person_id = person_id
 
 
 async def _unnotified_people(session: AsyncSession, tenant_id: uuid.UUID) -> set[uuid.UUID]:
@@ -304,6 +400,106 @@ async def _unnotified_people(session: AsyncSession, tenant_id: uuid.UUID) -> set
         )
     )
     return set(rows)
+
+
+async def reconcile_actor(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    person_id: uuid.UUID,
+    provider: ConnectorProvider,
+    provider_account_id: str,
+) -> int:
+    """Attribute the work this account already produced, to the person who just
+    claimed it. Returns how many rows changed.
+
+    Run when somebody confirms a provider account is theirs. Everything CAIRN
+    recorded from that account before the confirmation is sitting unresolved —
+    an honest blank, but a blank — and this is what fills it in.
+
+    **Exact tuple only.** The `WHERE` is tenant, provider and account id, all
+    three. There is no name, no handle, no content, no similarity and no model
+    anywhere in this function; it moves rows that already carry the account the
+    person just proved is theirs, and nothing else.
+
+    **Never reassigns.** `person_id IS NULL` is part of the `WHERE`, so a fact
+    already attributed to somebody — automatically or by their own correction —
+    is untouched. Two people cannot both hold a live link to one account
+    (`uq_external_identities_live_account`), so this cannot silently move work
+    between colleagues; and if a link is ever transferred after a revocation,
+    the previous owner's attributed history stays theirs rather than being
+    retroactively rewritten. That is the conservative reading: the work *was*
+    attributed to them at the time, and changing it later would edit a record
+    somebody may already have corrected.
+
+    **Idempotent and concurrency-safe by construction.** One `UPDATE` whose
+    predicate excludes rows it has already changed, so a second run matches
+    nothing and two concurrent runs cannot double-apply. Resumable for the same
+    reason: an interrupted run leaves the remainder still matching.
+
+    **Consent is enforced here too, not only at ingestion.** A person who opted
+    out of Slack and then confirms their Slack account has not opted back in —
+    reconciliation would otherwise be a back door that fills in exactly the
+    history the refusal exists to prevent. Facts whose evidence comes from a
+    source this person refused are excluded, and so is a person whose
+    first-capture notification has not been served (md/05 §B.3.5).
+    """
+    refused = {
+        source
+        for (source,) in (
+            await session.execute(
+                select(SourceOptOut.source).where(
+                    SourceOptOut.tenant_id == tenant_id,
+                    SourceOptOut.person_id == person_id,
+                )
+            )
+        ).all()
+    }
+    if person_id in await _unnotified_people(session, tenant_id):
+        await logger.ainfo(
+            "attribution.reconcile_skipped_unnotified",
+            provider=provider.value,
+        )
+        return 0
+
+    candidates = select(FactPerson.id).where(
+        FactPerson.tenant_id == tenant_id,
+        FactPerson.provider == provider.value,
+        FactPerson.provider_account_id == provider_account_id,
+        FactPerson.person_id.is_(None),
+    )
+    if refused:
+        # Exclude any fact carrying evidence from a source this person refused.
+        # `EXISTS` rather than a join so one fact with two sources, one of them
+        # refused, is excluded once rather than counted twice.
+        blocked_facts = (
+            select(FactSource.fact_id)
+            .where(
+                FactSource.tenant_id == tenant_id,
+                FactSource.source.in_(refused),
+            )
+            .scalar_subquery()
+        )
+        candidates = candidates.where(FactPerson.fact_id.notin_(blocked_facts))
+
+    result = await session.execute(
+        update(FactPerson)
+        .where(FactPerson.id.in_(candidates.scalar_subquery()))
+        .values(person_id=person_id)
+        .returning(FactPerson.id)
+    )
+    changed = len(result.all())
+
+    await logger.ainfo(
+        "attribution.reconciled",
+        provider=provider.value,
+        # A count and a provider. Never the account id, never the person, never
+        # a fact — this line is read by whoever operates the system, not by
+        # somebody entitled to the workspace's contents.
+        facts=changed,
+        sources_refused=len(refused),
+    )
+    return changed
 
 
 async def _opt_outs_for(
@@ -346,7 +542,11 @@ def _to_domain(row: FactRow) -> Fact:
             for source in row.sources
         ],
         certainty=Certainty(row.certainty),
-        people=[p.mention for p in row.people],
+        # Human mentions only. An actor row carries a provider account id and no
+        # name, and the domain `Fact.people` is the list of names — putting an
+        # account id in it would send a private provider identifier into the
+        # brief, the feed and every export built from this mapping.
+        people=[p.mention for p in row.people if p.mention is not None],
         occurred_at=row.occurred_at,
     )
 

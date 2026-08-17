@@ -193,12 +193,49 @@ class FactPerson(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=True,
     )
 
-    mention: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: Human-readable text a model wrote — a name somebody may recognise and
+    #: correct. **This field is published**: it is a required member of
+    #: `FactPersonResponse` and the web app renders it as the credit line on
+    #: every fact. Nothing machine-identifying may be stored here.
+    #:
+    #: Null on an actor row. The two shapes are mutually exclusive, enforced by
+    #: `ck_fact_people_one_shape` rather than by convention.
+    mention: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    #: The provider that named the account below. Null on a mention row.
+    provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    #: The provider's own stable account id — a Slack `U…`, a Chat `users/…`, a
+    #: GitHub numeric id.
+    #:
+    #: **Internal only, and structurally so.** A Slack member id is a private
+    #: provider identifier; rendering one to every colleague in the workspace as
+    #: a person's name would be a disclosure. It lives in its own column rather
+    #: than inside `mention` precisely so that a serializer which forgets to
+    #: exclude it cannot leak it — `FactPersonResponse` has no field it could
+    #: land in, and `test_actor_privacy.py` fails if one is ever added.
+    provider_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     fact: Mapped[Fact] = relationship(back_populates="people")
 
     __table_args__ = (
-        UniqueConstraint("fact_id", "mention", name="uq_fact_people_fact_mention"),
+        # Both shapes unique per fact, so reprocessing one delivery cannot
+        # accumulate duplicates. Partial, because a null does not conflict.
+        Index(
+            "uq_fact_people_fact_mention",
+            "fact_id",
+            "mention",
+            unique=True,
+            postgresql_where=text("mention IS NOT NULL"),
+        ),
+        Index(
+            "uq_fact_people_fact_actor",
+            "fact_id",
+            "provider",
+            "provider_account_id",
+            unique=True,
+            postgresql_where=text("provider_account_id IS NOT NULL"),
+        ),
         Index("ix_fact_people_tenant_id", "tenant_id"),
         Index("ix_fact_people_person_id", "person_id"),
     )

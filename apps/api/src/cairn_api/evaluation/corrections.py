@@ -137,7 +137,11 @@ def _build_case(correction: FactRow, original: FactRow | None) -> GoldenCase | S
                 id=f"{source.source}-{index}",
                 source=Source(source.source),
                 content=source.quote,
-                people=[link.mention for link in original.people],
+                # Names only. An actor row carries a provider account id and no
+                # name; exporting one into an evaluation case would write a
+                # private provider identifier into a dataset that is read,
+                # diffed and shared far more freely than production data.
+                people=[link.mention for link in original.people if link.mention is not None],
                 occurred_at=original.occurred_at.isoformat() if original.occurred_at else None,
             )
         )
@@ -169,7 +173,7 @@ def _build_case(correction: FactRow, original: FactRow | None) -> GoldenCase | S
                 ExpectedClaim(
                     summary=correction.statement,
                     must_cite=[item.id for item in evidence],
-                    credits=[link.mention for link in original.people],
+                    credits=[link.mention for link in original.people if link.mention is not None],
                     certainty=Certainty.VERIFIED,
                 )
             ]

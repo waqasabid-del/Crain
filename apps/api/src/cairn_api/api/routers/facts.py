@@ -773,9 +773,16 @@ def _fact_response(row: FactRow) -> FactResponse:
             )
             for source in row.sources
         ],
+        # **Actor rows are excluded, and this is the boundary that guarantees it.**
+        # A row carrying a provider account id has no `mention`, and a Slack `U…`
+        # or a Chat `users/…` is a private provider identifier: publishing one to
+        # every colleague in the workspace, on the line that names who a fact
+        # concerns, would be a disclosure. `FactPersonResponse` has no field it
+        # could travel in, and `test_actor_privacy.py` fails if one is added.
         people=[
             FactPersonResponse(mention=link.mention, person_id=link.person_id)
             for link in row.people
+            if link.mention is not None
         ],
     )
 

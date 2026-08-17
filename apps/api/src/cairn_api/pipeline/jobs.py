@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cairn_api import sources as canonical
 from cairn_api.config import Settings, get_settings
+from cairn_api.db.connector_models import ConnectorProvider
 from cairn_api.db.fact_models import FactSource
 from cairn_api.db.github_models import WebhookDelivery
 from cairn_api.jobs.envelope import JobEnvelope
@@ -33,6 +34,7 @@ from cairn_api.pipeline.embeddings import (
 )
 from cairn_api.pipeline.extract import extract
 from cairn_api.pipeline.facts import Fact, SourceRef
+from cairn_api.pipeline.mentions import ProviderActor
 from cairn_api.pipeline.provider import ModelProvider, ScriptedProvider, VertexProvider
 from cairn_api.pipeline.spend import BudgetedProvider, ledger_for
 
@@ -135,6 +137,30 @@ class _Evidence:
     #: project is worse than one filed under none.
     project: str | None = None
 
+    #: The provider's own stable id for whoever produced this — a Slack `U…`, a
+    #: Chat `users/…`, a GitHub numeric user id. **Never a handle, a display
+    #: name or an address**: those are renameable, and attribution keyed on a
+    #: renameable string is silently reassigned by somebody else's rename.
+    #:
+    #: `None` is ordinary and means the provider did not state an author on this
+    #: payload — a push event names the pusher, not the author of each commit,
+    #: and attributing a commit to whoever pushed it would be wrong.
+    actor: ProviderActor | None = None
+
+
+def _actor(provider: ConnectorProvider, account_id: str | None) -> ProviderActor | None:
+    """One provider account, or nothing.
+
+    A missing author is not an error: it is a payload on which the provider did
+    not state one, and the honest record of that is an absence rather than a
+    guess. Nothing here falls back to a name, a handle or the workspace's only
+    other member.
+    """
+    cleaned = (account_id or "").strip()
+    if not cleaned:
+        return None
+    return ProviderActor(provider=provider, account_id=cleaned)
+
 
 def _read_slack_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
     """One public-channel message, as something a fact can cite.
@@ -162,6 +188,9 @@ def _read_slack_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
     if not isinstance(inner, dict):
         return []
 
+    # The edited message's own author, for the same reason the timestamp below
+    # is the inner one: on an edit the outer envelope describes the editor.
+    author = _text(inner.get("user"))
     text = _text(inner.get("text"))
     # The edited message's own timestamp, never the outer one: the outer `ts` is
     # when the edit happened, and citing it would file the correction as a
@@ -186,6 +215,7 @@ def _read_slack_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
             # channel would make a filterable project out of a name the event
             # does not even carry.
             project=None,
+            actor=_actor(ConnectorProvider.SLACK, author),
         )
     ]
 
@@ -222,6 +252,10 @@ def _read_gchat_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
 
     name = _text(message.get("name"))
     text = _text(message.get("text"))
+    # `users/{id}` — Google's opaque resource name. `gchat/events.py` has already
+    # dropped anything whose sender type is not HUMAN, so this is a person's
+    # account or the message never reached storage.
+    sender = _text(_dig(message, "sender", "name"))
     if not name or not text:
         return []
 
@@ -239,6 +273,7 @@ def _read_gchat_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
             # Chat has no equivalent of a repository, and inventing one from the
             # space would make a filterable project out of an opaque id.
             project=None,
+            actor=_actor(ConnectorProvider.GOOGLE_CHAT, sender),
         )
     ]
 
@@ -322,6 +357,13 @@ def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
         if not isinstance(number, int) or not title:
             continue
         body = _text(item.get("body")) or ""
+        # `user.id` — GitHub's stable numeric id, never `user.login`, which the
+        # account holder can change at any time. Commits below deliberately get
+        # no actor: a push payload names the pusher, not the author of each
+        # commit, and attributing somebody's commit to whoever pushed it is
+        # exactly the wrong-person failure this step exists to prevent.
+        author_id = _dig(item, "user", "id")
+        actor = _actor(ConnectorProvider.GITHUB, str(author_id) if author_id else None)
         found.append(
             _Evidence(
                 evidence_id=f"github:{label}:{repository}#{number}",
@@ -333,6 +375,7 @@ def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
                     or _timestamp(item.get("updated_at"))
                     or _timestamp(item.get("created_at"))
                 ),
+                actor=actor,
             )
         )
 
@@ -351,6 +394,11 @@ def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
                 )
             )
 
+    # Rebuilt only to stamp the repository, which is read once for the whole
+    # payload. **Every other field must be carried across explicitly** — this
+    # loop silently dropped the actor the first time it was added, and a dropped
+    # actor is not a visible failure: it is a fact that quietly belongs to
+    # nobody, which is exactly what an unattributable event looks like.
     return [
         _Evidence(
             evidence_id=item.evidence_id,
@@ -358,6 +406,7 @@ def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
             url=item.url,
             occurred_at=item.occurred_at,
             project=project,
+            actor=item.actor,
         )
         for item in found[:MAX_EVIDENCE_ITEMS]
     ]
@@ -414,8 +463,42 @@ def _with_provenance(facts: list[Fact], index: Mapping[str, _Evidence]) -> list[
         cited = [index[ref.evidence_id] for ref in fact.sources if ref.evidence_id in index]
         sources = [_enrich(ref, index.get(ref.evidence_id)) for ref in fact.sources]
         occurred = next((item.occurred_at for item in cited if item.occurred_at is not None), None)
-        dated.append(fact.model_copy(update={"sources": sources, "occurred_at": occurred}))
+        dated.append(
+            fact.model_copy(
+                update={
+                    "sources": sources,
+                    "occurred_at": occurred,
+                    "people": _people_with_actors(fact.people, cited),
+                }
+            )
+        )
     return dated
+
+
+def _people_with_actors(mentioned: list[str], cited: list[_Evidence]) -> list[str]:
+    """The model's mentions, plus the provider accounts the payload actually named.
+
+    **These two lists are different kinds of thing and are deliberately both
+    kept.** What the model wrote is a claim about who a statement concerns, and a
+    person reading their own record is entitled to see and correct it. The
+    provider account is recorded provenance: it is who the provider said produced
+    the evidence, it is not derived from any CAIRN table, and it is the only one
+    of the two that may decide ownership — `resolve_mentions` sends it to the
+    external-identity table and sends the model's names nowhere.
+
+    Actors first, so the row that can resolve is written before the ones that
+    cannot; order is otherwise immaterial and duplicates are dropped because
+    `fact_people` is unique on `(fact_id, mention)`.
+    """
+    actors = [item.actor.mention for item in cited if item.actor is not None]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for mention in [*actors, *mentioned]:
+        if mention in seen:
+            continue
+        seen.add(mention)
+        ordered.append(mention)
+    return ordered
 
 
 def _enrich(ref: SourceRef, item: _Evidence | None) -> SourceRef:

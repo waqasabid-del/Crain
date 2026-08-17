@@ -48,6 +48,7 @@ from cairn_api.db.external_identity_models import (
 )
 from cairn_api.db.identity_models import Identity, IdentityStatus, Person
 from cairn_api.identity import external
+from cairn_api.pipeline import store
 
 logger = structlog.get_logger(__name__)
 
@@ -200,7 +201,26 @@ async def confirm_identity(
     except external.IdentityConflictError as error:
         raise _conflict() from error
 
+    # Everything this account produced before the confirmation is sitting
+    # unresolved. Reconciling in the same transaction means the link and the
+    # attribution it justifies land together — a commit between them would leave
+    # a window in which the person owns the account and none of its work, and a
+    # failure after it would leave that window open permanently.
+    reconciled = await store.reconcile_actor(
+        db,
+        tenant_id=context.tenant_id,
+        person_id=person.id,
+        provider=body.provider,
+        provider_account_id=body.provider_account_id,
+    )
     await db.commit()
+
+    await logger.ainfo(
+        "identity.confirmed",
+        provider=body.provider.value,
+        # A count and a provider. Never the account id, never the person.
+        reconciled=reconciled,
+    )
 
     await logger.ainfo(
         "identity.self_confirmed",

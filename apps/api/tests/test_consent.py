@@ -87,7 +87,13 @@ async def add_fact(
             occurred_at=MONDAY,
             valid_from=MONDAY,
             sources=sources,
-            people=[FactPerson(tenant_id=tenant_id, person_id=person_id, mention="Priya Nair")],
+            # `@priyanair`, not the display name. A name no longer assigns
+            # ownership anywhere in the pipeline — two colleagues called Sam are
+            # one rename away from inheriting each other's work — so a fixture
+            # citing a display name would be exercising a path the product has
+            # deliberately retired. The handle resolves through the identity
+            # graph, which is what these tests are actually about.
+            people=[FactPerson(tenant_id=tenant_id, person_id=person_id, mention="@priyanair")],
         )
         session.add(row)
         await session.commit()
@@ -152,7 +158,7 @@ class TestOptOutIsPerSource:
             # unresolved mention already has, which is the honest description of
             # what CAIRN is now allowed to know.
             [link] = fact.people
-            assert link.mention == "Priya Nair"
+            assert link.mention == "@priyanair"
             assert link.person_id is None
 
     async def test_a_fact_from_two_sources_is_unlinked_if_either_is_opted_out(
@@ -240,7 +246,7 @@ class TestOptOutAppliesToNewActivity:
             assert fact is not None
             [link] = fact.people
             assert link.person_id is None, "an opted-out person was attributed anyway"
-            assert link.mention == "Priya Nair"
+            assert link.mention == "@priyanair"
 
     async def test_activity_from_a_source_they_kept_is_still_attributed(
         self, workspace: tuple[uuid.UUID, uuid.UUID]

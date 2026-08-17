@@ -30,7 +30,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cairn_api.db.connector_models import ConnectorProvider
-from cairn_api.db.identity_models import Identity, IdentityKind, Person
+from cairn_api.db.identity_models import Identity, IdentityKind
+from cairn_api.identity import external
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _HANDLE = re.compile(r"^@?[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
@@ -153,6 +154,22 @@ async def resolve_mentions(
 
 
 async def _resolve_one(session: AsyncSession, tenant_id: uuid.UUID, raw: str) -> Mention:
+    # A provider account is resolved by the external-identity table and by
+    # nothing else. Checked first because these mentions are minted by CAIRN
+    # rather than written by a model, so there is no reason to consider any
+    # other interpretation of them.
+    actor = read_provider_actor(raw)
+    if actor is not None:
+        person = await external.resolve_person(
+            session, provider=actor.provider, provider_account_id=actor.account_id
+        )
+        if person is not None:
+            return Mention(raw=raw, person_id=person.id)
+        return Mention(
+            raw=raw,
+            unresolved_reason="no confirmed identity for this provider account",
+        )
+
     kind = _identifier_kind(raw)
     if kind is not None:
         value = raw.lstrip("@").lower()
@@ -168,20 +185,18 @@ async def _resolve_one(session: AsyncSession, tenant_id: uuid.UUID, raw: str) ->
         # Not retried as a name: "ali@acme.test" isn't a display name.
         return Mention(raw=raw, unresolved_reason="identifier not in the identity graph")
 
-    matches = list(
-        await session.scalars(
-            select(Person).where(
-                Person.tenant_id == tenant_id,
-                func.lower(Person.display_name) == raw.lower(),
-            )
-        )
-    )
-    if len(matches) == 1:
-        return Mention(raw=raw, person_id=matches[0].id)
-    if len(matches) > 1:
-        # No tiebreak: any heuristic here risks attributing one person's work to another.
-        return Mention(raw=raw, unresolved_reason=f"{len(matches)} people share this name")
-    return Mention(raw=raw, unresolved_reason="no person with this name")
+    # **A name no longer assigns ownership.**
+    #
+    # This used to match `people.display_name` and, on exactly one hit, attribute
+    # the fact. It was the last path by which a string a model wrote into a fact
+    # could decide whose record something joined — two colleagues called Sam are
+    # one rename away from inheriting each other's work, and the single-match
+    # rule made the failure rarer rather than safer.
+    #
+    # The name is still kept as `fact_people.mention`, so "who did the model say
+    # this was about?" stays answerable and a person reading their own record can
+    # still see and correct it. What it no longer does is create ownership.
+    return Mention(raw=raw, unresolved_reason="a name is not evidence of identity")
 
 
 def _identifier_kind(raw: str) -> IdentityKind | None:
