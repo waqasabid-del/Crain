@@ -1,6 +1,8 @@
 "use client";
 
 import type {
+  GoogleChatInstall,
+  GoogleChatSpaceList,
   Integration,
   Member,
   Notifications,
@@ -18,11 +20,20 @@ import {
   ChannelPicker,
   ChannelPickerLoading,
   reconcileChannels,
+  reconcileSpaces,
+  SpacePicker,
+  SpacePickerLoading,
 } from "../components/ChannelPicker.js";
 import {
   ConnectionCard,
   connectionRows,
   ConnectionsLoading,
+  GOOGLE_CHAT_CONNECTED_DETAIL,
+  GOOGLE_CHAT_DISCONNECT_EFFECT,
+  GOOGLE_CHAT_REFUSALS,
+  GOOGLE_CHAT_SCOPES,
+  GOOGLE_CHAT_WORKSPACE_ACCOUNT,
+  SLACK_CONNECTED_DETAIL,
   SLACK_DISCONNECT_EFFECT,
   SLACK_INVITE_RULE,
   SLACK_REFUSALS,
@@ -359,9 +370,15 @@ function Integrations({
   const { state, reload } = useAsync(load, "load the connected sources");
   const [problem, setProblem] = useState<{ id: string; error: DescribedError } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const oauthReturn = readOAuthReturn(useSearchParams().get("slack"));
-  const [connecting, setConnecting] = useState(false);
+  // One parameter per provider, read separately. A shared `?oauth=` would put a
+  // Google denial on the Slack card, which is a false statement about which
+  // grant a reader just refused.
+  const search = useSearchParams();
+  const slackReturn = readOAuthReturn(search.get("slack"));
+  const googleChatReturn = readOAuthReturn(search.get("googleChat"));
+  const [connecting, setConnecting] = useState<string | null>(null);
   const [install, setInstall] = useState<SlackInstall | null>(null);
+  const [googleChatInstall, setGoogleChatInstall] = useState<GoogleChatInstall | null>(null);
 
   const canManage = administers(role);
 
@@ -406,7 +423,7 @@ function Integrations({
    * done nothing.
    */
   async function connectSlack(id: string): Promise<void> {
-    setConnecting(true);
+    setConnecting(id);
     setProblem(null);
     try {
       const started = await client.startSlackInstall(workspaceId);
@@ -415,7 +432,35 @@ function Integrations({
     } catch (error: unknown) {
       setProblem({ id, error: describeError(error, "start connecting Slack") });
     } finally {
-      setConnecting(false);
+      setConnecting(null);
+    }
+  }
+
+  /** The same two steps as Slack's, against Google's consent screen. */
+  async function connectGoogleChat(id: string): Promise<void> {
+    setConnecting(id);
+    setProblem(null);
+    try {
+      const started = await client.startGoogleChatInstall(workspaceId);
+      setGoogleChatInstall(started);
+      window.location.assign(started.authorizeUrl);
+    } catch (error: unknown) {
+      setProblem({ id, error: describeError(error, "start connecting Google Chat") });
+    } finally {
+      setConnecting(null);
+    }
+  }
+
+  async function disconnectGoogleChat(id: string): Promise<void> {
+    setBusyId(id);
+    setProblem(null);
+    try {
+      await client.disconnectGoogleChat(workspaceId);
+      reload();
+    } catch (error: unknown) {
+      setProblem({ id, error: describeError(error, "disconnect that source") });
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -463,7 +508,6 @@ function Integrations({
             {connectionRows(state.data).map((row) => {
               const { connection, integration } = row;
               const failure = problem?.id === connection.id ? problem.error : undefined;
-              const isSlack = row.source === "slack";
               const connected = connection.state === "connected";
 
               return (
@@ -473,13 +517,13 @@ function Integrations({
                     canManage={canManage}
                     disconnecting={busyId === connection.id}
                     {...(failure === undefined ? {} : { problem: failure })}
-                    {...(isSlack
+                    {...(row.source === "slack"
                       ? slackCardProps({
                           workspaceId,
                           connected,
-                          oauthReturn,
+                          oauthReturn: slackReturn,
                           canManage,
-                          connecting,
+                          connecting: connecting === connection.id,
                           install,
                           onConnect: () => {
                             void connectSlack(connection.id);
@@ -488,13 +532,28 @@ function Integrations({
                             void disconnectSlack(connection.id);
                           },
                         })
-                      : integration === null
-                        ? {}
-                        : {
-                            onDisconnect: (): void => {
-                              void disconnect(connection.id, integration.installationId);
+                      : row.source === "google_chat"
+                        ? googleChatCardProps({
+                            workspaceId,
+                            connected,
+                            oauthReturn: googleChatReturn,
+                            canManage,
+                            connecting: connecting === connection.id,
+                            install: googleChatInstall,
+                            onConnect: () => {
+                              void connectGoogleChat(connection.id);
                             },
-                          })}
+                            onDisconnect: () => {
+                              void disconnectGoogleChat(connection.id);
+                            },
+                          })
+                        : integration === null
+                          ? {}
+                          : {
+                              onDisconnect: (): void => {
+                                void disconnect(connection.id, integration.installationId);
+                              },
+                            })}
                   />
                 </li>
               );
@@ -536,6 +595,7 @@ function slackCardProps({
   requestedScopes: typeof SLACK_SCOPES;
   refusals: string[];
   disconnectEffect: string;
+  connectedDetail: string;
   onConnect: () => void;
   connecting: boolean;
   onDisconnect: () => void;
@@ -547,6 +607,7 @@ function slackCardProps({
     requestedScopes: SLACK_SCOPES,
     refusals: SLACK_REFUSALS,
     disconnectEffect: SLACK_DISCONNECT_EFFECT,
+    connectedDetail: SLACK_CONNECTED_DETAIL,
     onConnect,
     connecting,
     onDisconnect,
@@ -581,6 +642,163 @@ function connectNotice(install: SlackInstall | null): ReactNode {
       <time dateTime={install.expiresAt}>{formatDayAndTime(install.expiresAt)}</time> — if nothing
       happens, or you come back to this later, start again.
     </>
+  );
+}
+
+/**
+ * Everything the Google Chat card needs, decided in one place.
+ *
+ * The shape is Slack's, deliberately: the same card, the same connect and
+ * disconnect controls, the same three OAuth outcomes. What differs is only what
+ * is *true* of Google Chat — the two `readonly` scopes, the six things the grant
+ * makes impossible, and the Workspace-account requirement, which is the one
+ * sentence that decides whether pressing Connect can work at all.
+ */
+function googleChatCardProps({
+  workspaceId,
+  connected,
+  oauthReturn,
+  canManage,
+  connecting,
+  install,
+  onConnect,
+  onDisconnect,
+}: {
+  workspaceId: string;
+  connected: boolean;
+  oauthReturn: OAuthReturn | undefined;
+  canManage: boolean;
+  connecting: boolean;
+  install: GoogleChatInstall | null;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}): {
+  requestedScopes: typeof GOOGLE_CHAT_SCOPES;
+  refusals: string[];
+  disconnectEffect: string;
+  connectedDetail: string;
+  notice: ReactNode;
+  onConnect: () => void;
+  connecting: boolean;
+  onDisconnect: () => void;
+  oauthReturn?: OAuthReturn;
+  children?: ReactNode;
+} {
+  return {
+    requestedScopes: GOOGLE_CHAT_SCOPES,
+    refusals: GOOGLE_CHAT_REFUSALS,
+    disconnectEffect: GOOGLE_CHAT_DISCONNECT_EFFECT,
+    connectedDetail: GOOGLE_CHAT_CONNECTED_DETAIL,
+    // Kept on screen whether or not Google Chat is connected: reconnecting needs
+    // the same kind of account, and somebody reading the record is entitled to
+    // know which kind of account CAIRN is reading through.
+    notice: googleChatNotice(install),
+    onConnect,
+    connecting,
+    onDisconnect,
+    ...(oauthReturn === undefined ? {} : { oauthReturn }),
+    ...(connected
+      ? { children: <GoogleChatSpaces workspaceId={workspaceId} canManage={canManage} /> }
+      : {}),
+  };
+}
+
+/**
+ * What to read before authorising, and — once an install has begun — how long
+ * the link that was just minted is good for.
+ *
+ * The server's own sentence is added when there is one, alongside rather than
+ * instead of the account requirement: the two say different things, and the
+ * `state` nonce being single-use and time-boxed is exactly the failure whose
+ * only explanation is this line.
+ */
+function googleChatNotice(install: GoogleChatInstall | null): ReactNode {
+  if (install === null) return GOOGLE_CHAT_WORKSPACE_ACCOUNT;
+
+  return (
+    <>
+      {GOOGLE_CHAT_WORKSPACE_ACCOUNT} {install.notice} Sending you to Google now. This link stops
+      working at <time dateTime={install.expiresAt}>{formatDayAndTime(install.expiresAt)}</time> —
+      if nothing happens, or you come back to this later, start again.
+    </>
+  );
+}
+
+/**
+ * The space selection, saved one space at a time.
+ *
+ * The same rule as the channel picker's, and for the same reason: nothing is
+ * written optimistically, so a refused save leaves the checkbox exactly where it
+ * was and puts the reason beside it. `PUT` answers with resource names, and
+ * `reconcileSpaces` is the one place that folds those back onto the list — the
+ * tick still comes from what the server said, not from what was clicked.
+ */
+function GoogleChatSpaces({
+  workspaceId,
+  canManage,
+}: {
+  workspaceId: string;
+  canManage: boolean;
+}): ReactNode {
+  const client = useApiClient();
+  const load = useCallback(
+    (signal: AbortSignal): Promise<GoogleChatSpaceList> =>
+      client.listGoogleChatSpaces(workspaceId, { signal }),
+    [client, workspaceId],
+  );
+  const { state, reload } = useAsync(load, "load the Google Chat spaces");
+
+  const [saved, setSaved] = useState<GoogleChatSpaceList | null>(null);
+  const [saving, setSaving] = useState<string[]>([]);
+  const [problem, setProblem] = useState<DescribedError | null>(null);
+
+  if (state.status === "loading") return <SpacePickerLoading />;
+  if (state.status === "failed") {
+    // A 403 arrives here with its own copy — "this account does not have access
+    // to that" — so a permission refusal is answered rather than reported as a
+    // generic failure.
+    return (
+      <ErrorState
+        title="The Google Chat spaces could not be loaded"
+        error={state.error}
+        onRetry={reload}
+        headingLevel={4}
+      />
+    );
+  }
+
+  const spaces = saved ?? state.data;
+
+  async function toggle(spaceName: string, next: boolean): Promise<void> {
+    // The whole state of the checkboxes, never a delta: `PUT` replaces rather
+    // than merges, so an unchecked box has to arrive as an absence, and an
+    // absence is only meaningful when everything else is present.
+    const names = (spaces.spaces ?? [])
+      .filter((space) => (space.name === spaceName ? next : space.selected))
+      .map((space) => space.name);
+
+    setSaving((busy) => [...busy, spaceName]);
+    setProblem(null);
+    try {
+      const confirmed = await client.setGoogleChatSpaces(workspaceId, names);
+      setSaved(reconcileSpaces(spaces, confirmed));
+    } catch (error: unknown) {
+      setProblem(describeError(error, "save that space choice"));
+    } finally {
+      setSaving((busy) => busy.filter((name) => name !== spaceName));
+    }
+  }
+
+  return (
+    <SpacePicker
+      spaces={spaces}
+      canManage={canManage}
+      saving={saving}
+      {...(problem === null ? {} : { problem })}
+      onToggle={(spaceName, next) => {
+        void toggle(spaceName, next);
+      }}
+    />
   );
 }
 

@@ -189,6 +189,70 @@ def _read_slack_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
     ]
 
 
+def _read_gchat_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
+    """One Google Chat space message, as something a fact can cite.
+
+    Chat's identity is the message **resource name** —
+    `spaces/{space}/messages/{message}` — which is globally unique and identical
+    across the create, every edit and the delete of one message. That is what
+    makes an edit update the statement it corrects rather than filing a second
+    one beside it.
+
+    Deletes carry no evidence by design, exactly as Slack's do: the citation must
+    stop resolving, and returning nothing is how a retired statement leaves the
+    record rather than standing as current. Google's documented delete payload
+    still echoes `text` and `sender`; that is boilerplate about a message that no
+    longer exists, and re-reading it would resurrect the claim the deletion
+    retracted.
+
+    Bot messages and unpermitted spaces never reach here — `gchat/events.py`
+    drops them before the delivery is recorded.
+    """
+    payload = delivery.payload
+
+    # The CloudEvent type, stored beside the resource because Chat's three
+    # payload shapes are identical and the body carries no type of its own.
+    if (_text(payload.get("event_type")) or "").endswith(".deleted"):
+        return []
+
+    message = payload.get("message")
+    if not isinstance(message, dict):
+        return []
+
+    name = _text(message.get("name"))
+    text = _text(message.get("text"))
+    if not name or not text:
+        return []
+
+    return [
+        _Evidence(
+            evidence_id=f"google_chat:message:{name}",
+            text=text[:MAX_EVIDENCE_CHARS],
+            # `chat.google.com/room/{space}/{message}` — built from the resource
+            # name rather than fetched, since asking Chat for a link would be an
+            # API call per delivery for a URL whose shape is stable. `None` if
+            # the name is not that shape: an unclickable evidence id is honest,
+            # a fabricated link is not.
+            url=_gchat_permalink(name),
+            occurred_at=_timestamp(message.get("createTime")),
+            # Chat has no equivalent of a repository, and inventing one from the
+            # space would make a filterable project out of an opaque id.
+            project=None,
+        )
+    ]
+
+
+#: `spaces/{space}/messages/{message}` — four segments, and exactly four.
+_GCHAT_NAME_SEGMENTS = 4
+
+
+def _gchat_permalink(message_name: str) -> str | None:
+    parts = message_name.split("/")
+    if len(parts) != _GCHAT_NAME_SEGMENTS or parts[0] != "spaces" or parts[2] != "messages":
+        return None
+    return f"https://chat.google.com/room/{parts[1]}/{parts[3]}"
+
+
 def _source_of(evidence_id: str) -> str:
     """Which source a citation came from, read from the id it already carries.
 
@@ -197,7 +261,7 @@ def _source_of(evidence_id: str) -> str:
     argument threaded down from the caller, which is what it replaced.
     """
     prefix, _, _ = evidence_id.partition(":")
-    return prefix if prefix in {"github", "slack"} else "github"
+    return prefix if prefix in {"github", "slack", "google_chat"} else "github"
 
 
 def _slack_timestamp(ts: str) -> datetime | None:
@@ -219,6 +283,12 @@ def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
     # reaches a brief, with no error anywhere.
     if _text(payload.get("type")) in {"event_callback", "app_rate_limited"}:
         return _read_slack_evidence(delivery)
+    # Google Chat deliveries are shaped like neither. The marker is written by
+    # the receipt path (`gchat/events.stored_payload`) rather than inferred from
+    # the resource, so a Chat payload cannot be mistaken for a GitHub one that
+    # happens to have a `message` field.
+    if _text(payload.get("type")) == "google_chat_event":
+        return _read_gchat_evidence(delivery)
     project = _text(_dig(payload, "repository", "full_name"))
     repository = project or "unknown"  # ok in an evidence id, not as a filterable project name
     found: list[_Evidence] = []

@@ -1294,3 +1294,129 @@ class SlackDisconnectResponse(ApiModel):
     #: honest sentence is the less flattering one, and a product that only says
     #: the flattering half is one whose deletion claims cannot be relied on.
     retention_notice: str
+
+
+# -- Google Chat ------------------------------------------------------------
+#
+# Shaped like the Slack models above, with two deliberate differences.
+#
+# There is no `requested_scopes` on the install response. Google's two Chat
+# scopes are not a list a customer can act on — they are shown on Google's own
+# consent screen in Google's own words, and repeating our paraphrase of them
+# invites the two to disagree.
+#
+# A space's **display name** appears on exactly one model here,
+# `GoogleChatSpaceResponse`, served by one Owner/Admin endpoint. Every other
+# model answers in resource names. A Chat space name is frequently the most
+# sensitive string a customer holds — "Acme / Northwind diligence", "redundancy
+# planning" — so it is fetched live, never stored, never logged, and never
+# echoed back by the selection endpoints.
+
+
+class GoogleChatInstallResponse(ApiModel):
+    """Where to send the customer, and what they need to know first."""
+
+    #: The Google authorise URL, state parameter and PKCE challenge included.
+    #: Built server-side from settings, never from the request — a redirect URI
+    #: assembled from a `Host` header sends the authorisation code, and
+    #: therefore the account's refresh token, to whoever set the header.
+    authorize_url: str
+
+    #: When the install link stops working. Returned so an interface can say
+    #: "this link expires in ten minutes" rather than presenting a stale button.
+    expires_at: datetime
+
+    #: The "add the app to the space" requirement, in the copy `gchat.spaces`
+    #: owns. Present here as well as on the space list because it changes what
+    #: the customer expects *before* they start, not after they wonder why the
+    #: feed is empty.
+    notice: str
+
+
+class GoogleChatSpaceResponse(ApiModel):
+    """One space the workspace could select, and the state of its feed."""
+
+    #: The resource name, `spaces/AAAA1111`. The key every permission is stored
+    #: under, and the only identifier a Chat event carries.
+    name: str
+
+    #: The display name, fetched live and never stored. The one place a Google
+    #: Chat space name crosses this API — see the section comment above.
+    display_name: str
+
+    #: Whether CAIRN will read this kind of space at all. Direct messages, app
+    #: DMs and unnamed spaces are excluded before this model is built, so this
+    #: is `True` on everything currently returned; it is on the model because
+    #: the reason a space is missing from a picker has to be answerable.
+    eligible: bool
+
+    #: Whether it is currently selected.
+    selected: bool
+
+    #: The Workspace Events subscription's state — `pending`, `active`,
+    #: `suspended`, `expired`, `deleted` or `error` — or `None` when there is no
+    #: lease at all, which is every unselected space.
+    #:
+    #: Shown because "selected" and "delivering" are different facts, and a
+    #: screen that conflates them tells a customer their feed is fine while it
+    #: has a hole in it.
+    subscription_state: str | None = None
+
+    #: When the lease lapses without renewal. `None` before Google has
+    #: acknowledged one.
+    expire_time: datetime | None = None
+
+    #: Why the feed is broken, as a `ConnectorErrorCategory` and never as
+    #: Google's words. Google's messages quote the space and frequently the
+    #: person who authorised.
+    error_category: str | None = None
+
+
+class GoogleChatSpaceListResponse(ApiModel):
+    """The picker's contents. Eligible spaces only."""
+
+    spaces: list[GoogleChatSpaceResponse] = Field(default_factory=list)
+
+    #: The "add the app to the space" requirement. Travels with the list because
+    #: this is the screen where the misunderstanding happens.
+    notice: str
+
+
+class GoogleChatSpaceSelectionRequest(ApiModel):
+    """The full state of the picker, not a delta.
+
+    A replace rather than a merge: unchecking a box has to mean something, and
+    the something it means is withdrawing permission to read a conversation.
+    """
+
+    #: Space resource names (`spaces/AAAA1111`). Display names are refused —
+    #: they change, and a permission keyed on one is silently granted or revoked
+    #: by a rename.
+    space_names: list[str] = Field(default_factory=list)
+
+
+class GoogleChatSpaceSelectionResponse(ApiModel):
+    """What CAIRN may now process. Resource names only — deliberately no names."""
+
+    space_names: list[str] = Field(default_factory=list)
+
+    #: Repeated here so the confirmation screen states it too. A selection saved
+    #: without the app being added to the space is a selection that does nothing.
+    notice: str
+
+
+class GoogleChatDisconnectResponse(ApiModel):
+    """What disconnecting did, stated precisely enough to be trusted."""
+
+    state: str
+    disconnected_at: datetime
+
+    #: Whether the stored refresh token was destroyed. Reported rather than
+    #: assumed: a disconnect that leaves the credential in place keeps a standing
+    #: grant to read a customer's conversations after they asked us to stop, and
+    #: a customer has no way to check from outside.
+    credential_cleared: bool
+
+    #: What disconnecting does *not* do. Stated in the response because the
+    #: honest sentence is the less flattering one.
+    retention_notice: str

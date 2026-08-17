@@ -8,23 +8,27 @@ rather than discovered during the first incident. Stage E (Steps 27–30) closes
 
 ## What exists today
 
-| Concern            | State                                                                                                    |
-| ------------------ | -------------------------------------------------------------------------------------------------------- |
-| Structured logging | ✅ `structlog`, JSON in non-local environments, tenant id on every job log line                          |
-| Health endpoints   | ✅ `GET /healthz` (liveness, no database) and `GET /readyz` (readiness, 503 when not)                    |
-| Container image    | ✅ Multi-stage, non-root, one image with two entrypoints                                                 |
-| Migrations         | ✅ Alembic, round-trip tested in CI                                                                      |
-| Metrics            | ✅ Stage, model, cost, queue and evaluation counters — exported only when an OTLP endpoint is set        |
-| Tracing            | ✅ Spans across every pipeline stage, carried over the queue by the envelope's `traceparent`             |
-| Fair scheduling    | ✅ On `CAIRN_QUEUE_BACKEND=postgres`: priority and per-tenant limits. Not on Pub/Sub                     |
-| Backup / restore   | ⚠️ Rehearsable and self-verifying (`make restore-rehearsal`) — rehearsed locally, never in production    |
-| SLOs               | ⚠️ Defined with stated measurement sources (`docs/SLOS.md`) — three of five measurable today             |
-| Release gates      | ✅ `uv run python -m cairn_api.ops.gates_cli`, non-zero while anything blocks                            |
-| Connector health   | ⚠️ `GET /v1/internal/operations/connectors`, counts and categories only — no source has ever delivered   |
-| Slack limits       | ⚠️ Ack budget, retries and the 30,000/hour ceiling recorded as constants — none of the three is measured |
-| Alerting           | ❌ Thresholds are written below; no rules and no destination are configured                              |
-| Dashboards         | ❌ None                                                                                                  |
-| On-call            | ❌ No rotation, no escalation path                                                                       |
+| Concern            | State                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Structured logging | ✅ `structlog`, JSON in non-local environments, tenant id on every job log line                               |
+| Health endpoints   | ✅ `GET /healthz` (liveness, no database) and `GET /readyz` (readiness, 503 when not)                         |
+| Container image    | ✅ Multi-stage, non-root, one image with two entrypoints                                                      |
+| Migrations         | ✅ Alembic, round-trip tested in CI                                                                           |
+| Metrics            | ✅ Stage, model, cost, queue and evaluation counters — exported only when an OTLP endpoint is set             |
+| Tracing            | ✅ Spans across every pipeline stage, carried over the queue by the envelope's `traceparent`                  |
+| Fair scheduling    | ✅ On `CAIRN_QUEUE_BACKEND=postgres`: priority and per-tenant limits. Not on Pub/Sub                          |
+| Backup / restore   | ⚠️ Rehearsable and self-verifying (`make restore-rehearsal`) — rehearsed locally, never in production         |
+| SLOs               | ⚠️ Defined with stated measurement sources (`docs/SLOS.md`) — three of five measurable today                  |
+| Release gates      | ✅ `uv run python -m cairn_api.ops.gates_cli`, non-zero while anything blocks                                 |
+| Connector health   | ⚠️ `GET /v1/internal/operations/connectors`, counts and categories only — no source has ever delivered        |
+| Slack limits       | ⚠️ Ack budget, retries and the 30,000/hour ceiling recorded as constants — none of the three is measured      |
+| Google Chat limits | ⚠️ Lease TTL, scopes, ack deadline and suspension reasons recorded as constants — none is measured yet        |
+| Chat subscriptions | ⚠️ Tables and renewal sweep landed and running; `subscription_health` still on no API response                |
+| Chat connect flow  | ⚠️ Card, install route, callback and space picker wired — no authorisation can complete until Google approves |
+| Chat launch        | ❌ Blocked on a restricted-scope third-party security assessment — weeks to months, re-taken annually         |
+| Alerting           | ❌ Thresholds are written below; no rules and no destination are configured                                   |
+| Dashboards         | ❌ None                                                                                                       |
+| On-call            | ❌ No rotation, no escalation path                                                                            |
 
 **The honest reading:** the system can be started, will tell you what it is doing, and can now be
 asked what it is doing — the counters and spans exist and carry a trace from webhook to brief.
@@ -100,6 +104,10 @@ run in production. Revisit each after the pilot with a week of real numbers.
 | **Connector failures**    | any `errorsByCategory`                     | one provider failing across many workspaces at once | Count the workspaces first — one is that workspace, many on one provider is the provider or a credential of ours. `disconnected` and `revoked` are the customer's decision and are not incidents. See **Connectors** and `docs/runbooks/connectors.md`. |
 | **Slack event budget**    | 24,000 events in an hour for one workspace | 30,000 — the ceiling                                | **Events past the ceiling are dropped, not queued, and never redelivered.** Not recoverable: CAIRN holds no history scope. Tell the customer; there is nothing to replay. Not measurable today — see **What is NOT monitored**.                         |
 | **Slack acknowledgement** | any `x-slack-retry-reason: http_timeout`   | timeouts on more than one workspace                 | The 3-second budget is being missed, and Slack discards after three attempts. Move work out of the request path; acknowledge, then queue. Not measured today — see **What is NOT monitored**.                                                           |
+| **Chat lease expiry**     | `nearestExpiryMinutes` < 120               | < 0, or any `subscriptionsExpired`                  | 120 minutes is half the 4-hour lease — under it, the renewal loop has already missed its window. **An expired subscription is deleted and cannot be renewed**; that space needs a new one, and whatever was published meanwhile was never delivered.    |
+| **Chat leases missing**   | `subscriptionsMissing` ≥ 1                 | rising, or ≥ 10% of selected spaces                 | Selected spaces with no live lease. The connection still reads `connected` and no error category is set — nothing else in the product moves when this happens. Recreate the subscription; do not retry a renewal against one Google has deleted.        |
+| **Chat suspensions**      | any `subscriptionsSuspended`               | `ENDPOINT_*` reasons, or many at once               | Read the reason before acting: three families with nothing in common. `USER_/APP_SCOPE_REVOKED` is the customer's decision; `ENDPOINT_PERMISSION_DENIED` is our Pub/Sub publisher principal. Reactivate promptly — the window is undocumented.          |
+| **Chat token expiry**     | a connection breaking on a weekly cadence  | every connection breaking weekly                    | Not instability. While the consent screen is in "Testing", refresh tokens expire after **7 days**. The fix is finishing OAuth verification and the security assessment, not a patch. See **Google Chat**.                                               |
 
 ### What the numbers mean
 
@@ -261,10 +269,68 @@ re-issue a credential.
 connector failure in this document that cannot be repaired after the fact, so
 the response is disclosure rather than recovery.
 
+### Google Chat
+
+Chat's published constants live in `ops/connectors.py` (`GOOGLE_CHAT_LIMITS`,
+`GOOGLE_CHAT_SUBSCRIPTION`, `GOOGLE_CHAT_SCOPES`) for the same reason Slack's do.
+The full procedure is in `docs/runbooks/connectors.md`.
+
+| Limit                  | Value                                                 | Why an operator cares                                                                                                     |
+| ---------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Subscription lease     | **4 hours** per space (`includeResource: true`)       | Every selected space is renewed **12 times a day, forever**. Stagger renewals: Workspace Events publishes no rate limits. |
+| Longer lease           | 7 days with `includeResource: false`                  | Not a free win — every message then costs a read against **3,000 per project per 60s**, shared by all tenants.            |
+| Expiry                 | The subscription is **deleted**, not renewable        | Recreate, do not renew. Events published while it was gone were never delivered and there is no backfill.                 |
+| Expiration reminder    | Documented 12h ahead — **unreachable** at a 4h lease  | Track `expireTime` and renew. A renewal loop built on the reminder never fires.                                           |
+| Push ack deadline      | **10s** default, 600s max, not extendable per message | It doubles as the request timeout. A non-2xx nacks; Pub/Sub redelivers with 100ms–60s backoff, no fixed count.            |
+| Delivery guarantee     | **At-least-once** (exactly-once is pull-only)         | CAIRN receives by push, so handlers must be idempotent. A duplicate message is a duplicate fact in a brief.               |
+| Domain-wide delegation | **Not used**, deliberately                            | The 24h lease needs it. It is the right to impersonate every user in the organisation — far more than this product needs. |
+
+**The renewal sweep is wired and runs.** `jobs/main.py::run_maintenance` calls
+`gchat/subscriptions.renew_expiring_subscriptions` on every maintenance pass. It
+renews before expiry, staggers each lease in a pass by a **uniform random**
+interval (fixed delays keep two workers in lockstep), claims rows
+`FOR UPDATE SKIP LOCKED` so every worker can run it safely, and takes the
+**create** path rather than the renew path for a lapsed lease — including the
+case nothing marked expired, where the row still reads `active` and the
+subscription is already gone at Google. Every lease it touches is counted
+through `record_subscription_renewal`, with the outcome as the bounded
+`RenewalAction` word, and a tenant whose whole pass raises is counted once as
+`failed` — so a sweep that stopped running and a sweep that is failing are
+distinguishable from the counter alone.
+
+**The scopes are `chat.messages.readonly` (RESTRICTED) and `chat.spaces.readonly`
+(SENSITIVE).** The restricted one requires OAuth verification **plus** an
+independent third-party security assessment (CASA, ending in a Letter of
+Assessment) and re-assessment **at least every 12 months**. There is no
+lower-tier read-only Chat message scope. Assessments run weeks to months, so
+**this gates the launch rather than the merge** — the `connectors` release gate
+names it before it names anything else.
+
+**Until the app is published and verified, refresh tokens expire after 7 days.**
+The consent screen stays in "Testing" with external user type until then, so
+every customer connection breaks weekly. Google also allows 100 refresh tokens
+per account per client id and silently invalidates the oldest beyond that, so a
+reconnect loop can log out the connection that was working.
+
+**The Pub/Sub publisher principal is not confirmed.** Google names
+`chat-api-push@system.gserviceaccount.com` for Chat _interaction_ events and does
+not say whether Workspace-Events-for-Chat uses the same one. A wrong grant
+appears later as an `ENDPOINT_PERMISSION_DENIED` suspension rather than as a
+setup failure. Verify empirically.
+
+**The authorising user must belong to a Workspace organisation.** A personal
+Gmail account cannot authorise this connector, and every configuration check
+passes in that state.
+
+**A lapsed Chat lease is data loss, not a delay** — the second such failure in
+this document, after Slack's dropped events, and it has the same response:
+disclosure, not recovery.
+
 ### The metrics
 
-`cairn.connector.deliveries`, `cairn.connector.errors` and
-`cairn.connector.rate_limit_windows`, carrying `source`, `outcome`,
+`cairn.connector.deliveries`, `cairn.connector.errors`,
+`cairn.connector.rate_limit_windows` and
+`cairn.connector.subscription_renewals`, carrying `source`, `outcome`,
 `error_category` and an optional `tenant_id` and nothing else. A workspace is
 the smallest thing any of them may be grouped by — it is a customer, not a
 person — and it is offered because Slack's ceiling is per workspace, so a
@@ -279,6 +345,14 @@ channel names, user handles and message fragments.
 There is no per-channel, per-space, per-conversation or per-account attribute,
 and no allow-list entry that could carry one. That is the boundary, not an
 omission, and a structural test rejects the addition.
+
+**Google Chat needed no new attribute.** Its suspension reason is a closed set
+and would have been safe to export, but `SUSPENSION_REASON_CATEGORY` reduces
+every one of Google's nine reasons to a `ConnectorErrorCategory` the exporter
+already accepts, so the existing error alert fires unchanged and the full reason
+stays inside the product on the subscription aggregate. A renewal is counted with
+`source` and `outcome` only: a subscription names a space, and there is no
+attribute that could carry one.
 
 ### What is NOT monitored
 
@@ -312,10 +386,41 @@ Honest gaps, so they are read here rather than discovered during an incident.
   events were lost inside it is unknowable, because Slack does not say and there
   is no history scope to reconcile against.
 - **No chat connector has ever delivered anything.** `inboundVerified` is false
-  for Slack and Google Chat because they do not exist yet, and false for GitHub
+  for Slack and Google Chat — for Chat because no customer can start a
+  connection and nothing has been authorised at Google — and false for GitHub
   in any environment that has not received a real webhook — it is derived from
   recorded deliveries, not from configuration. The `connectors` release gate says
   the same thing at release time.
+- **Google Chat's subscription counts are computable but unreadable.** The
+  migration landed (`20260817_0300_google_chat.py`, `c5a92f7e4d18`) and
+  `gchat/subscriptions.subscription_records` reduces each row to a state, a
+  category and an expiry — so this is no longer a database gap. It is an API
+  gap: **no route calls `subscription_health`**, and the connectors response does
+  not carry it. `subscriptionsMissing`, the number the worst Chat failure moves,
+  is reachable only from a Python shell or a test. Every threshold in the Chat
+  rows above therefore has a source and still has no screen.
+- **Nothing measures whether a Chat renewal ran.** Still true.
+  `cairn.connector.subscription_renewals` exists and is tested; the sweep is
+  wired and running; and `gchat/subscriptions.py` never calls the counter. A
+  sweep that ran and failed and a sweep that stopped running look identical from
+  outside the worker's own log lines, which is the one connector failure with no
+  error state at all.
+- **A customer can start a Google Chat connection and cannot finish one.** The
+  card, `api/routers/gchat.py` and the space picker are all wired; the
+  authorisation itself fails at Google until restricted-scope verification, the
+  CASA assessment and a Workspace account are in place.
+  `apps/web/e2e/google-chat.e2e.ts` covers exactly that boundary in a browser —
+  both scopes, the Workspace-account sentence, the connect control by role, and
+  no space shown as chosen or delivering — and performs **no** OAuth round trip,
+  because there is no credential that could complete one.
+- **How close a Chat project is to the 3,000-reads-per-minute ceiling is not
+  measured.** It only applies if subscriptions are ever created with
+  `includeResource: false`, and the ceiling is per Cloud project rather than per
+  workspace, so one busy tenant would throttle every other one.
+- **The Pub/Sub publisher principal is unverified**, and a wrong grant presents
+  as a suspension rather than as a configuration error.
+- **How long a suspended Chat subscription stays reactivatable is undocumented.**
+  Recorded as `None` rather than guessed. Reactivate promptly.
 - **There is no endpoint yet.** The read model is a typed function; mounting it
   at `/v1/internal/operations/connectors` behind `OPERATIONS_ROLES` is a
   separate, small change to `api/routers/internal.py`.
@@ -355,14 +460,15 @@ credentials wherever it ran.
 
 ### Closing the manual gates
 
-| Gate           | What closes it                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **email**      | `uv run python -m cairn_api.email.probe --to you@example.com`, then confirm it **arrives** — check spam. The probe refuses to run on the console backend, because a pass there would mean nothing. A relay accepting a message is not a person receiving one.                                                                                                                                                                             |
-| **telemetry**  | Set `OTEL_EXPORTER_OTLP_ENDPOINT`, restart, send one webhook, and find its trace in the collector. An endpoint that refuses connections looks identical to one nobody has sent to.                                                                                                                                                                                                                                                        |
-| **github**     | Install the App on one repository, push a real commit, and confirm the delivery verifies its signature and produces a fact attributed to the right person.                                                                                                                                                                                                                                                                                |
-| **model**      | `uv run python -m cairn_api.evaluation.runner --pipeline real` against live Vertex, and record the baseline. Every quality number in this repository was produced by a deterministic stand-in, and says so.                                                                                                                                                                                                                               |
-| **audit-sink** | Replicate the audit chain to an append-only sink outside this database. Until then the log is **tamper-evident, not tamper-proof** — see below.                                                                                                                                                                                                                                                                                           |
-| **connectors** | Install the app, **`/invite` the bot to one channel** — an uninvited Slack bot receives nothing, and CAIRN never requests `channels:join` — post one message, and confirm `inboundVerified` for that provider. Read `inboundVerified`, not `deliveriesLastHour`: Slack has no inbound record, so that count stays `null` forever. This gate **cannot reach `PASS`**: every input it has is configuration, and none of them is a delivery. |
+| Gate                         | What closes it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **email**                    | `uv run python -m cairn_api.email.probe --to you@example.com`, then confirm it **arrives** — check spam. The probe refuses to run on the console backend, because a pass there would mean nothing. A relay accepting a message is not a person receiving one.                                                                                                                                                                                                                                                                       |
+| **telemetry**                | Set `OTEL_EXPORTER_OTLP_ENDPOINT`, restart, send one webhook, and find its trace in the collector. An endpoint that refuses connections looks identical to one nobody has sent to.                                                                                                                                                                                                                                                                                                                                                  |
+| **github**                   | Install the App on one repository, push a real commit, and confirm the delivery verifies its signature and produces a fact attributed to the right person.                                                                                                                                                                                                                                                                                                                                                                          |
+| **model**                    | `uv run python -m cairn_api.evaluation.runner --pipeline real` against live Vertex, and record the baseline. Every quality number in this repository was produced by a deterministic stand-in, and says so.                                                                                                                                                                                                                                                                                                                         |
+| **audit-sink**               | Replicate the audit chain to an append-only sink outside this database. Until then the log is **tamper-evident, not tamper-proof** — see below.                                                                                                                                                                                                                                                                                                                                                                                     |
+| **connectors (Google Chat)** | **Start the restricted-scope security assessment** — `chat.messages.readonly` needs OAuth verification plus an independent third-party CASA assessment, re-taken every 12 months, and it takes weeks to months. A deployment that has not begun one cannot ship this connector however finished the code is. Then confirm the authorising account is a Workspace account (a personal Gmail account cannot authorise it at all), add the app to one space, create the subscription, post one message, and confirm `inboundVerified`. |
+| **connectors**               | Install the app, **`/invite` the bot to one channel** — an uninvited Slack bot receives nothing, and CAIRN never requests `channels:join` — post one message, and confirm `inboundVerified` for that provider. Read `inboundVerified`, not `deliveriesLastHour`: Slack has no inbound record, so that count stays `null` forever. This gate **cannot reach `PASS`**: every input it has is configuration, and none of them is a delivery.                                                                                           |
 
 ### The audit log is tamper-evident, not immutable
 

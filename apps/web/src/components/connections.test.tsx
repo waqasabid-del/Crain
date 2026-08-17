@@ -8,7 +8,14 @@ import type { DescribedError } from "../errors.js";
 import {
   ConnectionCard,
   connectionFromIntegration,
+  connectionRows,
   ConnectionsLoading,
+  googleChatNotConnected,
+  GOOGLE_CHAT_CONNECTED_DETAIL,
+  GOOGLE_CHAT_DISCONNECT_EFFECT,
+  GOOGLE_CHAT_REFUSALS,
+  GOOGLE_CHAT_SCOPES,
+  GOOGLE_CHAT_WORKSPACE_ACCOUNT,
   slackNotConnected,
   SLACK_DISCONNECT_EFFECT,
   SLACK_INVITE_RULE,
@@ -664,5 +671,238 @@ describe("accessibility", () => {
     const { container } = render(<ConnectionCard connection={FULL} canManage={false} />);
 
     expect(container.querySelector("dl")?.textContent).toContain("Access granted");
+  });
+});
+
+/**
+ * Google Chat, on the same card.
+ *
+ * The whole point of Step 33 is that this is *not* a third integration system:
+ * the card, the three OAuth outcomes and the confirmation are Slack's, and the
+ * only things that differ are the ones that are genuinely different about
+ * Google. Three of those are load-bearing and are what this block is for.
+ *
+ * - **The two scopes, named exactly.** `chat.messages.readonly` is read access
+ *   to the messages in the spaces somebody selects, and it has to be legible
+ *   *before* they press Connect rather than after Google's consent screen.
+ * - **What the grant makes impossible**, stated rather than left to be inferred
+ *   from a short list of what it allows. An absent capability is invisible; a
+ *   stated one is checkable.
+ * - **A personal Gmail account cannot authorise this.** Without that sentence
+ *   somebody presses Connect, meets an opaque Google error, and cannot tell a
+ *   wrong account from a broken product.
+ */
+describe("Google Chat on the connection card", () => {
+  /** Everything the workspace screen hands the card when Google Chat is off. */
+  function googleChatProps(): {
+    requestedScopes: typeof GOOGLE_CHAT_SCOPES;
+    refusals: string[];
+    notice: string;
+    disconnectEffect: string;
+  } {
+    return {
+      requestedScopes: GOOGLE_CHAT_SCOPES,
+      refusals: GOOGLE_CHAT_REFUSALS,
+      notice: GOOGLE_CHAT_WORKSPACE_ACCOUNT,
+      disconnectEffect: GOOGLE_CHAT_DISCONNECT_EFFECT,
+    };
+  }
+
+  /** The card as the Admin screen renders it once Google Chat is authorised. */
+  function connected(): Connection {
+    return { ...googleChatNotConnected(), state: "connected", stateDetail: "Reading now." };
+  }
+
+  it("names both scopes literally and says what each one permits", () => {
+    // Both names for every permission: the sentence is what a reader
+    // understands, the literal string is what they can check against Google's
+    // own consent screen. Neither alone is honest.
+    render(
+      <ConnectionCard connection={googleChatNotConnected()} canManage {...googleChatProps()} />,
+    );
+
+    expect(screen.getByText("chat.spaces.readonly")).toBeVisible();
+    expect(
+      screen.getByText(/list the spaces the person who authorises cairn can see/i),
+    ).toBeVisible();
+    expect(screen.getByText("chat.messages.readonly")).toBeVisible();
+    expect(screen.getByText(/read the messages in the spaces you select/i)).toBeVisible();
+  });
+
+  it("states what CAIRN cannot do, rather than leaving it to be inferred", () => {
+    render(
+      <ConnectionCard connection={googleChatNotConnected()} canManage {...googleChatProps()} />,
+    );
+
+    expect(screen.getByRole("heading", { name: /what cairn cannot do/i })).toBeVisible();
+    expect(screen.getByText(/asks for no permission to write to google chat/i)).toBeVisible();
+    expect(screen.getByText(/read your direct messages/i)).toBeVisible();
+    expect(screen.getByText(/react to a message/i)).toBeVisible();
+    expect(screen.getByText(/no read-state, no presence and no typing indicator/i)).toBeVisible();
+    expect(screen.getByText(/does not request membership data/i)).toBeVisible();
+    expect(screen.getByText(/no admin scope and no organisation-wide access/i)).toBeVisible();
+  });
+
+  it("says that a personal Gmail account cannot authorise it, above the button", () => {
+    // **The sentence that decides whether pressing Connect can work at all.**
+    // Google Chat is a Workspace API; a personal account has no spaces to grant
+    // and Google refuses the request. Above the control, because a caveat
+    // printed under the button that acts on it is one somebody reads after they
+    // have already pressed it.
+    render(
+      <ConnectionCard
+        connection={googleChatNotConnected()}
+        canManage
+        onConnect={vi.fn()}
+        {...googleChatProps()}
+      />,
+    );
+
+    const notice = screen.getByText(/a personal gmail account cannot authorise this/i);
+    expect(notice).toBeVisible();
+    expect(notice).toHaveTextContent(/belong to a google workspace organisation/i);
+
+    const button = screen.getByRole("button", { name: /connect google chat/i });
+    expect(notice.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("offers Reconnect rather than Connect once a grant has been withdrawn", () => {
+    // Different words for different situations: calling a renewal "Connect"
+    // hides from the reader that it was ever on.
+    render(
+      <ConnectionCard
+        connection={{
+          ...googleChatNotConnected(),
+          state: "revoked",
+          stateDetail: "The grant was withdrawn at Google.",
+        }}
+        canManage
+        onConnect={vi.fn()}
+        {...googleChatProps()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /reconnect google chat/i })).toBeVisible();
+  });
+
+  it("says plainly that a grant worked, and that nothing is being read yet", () => {
+    render(
+      <ConnectionCard
+        connection={connected()}
+        canManage
+        oauthReturn="connected"
+        connectedDetail={GOOGLE_CHAT_CONNECTED_DETAIL}
+        {...googleChatProps()}
+      />,
+    );
+
+    expect(screen.getByText(/google chat is connected/i)).toBeVisible();
+    expect(screen.getByText(/no spaces are chosen yet, so nothing is being read/i)).toBeVisible();
+  });
+
+  it("treats a denial as an answer rather than as a failure", () => {
+    // Somebody was asked for permission and said no. That is the consent
+    // mechanism working; an alert and an apology would teach them that
+    // declining broke something.
+    render(
+      <ConnectionCard
+        connection={googleChatNotConnected()}
+        canManage
+        onConnect={vi.fn()}
+        oauthReturn="denied"
+        {...googleChatProps()}
+      />,
+    );
+
+    expect(screen.getByText(/nothing was connected/i)).toBeVisible();
+    expect(screen.getByText(/google chat shared nothing with it/i)).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says a failed round trip connected nothing, and alerts on it", () => {
+    render(
+      <ConnectionCard
+        connection={googleChatNotConnected()}
+        canManage
+        onConnect={vi.fn()}
+        oauthReturn="error"
+        {...googleChatProps()}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /google chat did not finish authorising cairn, so nothing was connected/i,
+    );
+  });
+
+  it("confirms a disconnect by restating exactly what it does", async () => {
+    // Three separate facts, because the reader is entitled to all three and
+    // they have different answers: collection stops now, the credential is
+    // destroyed, and what was already recorded is *not* deleted.
+    render(
+      <ConnectionCard
+        connection={connected()}
+        canManage
+        onDisconnect={vi.fn()}
+        {...googleChatProps()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /^disconnect$/i }));
+
+    const confirmation = screen.getByRole("group", { name: /disconnect google chat/i });
+    expect(confirmation).toHaveTextContent(/stops new collection immediately/i);
+    expect(confirmation).toHaveTextContent(/deletes the google credential cairn stored/i);
+    expect(confirmation).toHaveTextContent(/does not delete what has already been recorded/i);
+  });
+
+  it("tells a Viewer who can change it, rather than showing them nothing", () => {
+    render(
+      <ConnectionCard
+        connection={googleChatNotConnected()}
+        canManage={false}
+        {...googleChatProps()}
+      />,
+    );
+
+    expect(
+      screen.getByText(/an owner or an admin of this workspace connects and disconnects sources/i),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /connect google chat/i })).not.toBeInTheDocument();
+    // And they can still read exactly what it would ask for.
+    expect(screen.getByText("chat.messages.readonly")).toBeVisible();
+  });
+
+  it("passes an axe audit in its error state with everything a Google Chat card carries", async () => {
+    const { container } = render(
+      <ConnectionCard
+        connection={{
+          ...googleChatNotConnected(),
+          state: "error",
+          stateDetail: "Google Chat has stopped accepting CAIRN's requests.",
+        }}
+        canManage
+        onConnect={vi.fn()}
+        onDisconnect={vi.fn()}
+        oauthReturn="error"
+        {...googleChatProps()}
+        problem={{ ...PROBLEM, requestId: "req_01H9" }}
+      />,
+    );
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+  });
+
+  it("lists Google Chat whether or not anybody has connected it", () => {
+    // The scopes, the refusals and the Workspace-account requirement have to be
+    // readable while the answer is still "no". Consent explained after the
+    // consent screen is consent to something the reader had not been told.
+    const rows = connectionRows([]);
+    const row = rows.find((entry) => entry.source === "google_chat");
+
+    expect(row?.connection.state).toBe("disconnected");
+    expect(row?.connection.stateDetail).toMatch(/reading nothing from google chat/i);
+    // Nothing invented to fill the account slot for a source nobody connected.
+    expect(row?.connection.account).toBeUndefined();
   });
 });

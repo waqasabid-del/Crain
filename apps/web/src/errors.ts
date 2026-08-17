@@ -57,6 +57,18 @@ function messageForApiError(error: ApiError, action: string, context?: ErrorCont
   if (error.status === 404) {
     return "CAIRN could not find that. It may have been removed, or the link may point somewhere that no longer exists.";
   }
+  if (error.status === 409 && error.is("google-chat-space-claimed")) {
+    // The generic tail below ends "Trying again may work." Here it cannot: a
+    // Google Chat space is claimed globally, by exactly one workspace, so the
+    // save will be refused identically forever until somebody elsewhere gives
+    // it up. Telling a person to retry a thing that can never succeed is the
+    // kind of small lie that costs an afternoon.
+    //
+    // Names neither the space nor the workspace holding it — the server
+    // deliberately puts neither in the problem document, and this message is
+    // not the place to reintroduce them.
+    return "Another CAIRN workspace is already reading that Google Chat space. A space can be connected to one workspace at a time, so this will not start working on its own — it has to be disconnected there first.";
+  }
   if (error.status === 429) {
     // "Will work" was a promise this cannot keep — the client never reads
     // `Retry-After`, so it does not know how long the limit lasts.

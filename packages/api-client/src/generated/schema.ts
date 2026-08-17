@@ -229,6 +229,47 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/integrations/google-chat/callback": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Finish connecting a Google Chat account
+     * @description Where Google sends the customer back.
+     *
+     *     **Any ``error`` parameter is a failed install.** The callback branches on the
+     *     *presence* of the parameter, never on the literal ``access_denied``: an
+     *     equality check that missed would fall through to "exchange the code" with no
+     *     code, and the customer would see a parse failure instead of "you declined".
+     *     The value is read only to choose between "denied" and "error", and is then
+     *     discarded.
+     *
+     *     The order of the checks is the security property. The state is claimed —
+     *     atomically, single-use — *before* anything is exchanged, so a replayed
+     *     callback fails on the second attempt whether or not the first one worked.
+     *     Then the caller is proved to **still** be a member of the state's workspace
+     *     **with permission to connect**: minutes passed, and in those minutes the
+     *     person may have been removed or demoted, and an install that completes on a
+     *     permission that no longer exists is one nobody currently authorised. Only
+     *     then is the code sent to Google.
+     *
+     *     Redirects rather than returning JSON, because the thing following this URL is
+     *     a browser mid-navigation, and the destination is built from
+     *     ``public_app_url`` rather than from the request — the same rule as
+     *     verification links, for the same reason.
+     */
+    get: operations["finish_install_v1_integrations_google_chat_callback_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/integrations/slack/callback": {
     parameters: {
       query?: never;
@@ -984,6 +1025,127 @@ export interface paths {
      *     they had removed an access grant that is still live on GitHub's side.
      */
     delete: operations["disconnect_github_v1_workspaces__workspace_id__integrations_github__installation_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/integrations/google-chat/disconnect": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Disconnect Google Chat and destroy the stored credential
+     * @description Stop collecting, tear the leases down, and drop the refresh token.
+     *
+     *     All three, in one call, with no option to do only the first. A disconnect
+     *     that leaves the credential behind keeps CAIRN holding a standing grant to
+     *     read a customer's conversations after they asked it to stop — and from
+     *     outside there is no way to tell the two apart, which is exactly why the
+     *     response says which happened.
+     *
+     *     The subscriptions are removed **before** the credential is destroyed, because
+     *     deleting a lease at Google needs a token. Every space is blocked locally
+     *     whether or not that succeeds: `remove_all_subscriptions` marks each row before
+     *     it calls Google and does not stop on an error, and the connection state this
+     *     handler then sets is itself what `spaces.is_space_permitted` refuses on. A
+     *     lease that survives at Google therefore delivers into a workspace that will
+     *     not read it, and lapses on its own inside four hours.
+     *
+     *     **The response tells the truth about retention.** Disconnecting stops new
+     *     collection; it does not delete what was already recorded. Saying otherwise
+     *     would be the shorter sentence and a false one.
+     */
+    post: operations["disconnect_google_chat_v1_workspaces__workspace_id__integrations_google_chat_disconnect_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/integrations/google-chat/install": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Begin connecting a Google Chat account
+     * @description Issue a one-time state with its PKCE verifier, and return the authorise URL.
+     *
+     *     Returns the URL rather than redirecting. The caller is a browser application
+     *     doing this from an admin screen, and a 302 out of an XHR is either followed
+     *     invisibly or blocked — neither of which lets the interface warn about the
+     *     "add the app to the space" step before the customer is standing on Google's
+     *     consent screen.
+     *
+     *     Runs on the platform connection because ``google_chat_oauth_states`` is
+     *     deliberately unreachable from the application role: the callback has to read
+     *     the row with no tenant context to scope to, so every statement against that
+     *     table is platform-side and the grant set says so.
+     */
+    post: operations["begin_install_v1_workspaces__workspace_id__integrations_google_chat_install_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/integrations/google-chat/spaces": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List the Google Chat spaces CAIRN could read
+     * @description The picker's contents: every eligible named space, and the state of its feed.
+     *
+     *     Gated on `INTEGRATIONS_CONNECT` — Owner and Admin — rather than on plain
+     *     membership. This is the one endpoint in the API that returns Google Chat
+     *     space **display names**, and the people who may see the list are the people
+     *     who may change what CAIRN reads. A Member gains nothing from a list they
+     *     cannot act on, and a space name is frequently the most sensitive string a
+     *     customer holds.
+     *
+     *     Direct messages, one-to-one app conversations and unnamed spaces never reach
+     *     this response: `spaces.eligible_spaces` removes them, in addition to the
+     *     server-side filter Google is asked for. Two filters rather than one, because
+     *     a picker that offered a direct message would not be noticed until somebody
+     *     selected it.
+     */
+    get: operations["list_spaces_v1_workspaces__workspace_id__integrations_google_chat_spaces_get"];
+    /**
+     * Choose which Google Chat spaces CAIRN may process
+     * @description Replace the selection with exactly these spaces, and move the subscriptions.
+     *
+     *     ``PUT`` rather than ``POST``, and a replace rather than a merge, because the
+     *     body is the full state of a set of checkboxes. A merge would make unchecking
+     *     a box do nothing — and the box being unchecked is somebody withdrawing
+     *     permission for CAIRN to read a conversation, which is the single operation on
+     *     this endpoint that must not silently fail.
+     *
+     *     An empty list is valid and means "process nothing", which is also the state a
+     *     freshly connected account is in.
+     *
+     *     **This is where the subscription lifecycle is driven from.** Selecting a space
+     *     creates a Workspace Events lease; deselecting deletes the selection row —
+     *     which blocks ingestion the moment it lands — and then tears the lease down.
+     *     The commit happens after both, so a caller that receives 200 has had every
+     *     removal persisted.
+     */
+    put: operations["save_spaces_v1_workspaces__workspace_id__integrations_google_chat_spaces_put"];
+    post?: never;
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -2178,6 +2340,89 @@ export interface components {
       id: string;
       /** Installationid */
       installationId: number;
+    };
+    /**
+     * GoogleChatDisconnectResponse
+     * @description What disconnecting did, stated precisely enough to be trusted.
+     */
+    GoogleChatDisconnectResponse: {
+      /** Credentialcleared */
+      credentialCleared: boolean;
+      /**
+       * Disconnectedat
+       * Format: date-time
+       */
+      disconnectedAt: string;
+      /** Retentionnotice */
+      retentionNotice: string;
+      /** State */
+      state: string;
+    };
+    /**
+     * GoogleChatInstallResponse
+     * @description Where to send the customer, and what they need to know first.
+     */
+    GoogleChatInstallResponse: {
+      /** Authorizeurl */
+      authorizeUrl: string;
+      /**
+       * Expiresat
+       * Format: date-time
+       */
+      expiresAt: string;
+      /** Notice */
+      notice: string;
+    };
+    /**
+     * GoogleChatSpaceListResponse
+     * @description The picker's contents. Eligible spaces only.
+     */
+    GoogleChatSpaceListResponse: {
+      /** Notice */
+      notice: string;
+      /** Spaces */
+      spaces?: components["schemas"]["GoogleChatSpaceResponse"][];
+    };
+    /**
+     * GoogleChatSpaceResponse
+     * @description One space the workspace could select, and the state of its feed.
+     */
+    GoogleChatSpaceResponse: {
+      /** Displayname */
+      displayName: string;
+      /** Eligible */
+      eligible: boolean;
+      /** Errorcategory */
+      errorCategory?: string | null;
+      /** Expiretime */
+      expireTime?: string | null;
+      /** Name */
+      name: string;
+      /** Selected */
+      selected: boolean;
+      /** Subscriptionstate */
+      subscriptionState?: string | null;
+    };
+    /**
+     * GoogleChatSpaceSelectionRequest
+     * @description The full state of the picker, not a delta.
+     *
+     *     A replace rather than a merge: unchecking a box has to mean something, and
+     *     the something it means is withdrawing permission to read a conversation.
+     */
+    GoogleChatSpaceSelectionRequest: {
+      /** Spacenames */
+      spaceNames?: string[];
+    };
+    /**
+     * GoogleChatSpaceSelectionResponse
+     * @description What CAIRN may now process. Resource names only — deliberately no names.
+     */
+    GoogleChatSpaceSelectionResponse: {
+      /** Notice */
+      notice: string;
+      /** Spacenames */
+      spaceNames?: string[];
     };
     /** HTTPValidationError */
     HTTPValidationError: {
@@ -3451,6 +3696,46 @@ export interface operations {
       };
     };
   };
+  finish_install_v1_integrations_google_chat_callback_get: {
+    parameters: {
+      query?: {
+        code?: string | null;
+        state?: string | null;
+        error?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Back to the workspace's admin screen. */
+      303: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Successful Response */
+      307: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   finish_install_v1_integrations_slack_callback_get: {
     parameters: {
       query?: {
@@ -4629,6 +4914,210 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["HTTPValidationError"];
         };
+      };
+    };
+  };
+  disconnect_google_chat_v1_workspaces__workspace_id__integrations_google_chat_disconnect_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GoogleChatDisconnectResponse"];
+        };
+      };
+      /** @description Requires permission to disconnect integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No Google Chat account is connected. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  begin_install_v1_workspaces__workspace_id__integrations_google_chat_install_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GoogleChatInstallResponse"];
+        };
+      };
+      /** @description Requires permission to connect integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+      /** @description Google Chat is not configured on this deployment. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  list_spaces_v1_workspaces__workspace_id__integrations_google_chat_spaces_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GoogleChatSpaceListResponse"];
+        };
+      };
+      /** @description Requires permission to connect integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No Google Chat account is connected. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+      /** @description Google could not be reached. */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  save_spaces_v1_workspaces__workspace_id__integrations_google_chat_spaces_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GoogleChatSpaceSelectionRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GoogleChatSpaceSelectionResponse"];
+        };
+      };
+      /** @description Requires permission to connect integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No Google Chat account is connected. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description A space is already connected to another workspace. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description A value was not a Google Chat space resource name. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };

@@ -325,6 +325,83 @@ class Settings(BaseSettings):
         ),
     )
 
+    # -- Google Chat -------------------------------------------------------
+
+    google_chat_client_id: str = Field(
+        default="",
+        description=(
+            "Google OAuth client ID. Public by design — it appears in the "
+            "authorise URL the customer's browser follows. Empty means Google "
+            "Chat is not configured, and the install endpoint refuses rather "
+            "than sending somebody to a consent screen Google will reject."
+        ),
+    )
+
+    google_chat_client_secret: str = Field(
+        default="",
+        description=(
+            "Google OAuth client secret, used only to exchange an authorisation "
+            "code for tokens. Server-to-server precisely so it is never in the "
+            "browser's half of the flow."
+        ),
+    )
+
+    google_chat_redirect_uri: str = Field(
+        default="http://localhost:8000/v1/integrations/google-chat/callback",
+        description=(
+            "Where Google returns the customer after they consent. Must match a "
+            "URI registered on the OAuth client exactly.\n\n"
+            "Configured rather than derived from the request: a redirect URI "
+            "built from an attacker-supplied Host header sends the "
+            "authorisation code — and therefore the refresh token it becomes — "
+            "to the attacker."
+        ),
+    )
+
+    google_chat_project_id: str = Field(
+        default="",
+        description=(
+            "Google Cloud project owning the Pub/Sub topic that Workspace "
+            "Events publishes to. Named explicitly and never inferred from "
+            "ambient credentials, which is how a staging deployment ends up "
+            "subscribed to production's topic."
+        ),
+    )
+
+    google_chat_pubsub_topic: str = Field(
+        default="",
+        description=(
+            "Fully qualified topic Chat subscriptions publish to, as "
+            "`projects/{project}/topics/{topic}`. Every per-space subscription "
+            "names it at creation."
+        ),
+    )
+
+    google_chat_service_account: str = Field(
+        default="",
+        description=(
+            "The service-account address Pub/Sub signs its push JWTs with. The "
+            "receiver requires the token's `email` claim to equal this exactly.\n\n"
+            "Declared even though only the receiver reads it, because a "
+            "connector configured to install and not to receive is 'connected' "
+            "with nothing arriving — the failure md/05 §4 calls worse than an "
+            "honest one — and `ops/connectors.py` reports on them together."
+        ),
+    )
+
+    google_chat_push_audience: str = Field(
+        default="",
+        description=(
+            "The audience configured on the Pub/Sub push subscription, which "
+            "the receiver requires the JWT's `aud` claim to equal.\n\n"
+            "Set explicitly rather than left to Pub/Sub's default of the "
+            "endpoint URL: a token minted for one endpoint is then usable "
+            "against any other that also defaulted, and the default is invisible "
+            "in configuration, so nobody reviewing it can see what is being "
+            "accepted."
+        ),
+    )
+
     # -- Connectors --------------------------------------------------------
 
     connector_encryption_key: str = Field(
@@ -554,6 +631,24 @@ class Settings(BaseSettings):
                 f"CAIRN_ENVIRONMENT is '{self.environment}'. The Slack install "
                 "code arrives on this URL and is exchangeable for a workspace's "
                 "bot token; it must be an https URL registered on the Slack app."
+            )
+            raise ValueError(msg)
+
+        if self.google_chat_client_id and not self.google_chat_redirect_uri.startswith("https://"):
+            # Checked only once Google Chat is configured, so an environment that
+            # has not enabled the connector is not forced to invent a URL.
+            #
+            # Google's authorisation code arrives on this URL and exchanges for a
+            # refresh token — a standing grant to read the customer's selected
+            # spaces until somebody revokes it. Over plain HTTP that is readable
+            # by every hop, and the default above is a localhost URL, so an
+            # environment that forgot to set this sends its customers' codes to a
+            # host that does not exist. That is the lucky outcome.
+            msg = (
+                f"CAIRN_GOOGLE_CHAT_REDIRECT_URI is {self.google_chat_redirect_uri!r} while "
+                f"CAIRN_ENVIRONMENT is '{self.environment}'. The Google authorisation "
+                "code arrives on this URL and is exchangeable for a refresh token; it "
+                "must be an https URI registered on the OAuth client."
             )
             raise ValueError(msg)
 

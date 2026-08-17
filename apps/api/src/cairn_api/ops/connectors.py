@@ -60,6 +60,27 @@ queued and not redelivered**. CAIRN requests no history scope, so nothing can go
 back for them. That is a permanent hole in a customer's record rather than a
 delay, which is why `drops_events_when_throttled` exists as its own question.
 
+**Google Chat cost this read model nothing either.** Step 33 adds no field, no
+query and no enum to `ConnectorHealth`: Chat writes `source_connections` like any
+other provider, so its row is already produced, already counted by state, health
+and error category, and already reported as configured-but-unverified.
+`test_google_chat_added_no_field_to_the_read_model` pins that next to Slack's.
+
+What Google Chat *does* add is a second, separate aggregate — `SubscriptionHealth`
+— and it is separate because it is not a property of a connection. Chat delivers
+through the Workspace Events API, which leases one **subscription per selected
+space** with a **four-hour** time-to-live; `source_connections` has one row per
+connection and no place to put N leases, so folding this into `ConnectorHealth`
+would mean either a per-space row (forbidden) or a number that averages away the
+one subscription that died. It is counts only: how many leases are live,
+suspended, expired and *missing*, and how long until the nearest one expires. No
+space identifier reaches it, and the reducer's input type has nowhere to put one.
+
+The missing count is the one that matters. **An expired Chat subscription is
+permanently deleted and cannot be renewed** — it has to be recreated — so the
+number of live leases can silently fall below the number of selected spaces while
+every connection still reads `connected`. That is a gap in delivery, not a delay.
+
 Delivery counts are the one thing that is still per-provider. Only GitHub has a
 durable inbound record (`webhook_deliveries`), so only GitHub reports delivery
 numbers; the others report `None` with a reason rather than zero, for the same
@@ -77,8 +98,9 @@ in one small step behind `requires_staff(*OPERATIONS_ROLES)`, the same
 
 from __future__ import annotations
 
+import enum
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -96,6 +118,7 @@ from cairn_api.db.connector_models import (
     ConnectorProvider,
     SourceConnection,
 )
+from cairn_api.db.gchat_models import GoogleChatSubscriptionState
 from cairn_api.telemetry.attributes import safe
 
 #: The states in which a connection is authorised and expected to deliver.
@@ -131,6 +154,21 @@ NO_DELIVERY_RECORD = (
 #: a call site.
 DELIVERY_UNOBSERVABLE_REASONS: frozenset[str] = frozenset({NO_DELIVERY_RECORD})
 
+#: Why Google Chat's subscription aggregate has counts of `None` rather than 0.
+#:
+#: The same rule as `NO_DELIVERY_RECORD` and the same reason: nothing stores a
+#: Chat subscription lease yet, and a screen reading "0 suspended, 0 expired"
+#: while nothing is being watched is the most reassuring possible rendering of
+#: "this cannot be seen from here".
+NO_SUBSCRIPTION_RECORD = (
+    "No subscription lease is stored yet, so live, suspended and expired counts "
+    "cannot be produced. Zeros here would read as a healthy renewal loop and "
+    "there is not one to read."
+)
+
+#: Every reason that field may hold, for the same reason the delivery set exists.
+SUBSCRIPTION_UNOBSERVABLE_REASONS: frozenset[str] = frozenset({NO_SUBSCRIPTION_RECORD})
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderLimits:
@@ -151,15 +189,45 @@ class ProviderLimits:
     #: How long the provider waits for a 2xx before it treats the delivery as
     #: failed. Slack's is three seconds, which is short enough that any
     #: synchronous work in the request path is a design error rather than a
-    #: tuning problem.
+    #: tuning problem. Google Chat arrives over a Pub/Sub push subscription,
+    #: whose **acknowledgement deadline doubles as the request timeout** — the
+    #: default is ten seconds.
     ack_deadline_seconds: float
 
-    #: How many times a failed delivery is retried, in total.
-    retry_attempts: int
+    #: How many times a failed delivery is retried, in total. `None` where the
+    #: provider retries until a retention deadline rather than a fixed number of
+    #: times: Pub/Sub redelivers a nacked message until the topic's message
+    #: retention expires, so "how many attempts" has no answer for Google Chat
+    #: and a fabricated integer would be read as one.
+    retry_attempts: int | None
 
     #: The gaps before each retry, in minutes, from the first attempt. Slack's
     #: `(0, 1, 5)` means immediately, then after a minute, then after five.
+    #: Empty where the provider publishes a range instead — see
+    #: `retry_backoff_seconds_range`.
     retry_backoff_minutes: tuple[int, ...]
+
+    #: The provider's published backoff *range* in seconds, where it publishes a
+    #: range rather than a schedule. Pub/Sub's is 100ms to 60s, which cannot be
+    #: expressed in whole minutes and must not be rounded to zero.
+    retry_backoff_seconds_range: tuple[float, float] | None = None
+
+    #: The largest acknowledgement deadline the provider allows, where it is
+    #: configurable. Pub/Sub's push deadline can be raised to 600 seconds — and
+    #: raising it raises the request timeout with it, which is a decision about
+    #: how long a push endpoint may block, not a free win.
+    ack_deadline_max_seconds: float | None = None
+
+    #: Whether a single delivery's deadline can be extended while it is being
+    #: handled. It cannot be, for either provider: Pub/Sub **push** has no
+    #: per-message `modifyAckDeadline`, so the endpoint answers inside the
+    #: subscription's deadline or the message is redelivered.
+    ack_deadline_extendable_per_delivery: bool = False
+
+    #: Whether the provider may deliver the same event more than once. Pub/Sub
+    #: is at-least-once; its exactly-once guarantee is **pull-only** and CAIRN
+    #: receives by push, so every Chat handler must be idempotent.
+    delivers_at_least_once: bool = False
 
     #: Inbound events the provider will deliver, per workspace, per app, per
     #: hour. `None` where the provider publishes no such ceiling.
@@ -205,6 +273,264 @@ SLACK_LIMITS = ProviderLimits(
 )
 
 
+#: Google Chat's inbound path, which is Pub/Sub push rather than a webhook.
+#:
+#: The ack deadline is the number to design against: it **doubles as the request
+#: timeout** and cannot be extended for one message, so a handler that has not
+#: answered by then has its message redelivered whether or not it eventually
+#: succeeds. Ten seconds is roomier than Slack's three, and the discipline is the
+#: same — acknowledge, then work.
+#:
+#: There is no `events_per_hour` here because Google publishes no inbound event
+#: ceiling for Chat, and inventing one would be worse than the blank: the real
+#: ceiling in this connector is the **3,000 reads per project per 60 seconds** on
+#: `spaces.messages.get`, which is only paid when subscriptions are created with
+#: `includeResource: false`. See `GOOGLE_CHAT_SUBSCRIPTION`.
+GOOGLE_CHAT_LIMITS = ProviderLimits(
+    ack_deadline_seconds=10.0,
+    retry_attempts=None,
+    retry_backoff_minutes=(),
+    retry_backoff_seconds_range=(0.1, 60.0),
+    ack_deadline_max_seconds=600.0,
+    ack_deadline_extendable_per_delivery=False,
+    delivers_at_least_once=True,
+)
+
+
+class ScopeTier(enum.StrEnum):
+    """How hard Google makes a scope to ship, which is a release constraint.
+
+    Not a security classification and not ours: these are Google's own OAuth
+    verification tiers, recorded because the difference between them is measured
+    in months of calendar time and no amount of correct code shortens it.
+    """
+
+    #: No verification beyond the consent screen.
+    BASIC = "basic"
+
+    #: OAuth verification by Google. Weeks, no third party involved.
+    SENSITIVE = "sensitive"
+
+    #: OAuth verification **plus** an independent third-party security
+    #: assessment (CASA), ending in a Letter of Assessment, and re-assessment at
+    #: least every twelve months. Weeks to months, repeated annually, forever.
+    RESTRICTED = "restricted"
+
+
+@dataclass(frozen=True, slots=True)
+class OAuthScope:
+    """One scope and what shipping it costs."""
+
+    name: str
+    tier: ScopeTier
+
+    @property
+    def requires_security_assessment(self) -> bool:
+        """Whether a third party has to assess CAIRN before this scope goes live.
+
+        True only for `RESTRICTED`. It is the property the release gate turns on,
+        because it is the one constraint on this connector that is not satisfiable
+        by writing or reviewing code.
+        """
+        return self.tier is ScopeTier.RESTRICTED
+
+
+#: How often a restricted scope has to be re-assessed, in months. Google requires
+#: re-verification at least annually, so the assessment is a standing operational
+#: obligation with an expiry date, not a launch task that is finished once.
+RESTRICTED_SCOPE_REVERIFICATION_MONTHS = 12
+
+#: The scopes the Google Chat connector needs, and their verification tier.
+#:
+#: `chat.messages.readonly` is **RESTRICTED**. There is no read-only Chat message
+#: scope in a lower tier — reading messages at all puts CAIRN in the tier that
+#: requires an independent security assessment. This is the single largest
+#: blocker in the connector programme and it is a calendar problem, not an
+#: engineering one.
+GOOGLE_CHAT_SCOPES: tuple[OAuthScope, ...] = (
+    OAuthScope(name="chat.messages.readonly", tier=ScopeTier.RESTRICTED),
+    OAuthScope(name="chat.spaces.readonly", tier=ScopeTier.SENSITIVE),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SubscriptionLimits:
+    """Google Workspace Events subscription leases, as published constants.
+
+    A Chat subscription is a **lease per space**, not a webhook registration, and
+    every number here is about how short that lease is and what happens when one
+    lapses. They are constants from Google's documentation for the same reason
+    `ProviderLimits` is: so a renewal interval, an alert threshold and a runbook
+    cannot drift apart.
+    """
+
+    #: The lease, in hours, as CAIRN creates them. Four, because CAIRN requests
+    #: `includeResource: true` and does **not** use domain-wide delegation. The
+    #: 24-hour ceiling requires domain-wide delegation, which is out of scope: it
+    #: is an admin granting one application the right to impersonate every user
+    #: in the organisation, which is a larger grant than this product needs.
+    ttl_hours: float = 4.0
+
+    #: The lease if CAIRN asked for `includeResource: false`: seven days. Not the
+    #: free win it looks like — see `reads_per_project_per_minute`.
+    ttl_hours_without_resource: float = 168.0
+
+    #: The read ceiling paid for that longer lease. Without the resource on the
+    #: event, every single message costs one `spaces.messages.get`, and those are
+    #: capped at 3,000 reads per project per 60 seconds **across all customers on
+    #: this Cloud project**. A per-project ceiling shared by every tenant is a
+    #: harder wall than a renewal loop, and crossing it throttles everybody at
+    #: once, so CAIRN takes the four-hour lease and renews.
+    reads_per_project_per_minute: int = 3_000
+
+    #: Renew at half the lease. Two hours of slack means a renewal can fail
+    #: outright, be retried on the next pass, and still land before the lease
+    #: lapses — and a lapse is not recoverable by retrying.
+    renewal_at_fraction_of_ttl: float = 0.5
+
+    #: How far ahead Google's documented expiration-reminder event fires. Recorded
+    #: because it is **structurally unreachable at this lease length** — see
+    #: `expiration_reminder_is_reachable` — and somebody will otherwise build the
+    #: renewal loop on it.
+    documented_expiration_reminder_lead_hours: float = 12.0
+
+    #: Whether an expired subscription can be renewed. It cannot: it is deleted,
+    #: permanently, and delivery for that space stops until a new subscription is
+    #: **created**. Renewal and recreation are different code paths and only one
+    #: of them exists in a renewal loop.
+    expired_subscription_is_recoverable: bool = False
+
+    #: How long a suspended subscription stays reactivatable via
+    #: `subscriptions.reactivate`. Google does not document it. `None` records
+    #: the absence of an answer rather than a guess, and the operational
+    #: consequence is the same either way: reactivate promptly, do not queue it.
+    reactivation_window_hours: float | None = None
+
+    #: Whether Workspace Events publishes request-rate limits. It does not, which
+    #: is why renewals must be staggered rather than run as one cron sweep: with
+    #: N spaces renewing several times a day, a thundering herd is the shape most
+    #: likely to find the undocumented limit.
+    request_rate_limits_published: bool = False
+
+    #: Whether the Pub/Sub publisher principal for Workspace Events on Chat is
+    #: confirmed. It is **not**. Google's documentation names
+    #: `chat-api-push@system.gserviceaccount.com` for Chat *interaction* events
+    #: and does not state whether Workspace-Events-for-Chat publishes as the same
+    #: principal. Granting the wrong one surfaces as an
+    #: `ENDPOINT_PERMISSION_DENIED` suspension rather than as a configuration
+    #: error, so it must be verified empirically in a real project.
+    publisher_principal_confirmed: bool = False
+
+    #: How long a refresh token survives while the OAuth consent screen is in
+    #: "Testing" with external user type: seven days. Every customer connection
+    #: then breaks weekly until the app is published and verified — which for
+    #: this connector means the restricted-scope assessment is finished.
+    refresh_token_days_while_testing: int = 7
+
+    #: Refresh tokens per account per client id. The 101st silently invalidates
+    #: the oldest, with no error anywhere, so a reconnect loop quietly logs out
+    #: the connection that was working.
+    refresh_tokens_per_account_per_client: int = 100
+
+    #: Whether the authorising user may hold a personal Google account. They may
+    #: not — the account has to belong to a Workspace organisation, which makes
+    #: this a qualification question during onboarding rather than a support
+    #: ticket after it.
+    personal_accounts_can_authorise: bool = False
+
+    @property
+    def renew_after_hours(self) -> float:
+        """When to renew a lease: half of it. Two hours, today."""
+        return self.ttl_hours * self.renewal_at_fraction_of_ttl
+
+    @property
+    def renewals_per_subscription_per_day(self) -> int:
+        """How often each lease is renewed, per day, forever.
+
+        Twelve. Multiplied by every selected space in every customer, this is the
+        connector's steady-state background load and the reason renewals are
+        staggered rather than swept.
+        """
+        return int(24 / self.renew_after_hours)
+
+    @property
+    def expiration_reminder_is_reachable(self) -> bool:
+        """Whether Google's expiration reminder can arrive before expiry.
+
+        It cannot: the reminder is documented to fire twelve hours ahead and the
+        lease is four hours long, so the reminder would have to precede the
+        subscription. Google's own guidance is to track `expireTime` and renew,
+        and this property exists so that "we'll renew when it tells us to" fails
+        a test rather than a customer.
+        """
+        return self.documented_expiration_reminder_lead_hours < self.ttl_hours
+
+
+#: The lease Google Chat actually gets, as CAIRN creates them.
+GOOGLE_CHAT_SUBSCRIPTION = SubscriptionLimits()
+
+
+class SuspensionReason(enum.StrEnum):
+    """Why Google suspended a subscription, from its published set.
+
+    Closed, and distinguished rather than collapsed, because the responses have
+    nothing in common: three of these are the customer's decision, two are a
+    credential of ours, two are our endpoint being wrong, and one is Google
+    telling us it will not say. A single "suspended" count sends somebody to
+    re-authorise a customer who deliberately removed us.
+    """
+
+    #: The authorising user withdrew a scope.
+    USER_SCOPE_REVOKED = "USER_SCOPE_REVOKED"
+
+    #: The user's credential no longer authenticates — expired, or the account
+    #: was disabled.
+    USER_AUTHORIZATION_FAILURE = "USER_AUTHORIZATION_FAILURE"
+
+    #: The space itself is gone. Nothing to reconnect to.
+    RESOURCE_DELETED = "RESOURCE_DELETED"
+
+    #: Google could not publish to our topic. Almost always the publisher
+    #: principal missing `roles/pubsub.publisher` — and the principal is the one
+    #: fact in this connector that is not confirmed.
+    ENDPOINT_PERMISSION_DENIED = "ENDPOINT_PERMISSION_DENIED"
+
+    #: The topic does not exist, or not in the project Google was told.
+    ENDPOINT_NOT_FOUND = "ENDPOINT_NOT_FOUND"
+
+    #: Our topic or push endpoint is over quota. Ours, and it is back-pressure.
+    ENDPOINT_RESOURCE_EXHAUSTED = "ENDPOINT_RESOURCE_EXHAUSTED"
+
+    #: An administrator removed the application's grant organisation-wide.
+    APP_SCOPE_REVOKED = "APP_SCOPE_REVOKED"
+
+    #: The application's own credential failed.
+    APP_AUTHORIZATION_FAILURE = "APP_AUTHORIZATION_FAILURE"
+
+    #: Deliberately last and deliberately vague, like `ConnectorErrorCategory`.
+    OTHER = "OTHER"
+
+
+#: Google's suspension reason reduced to CAIRN's error category.
+#:
+#: Total over `SuspensionReason`, and a test asserts that it stays total, so a
+#: reason Google adds cannot arrive as an unmapped string. The mapping is also
+#: what keeps this connector off the telemetry allow-list: there is no
+#: `suspension_reason` attribute and none is needed, because every reason reduces
+#: to a category the exporter already accepts.
+SUSPENSION_REASON_CATEGORY: Mapping[SuspensionReason, ConnectorErrorCategory] = {
+    SuspensionReason.USER_SCOPE_REVOKED: ConnectorErrorCategory.PERMISSION_REVOKED,
+    SuspensionReason.USER_AUTHORIZATION_FAILURE: ConnectorErrorCategory.AUTHENTICATION_EXPIRED,
+    SuspensionReason.RESOURCE_DELETED: ConnectorErrorCategory.CONFIGURATION_INVALID,
+    SuspensionReason.ENDPOINT_PERMISSION_DENIED: ConnectorErrorCategory.CONFIGURATION_INVALID,
+    SuspensionReason.ENDPOINT_NOT_FOUND: ConnectorErrorCategory.CONFIGURATION_INVALID,
+    SuspensionReason.ENDPOINT_RESOURCE_EXHAUSTED: ConnectorErrorCategory.RATE_LIMITED,
+    SuspensionReason.APP_SCOPE_REVOKED: ConnectorErrorCategory.PERMISSION_REVOKED,
+    SuspensionReason.APP_AUTHORIZATION_FAILURE: ConnectorErrorCategory.AUTHENTICATION_EXPIRED,
+    SuspensionReason.OTHER: ConnectorErrorCategory.UNKNOWN,
+}
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderSpec:
     """What is known about a provider before anything is measured."""
@@ -226,6 +552,20 @@ class ProviderSpec:
 
     #: The provider's published limits, where it publishes any.
     limits: ProviderLimits | None = None
+
+    #: The OAuth scopes this provider needs, with the verification tier each one
+    #: costs. Empty where the provider's scopes carry no verification tier.
+    scopes: tuple[OAuthScope, ...] = ()
+
+    #: A constraint outside CAIRN's control that must be *started* before this
+    #: provider can go live, stated in the gate ahead of the manual check.
+    #:
+    #: Distinct from `manual_verification`, which is a thing an operator can do
+    #: this afternoon. A release blocker is a thing somebody else does over weeks
+    #: or months — Google's restricted-scope security assessment is the example —
+    #: and a deployment that has not begun it cannot ship however finished the
+    #: code is. Empty for providers that have none.
+    release_blocker: str = ""
 
     #: The manual check that would close this provider's release gate — the one
     #: thing configuration cannot do. Held here rather than in
@@ -279,7 +619,27 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         provider=ConnectorProvider.GOOGLE_CHAT,
         settings_fields=("google_chat_project_id", "google_chat_service_account"),
         env_vars=("CAIRN_GOOGLE_CHAT_PROJECT_ID", "CAIRN_GOOGLE_CHAT_SERVICE_ACCOUNT"),
-        manual_verification=("Google Chat: add the app to one space and post one message in it."),
+        limits=GOOGLE_CHAT_LIMITS,
+        scopes=GOOGLE_CHAT_SCOPES,
+        release_blocker=(
+            "Google Chat cannot go live until the restricted-scope security "
+            "assessment is finished: chat.messages.readonly is a RESTRICTED scope, "
+            "so Google requires OAuth verification plus an independent third-party "
+            "CASA security assessment ending in a Letter of Assessment, and "
+            "re-assessment at least every 12 months. Assessments take weeks to "
+            "months and no amount of finished code shortens one. A deployment that "
+            "has not started it cannot ship this connector. Until the app is "
+            "published and verified, the consent screen stays in Testing and every "
+            "customer's refresh token expires after 7 days, so every connection "
+            "breaks weekly."
+        ),
+        manual_verification=(
+            "Google Chat: confirm the authorising account belongs to a Google "
+            "Workspace organisation — a personal Gmail account cannot authorise "
+            "this connector at all, and every configuration check passes in that "
+            "state. Then add the app to one space, create the subscription, and "
+            "post one message in that space."
+        ),
     ),
 )
 
@@ -499,6 +859,207 @@ class ConnectorFleet:
             if item.oldest_unsuccessful_sync_minutes is not None
         ]
         return max(ages) if ages else None
+
+
+# --------------------------------------------------------------------------
+# Subscription leases, in aggregate
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class SubscriptionRecord:
+    """One lease, reduced to the three things operations may know about it.
+
+    **There is deliberately no identifier on this type.** Not a space name, not a
+    subscription name, not the tenant, not the authorising user —
+    `google_chat_subscriptions` stores all of them one column away from the
+    reducer below. A caller who wanted to put a space on a screen would have to
+    add a field to this dataclass, which is a visible edit to a file with a test
+    that rejects it rather than a passing thought at 3am.
+
+    The vocabulary is reused, not restated: `GoogleChatSubscriptionState` and
+    `ConnectorErrorCategory` are defined next to the columns that store them, and
+    a parallel enum here would be a second answer to "is this subscription
+    working" that diverges at the first state Google adds.
+
+    A value type rather than a query, for one reason stated plainly: the ORM
+    models landed in `db/gchat_models.py` and **the migration that creates the
+    tables has not**, and `migrations/` is not this module's to write. Wiring is
+    one comprehension over the rows — `state`, `suspension_category`,
+    `expire_time` — and until the tables exist, `subscription_health(None)` is
+    the honest reading.
+    """
+
+    state: GoogleChatSubscriptionState
+
+    #: Why it is suspended, errored or expired — already a category, because
+    #: Google's own suspension reason quotes the resource that failed.
+    #: `SUSPENSION_REASON_CATEGORY` is the reduction that produces it.
+    suspension_category: ConnectorErrorCategory | None = None
+
+    #: Google's `expireTime`. The renewal loop's only reliable input — the
+    #: documented expiration reminder cannot fire inside a four-hour lease.
+    expires_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SubscriptionHealth:
+    """Every lease for one provider at one moment, as counts and one age.
+
+    Answers the three questions an operator has about a renewal loop — how many
+    leases are alive, how many are broken, and how long until the next one
+    lapses — and answers none of the questions a support session exists for.
+    Every field is an integer, an optional age, a closed-enum mapping or the
+    provider; there is nowhere here to put a space.
+    """
+
+    provider: ConnectorProvider
+
+    #: Every lease keyed by `GoogleChatSubscriptionState.value`. Grouped rather
+    #: than reduced to "working / not working" for the reason
+    #: `workspaces_by_state` is grouped: `suspended` is reactivatable and
+    #: `expired` is gone, and a renewal loop that treats them alike spends its
+    #: time renewing subscriptions that no longer exist.
+    subscriptions_by_state: Mapping[str, int] = field(default_factory=dict)
+
+    #: Leases that are not delivering, keyed by `ConnectorErrorCategory.value`.
+    #: Never Google's suspension text: that names the space it failed on.
+    subscriptions_by_error_category: Mapping[str, int] = field(default_factory=dict)
+
+    #: How many leases *should* exist — one per selected space. `None` when the
+    #: caller cannot say, which is not the same as zero.
+    subscriptions_expected: int | None = None
+
+    #: Minutes until the nearest live lease expires. Signed, because a negative
+    #: value means one has already lapsed and clamping it to zero would hide the
+    #: only case renewing cannot fix. `None` when no live lease has an expiry to
+    #: count down.
+    nearest_expiry_minutes: float | None = None
+
+    #: Why the counts above are empty. Always a member of
+    #: `SUBSCRIPTION_UNOBSERVABLE_REASONS`.
+    subscriptions_unobservable_reason: str | None = None
+
+    @property
+    def observable(self) -> bool:
+        """Whether these counts mean anything yet."""
+        return self.subscriptions_unobservable_reason is None
+
+    @property
+    def subscriptions_live(self) -> int:
+        """Leases Google is delivering on. Read off the state breakdown, so it
+        cannot drift from its own detail."""
+        return self.subscriptions_by_state.get(GoogleChatSubscriptionState.ACTIVE.value, 0)
+
+    @property
+    def subscriptions_suspended(self) -> int:
+        """Recoverable, via `subscriptions.reactivate` — promptly, because how
+        long a subscription stays reactivatable is undocumented."""
+        return self.subscriptions_by_state.get(GoogleChatSubscriptionState.SUSPENDED.value, 0)
+
+    @property
+    def subscriptions_expired(self) -> int:
+        """**Not** recoverable. Deleted at Google; that space delivers nothing
+        until a subscription is created afresh."""
+        return self.subscriptions_by_state.get(GoogleChatSubscriptionState.EXPIRED.value, 0)
+
+    @property
+    def subscriptions_missing(self) -> int | None:
+        """Leases that should exist and do not.
+
+        The number this aggregate exists for. An expired Chat subscription is
+        deleted rather than renewed, so the live count silently falls below the
+        number of selected spaces while the connection itself still reads
+        `connected` and every credential check passes. Nothing else on any screen
+        in this product moves when that happens.
+        """
+        if self.subscriptions_expected is None or not self.observable:
+            return None
+        return max(self.subscriptions_expected - self.subscriptions_live, 0)
+
+    @property
+    def renewal_due_within_minutes(self) -> float | None:
+        """How long before the renewal loop must have run, in minutes.
+
+        Half the lease ahead of expiry, so a failed renewal can be retried and
+        still land. `None` when there is no expiry to count from.
+        """
+        if self.nearest_expiry_minutes is None:
+            return None
+        lease = GOOGLE_CHAT_SUBSCRIPTION.ttl_hours * 60
+        return self.nearest_expiry_minutes - lease * (
+            1 - GOOGLE_CHAT_SUBSCRIPTION.renewal_at_fraction_of_ttl
+        )
+
+    @property
+    def expiry_is_permanent_loss(self) -> bool:
+        """Whether letting a lease lapse costs delivery rather than time.
+
+        True for Google Chat. The subscription is deleted and cannot be renewed,
+        so the events published for that space while no subscription existed were
+        never delivered anywhere and there is no backfill for them. Recorded as
+        its own question for the same reason `drops_events_when_throttled` is:
+        "we are behind" and "we lost that" are different incidents, and only the
+        second one is a disclosure.
+        """
+        return not GOOGLE_CHAT_SUBSCRIPTION.expired_subscription_is_recoverable
+
+
+def subscription_health(
+    records: Sequence[SubscriptionRecord] | None,
+    *,
+    provider: ConnectorProvider = ConnectorProvider.GOOGLE_CHAT,
+    expected: int | None = None,
+    now: datetime | None = None,
+) -> SubscriptionHealth:
+    """Reduce a set of leases to counts, an age, and nothing else.
+
+    Pure and synchronous, taking the records rather than reading them, because
+    the tables behind them are created by a migration that has not landed and
+    `migrations/` is not this module's to write. `records=None` is the honest
+    reading until it does: empty breakdowns with a reason, never zeros — "0
+    suspended, 0 expired" describes a healthy renewal loop and there is not one
+    to describe.
+
+    `expected` is the number of selected spaces, passed in rather than counted
+    here. This module has no business enumerating a customer's spaces, and the
+    caller that already knows how many it subscribed to can say so as an integer.
+    """
+    if records is None:
+        return SubscriptionHealth(
+            provider=provider,
+            subscriptions_expected=expected,
+            subscriptions_unobservable_reason=NO_SUBSCRIPTION_RECORD,
+        )
+
+    moment = now or datetime.now(UTC)
+
+    states: dict[str, int] = {}
+    categories: dict[str, int] = {}
+    for item in records:
+        states[item.state.value] = states.get(item.state.value, 0) + 1
+        if item.suspension_category is not None:
+            key = item.suspension_category.value
+            categories[key] = categories.get(key, 0) + 1
+
+    # Only live leases have an expiry worth counting down: a suspended one is
+    # already not delivering and an expired one is already gone. Counting either
+    # would make the nearest-expiry number *improve* at the moment a
+    # subscription died.
+    expiries = [
+        item.expires_at
+        for item in records
+        if item.state is GoogleChatSubscriptionState.ACTIVE and item.expires_at is not None
+    ]
+    nearest = (min(expiries) - moment).total_seconds() / 60 if expiries else None
+
+    return SubscriptionHealth(
+        provider=provider,
+        subscriptions_by_state=states,
+        subscriptions_by_error_category=categories,
+        subscriptions_expected=expected,
+        nearest_expiry_minutes=nearest,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -772,26 +1333,78 @@ def record_connector_rate_limited(*, source: ConnectorProvider) -> None:
     record_connector_error(source=source, category=ConnectorErrorCategory.RATE_LIMITED)
 
 
+connector_subscription_renewals = meter.create_counter(
+    "cairn.connector.subscription_renewals",
+    description="Subscription lease renewals attempted for a provider, by outcome",
+)
+
+
+def record_subscription_renewal(*, source: ConnectorProvider, outcome: str) -> None:
+    """One renewal attempt on one lease.
+
+    Counted rather than logged because it is the highest-frequency piece of
+    machine work in this connector — twelve renewals per selected space per day,
+    forever — and the only way to see the renewal loop failing before a lease
+    lapses. A failed renewal is recoverable; a lapsed lease is not.
+
+    Carries `source` and `outcome` and nothing else. There is deliberately no
+    attribute for which lease was renewed: a subscription names a space, a space
+    is a customer's conversation, and the telemetry allow-list has no entry that
+    could carry one.
+    """
+    connector_subscription_renewals.add(1, safe({"source": source.value, "outcome": outcome}))
+
+
+def record_subscription_suspended(*, source: ConnectorProvider, reason: SuspensionReason) -> None:
+    """One suspended lease, reduced to a category before it can leave.
+
+    Google's suspension reason is a closed set and would be safe to export, but
+    it is not on the telemetry allow-list and this module does not own that file.
+    `SUSPENSION_REASON_CATEGORY` maps every reason onto a `ConnectorErrorCategory`
+    the exporter already accepts, so the alert fires with no new attribute — and
+    the full reason stays inside the product, on the subscription aggregate,
+    where an operator with the `engineering` or `security` role can read it.
+    """
+    record_connector_error(source=source, category=SUSPENSION_REASON_CATEGORY[reason])
+
+
 __all__ = [
     "COUNT_WINDOW",
     "DELIVERY_UNOBSERVABLE_REASONS",
+    "GOOGLE_CHAT_LIMITS",
+    "GOOGLE_CHAT_SCOPES",
+    "GOOGLE_CHAT_SUBSCRIPTION",
     "LIVE_STATES",
     "NO_DELIVERY_RECORD",
+    "NO_SUBSCRIPTION_RECORD",
     "PROVIDERS",
+    "RESTRICTED_SCOPE_REVERIFICATION_MONTHS",
     "SLACK_LIMITS",
+    "SUBSCRIPTION_UNOBSERVABLE_REASONS",
+    "SUSPENSION_REASON_CATEGORY",
     "ConnectionHealth",
     "ConnectionState",
     "ConnectorErrorCategory",
     "ConnectorFleet",
     "ConnectorHealth",
     "ConnectorProvider",
+    "GoogleChatSubscriptionState",
+    "OAuthScope",
     "ProviderLimits",
     "ProviderSpec",
+    "ScopeTier",
+    "SubscriptionHealth",
+    "SubscriptionLimits",
+    "SubscriptionRecord",
+    "SuspensionReason",
     "configured_providers",
     "connector_health",
     "missing_credentials",
     "record_connector_delivery",
     "record_connector_error",
     "record_connector_rate_limited",
+    "record_subscription_renewal",
+    "record_subscription_suspended",
     "spec",
+    "subscription_health",
 ]

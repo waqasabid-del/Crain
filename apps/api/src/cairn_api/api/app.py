@@ -35,6 +35,8 @@ from cairn_api.api.routers import (
     admin,
     auth,
     facts,
+    gchat,
+    gchat_push,
     health,
     internal,
     me,
@@ -184,11 +186,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # the callback identifies its workspace from the single-use state instead.
     app.include_router(slack.router, prefix=API_PREFIX)
     app.include_router(slack.callback_router, prefix=API_PREFIX)
+    # Two routers again, and for a stricter version of the same reason: Google
+    # registers exactly one redirect URI per OAuth client, so the callback cannot
+    # carry a `{workspace_id}`. The single-use state identifies the workspace.
+    app.include_router(gchat.router, prefix=API_PREFIX)
+    app.include_router(gchat.callback_router, prefix=API_PREFIX)
     app.include_router(webhooks.router, prefix=API_PREFIX)
     # Mounts the Slack event endpoint and registers the job it publishes, in one
     # call: a router without its handler publishes a job type no worker can
     # resolve, which dead-letters as "unknown".
     slack_webhooks.install(app, prefix=API_PREFIX)
+    # Same one-call pattern, for the same reason: the Google Chat Pub/Sub push
+    # receiver and the job it publishes are mounted and registered together.
+    gchat_push.install(app, prefix=API_PREFIX)
 
     return app
 

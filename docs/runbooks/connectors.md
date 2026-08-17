@@ -288,6 +288,291 @@ that cannot exist.
 
 ---
 
+## Google Chat
+
+Google Chat is the connector where the gap between "the code works" and "this can be sold" is
+widest, and the gap is not technical. Read the scope section first: it is the reason a finished
+connector may still not be able to launch for months.
+
+**Google Chat is not live, and nothing in this section says it is.** What has landed is the
+plumbing: the migration `20260817_0300_google_chat.py` (`c5a92f7e4d18`) creating
+`google_chat_oauth_states`, `google_chat_space_selections` and `google_chat_subscriptions`; the
+seven `CAIRN_GOOGLE_CHAT_*` settings in `config.py`; `gchat/oauth.py`, `gchat/pubsub.py`,
+`gchat/events.py` and `gchat/subscriptions.py`; the Pub/Sub push route
+(`api/routers/gchat_push.py`); a renewal sweep the worker actually calls
+(`jobs/main.py::run_maintenance` → `renew_expiring_subscriptions`); and the customer-facing half —
+`api/routers/gchat.py` and a Google Chat card with a Connect button on the Workspace screen. What
+has **not** happened is everything Google has to approve, and the connector stops dead there: the
+button is pressable and the authorisation behind it cannot succeed. Two operational readings are
+also still missing — see "What is wired, and what is not" below, and the release gate at the end of
+this section. Do not read a wired connect flow as a shippable connector.
+
+Everything below is answerable from counts, states and categories. None of it requires reading a
+space, a message or a person, and none of it ever will.
+
+### The scopes, and what they actually cost
+
+| Scope                    | Tier           | What that means                                                                                                                                           |
+| ------------------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chat.messages.readonly` | **RESTRICTED** | OAuth verification **plus** an independent third-party security assessment (CASA) ending in a Letter of Assessment, **re-taken at least every 12 months** |
+| `chat.spaces.readonly`   | SENSITIVE      | OAuth verification by Google. No third party, no assessment.                                                                                              |
+
+**This is the largest blocker in the connector programme.** There is no read-only Chat message scope
+in a lower tier — reading messages at all puts CAIRN in the restricted tier. Assessments run **weeks
+to months**, they are re-taken annually forever, and no amount of finished, reviewed, tested code
+shortens one. A deployment that has not _started_ the assessment cannot ship this connector, which
+is why the `connectors` release gate says so before it says anything about installing the app.
+
+**Start it before the code, not after it.** The two facts that make this urgent are linked: until
+the app is published and verified, the OAuth consent screen stays in "Testing" with external user
+type — and there, **refresh tokens expire after 7 days**. Every customer connection breaks weekly,
+forever, until verification completes. A connector that works on Monday and is dead by the following
+Monday is indistinguishable from an unstable product, and the fix is a calendar, not a patch.
+
+Also: Google allows **100 refresh tokens per account per client id**, and the 101st silently
+invalidates the oldest. A reconnect loop quietly logs out the connection that was working, with no
+error anywhere.
+
+`GOOGLE_CHAT_SCOPES` and `GOOGLE_CHAT_SUBSCRIPTION` in `ops/connectors.py` hold these numbers, and
+tests assert them, so this page and the code cannot drift apart.
+
+### Setup
+
+| Step                      | Exactly                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cloud project             | One project. The `spaces.messages.get` read ceiling below is **per project**, shared by every tenant in it.                                                                                                                                                                                                                                                                |
+| Google Chat API           | Enable it and configure the app.                                                                                                                                                                                                                                                                                                                                           |
+| Workspace Events API      | Enable it. This is what issues subscriptions; the Chat API alone delivers nothing.                                                                                                                                                                                                                                                                                         |
+| Pub/Sub topic             | Create it, and grant `roles/pubsub.publisher` to Google's publisher principal — **see the warning below**.                                                                                                                                                                                                                                                                 |
+| Pub/Sub push subscription | Push to CAIRN's endpoint with **authenticated (OIDC JWT) delivery**. Verify the token against an **explicit `aud`** (`CAIRN_GOOGLE_CHAT_PUSH_AUDIENCE`) and a **named service-account email** (`CAIRN_GOOGLE_CHAT_SERVICE_ACCOUNT`); an unauthenticated push endpoint accepts anybody's events, and a token verified without an audience accepts anybody's Google project. |
+| OAuth consent screen      | Published and verified, with the assessment complete, before any real customer connects.                                                                                                                                                                                                                                                                                   |
+
+**The publisher principal is not confirmed.** Google's documentation names
+`chat-api-push@system.gserviceaccount.com` for Chat _interaction_ events and does **not** state
+whether Workspace-Events-for-Chat publishes as the same principal. Granting the wrong one does not
+fail loudly — it appears later as an `ENDPOINT_PERMISSION_DENIED` **suspension**, hours after
+setup looked fine. Verify it empirically in a real project and write down what you observed;
+`SubscriptionLimits.publisher_principal_confirmed` is `False` until somebody does.
+
+**The authorising user must belong to a Google Workspace organisation.** A personal Gmail account
+cannot authorise this connector at all, and every configuration check passes in that state. It is
+the Chat equivalent of Slack's uninvited bot, and it belongs in onboarding qualification rather than
+in a support queue.
+
+### Subscriptions: a four-hour lease, per space, forever
+
+CAIRN subscribes **per space**, and each subscription is a lease with an expiry, not a registration.
+
+| Fact                     | Value                                                                              |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| Lease length             | **4 hours** (`includeResource: true`, no domain-wide delegation)                   |
+| Renew at                 | 2 hours — half the lease                                                           |
+| Renewals per space       | **12 per day**, every day, for every selected space in every customer              |
+| Alternative lease        | 7 days with `includeResource: false`                                               |
+| Cost of that alternative | one `spaces.messages.get` per message, against **3,000 reads per project per 60s** |
+
+**The 24-hour lease requires domain-wide delegation and is out of scope.** Domain-wide delegation is
+an admin granting one application the right to impersonate every user in the organisation — a far
+larger grant than this product needs, and not one to ask for to halve a renewal loop's frequency.
+
+**CAIRN took the four-hour lease deliberately.** The seven-day lease looks like the easy win and is
+not: without the resource on the event, every message costs a read against a ceiling that is **per
+Cloud project**, shared by every tenant. One busy customer would throttle all of them, and a
+per-project wall is harder to route around than a renewal loop. Do not "simplify" this without
+re-reading that number.
+
+**Do not build the renewal loop on Google's expiration reminder.** The documented reminder fires 12
+hours before expiry; the lease is 4 hours long, so the reminder would have to precede the
+subscription. It is structurally impossible here. Google's own guidance is to track `expireTime` and
+renew, which is what `expire_time` on `google_chat_subscriptions` is for.
+
+**Stagger renewals.** Workspace Events publishes **no** request-rate limits. With N spaces renewing
+several times a day, a single cron sweep is a thundering herd aimed at a limit nobody can look up.
+This one is done: `_stagger()` in `gchat/subscriptions.py` sleeps a **uniform random** interval
+between leases in a pass, random rather than fixed because a fixed delay keeps two workers that
+started together in lockstep. The pass also claims its rows `FOR UPDATE SKIP LOCKED`, so running the
+sweep from every worker renews nothing twice.
+
+**An expired subscription is deleted, permanently, and cannot be renewed.** It has to be _created_
+again — a different code path from renewal, and one a renewal loop does not have. Everything
+published for that space while no subscription existed was never delivered anywhere and there is no
+backfill. That is a gap in the customer's record, like Slack's dropped events: disclose it rather
+than look for a recovery path that does not exist.
+
+### Subscription health
+
+`cairn_api.ops.connectors.subscription_health` — counts, one age, and nothing else.
+
+**It has a source now, and still has no reader.** `gchat/subscriptions.subscription_records` reads
+`google_chat_subscriptions` and reduces each row to a state, a category and an expiry, and the
+migration that creates the table has landed — so the "the tables do not exist yet" caveat that used
+to be here is gone. What is still missing is the last hop: **no route calls either function.**
+`/v1/internal/operations/connectors` does not carry subscription health, so today these readings are
+obtainable only from a Python shell or a test. Treat the table below as the shape of the answer, not
+as a screen somebody can open.
+
+| Reading                        | What it counts                                                                      |
+| ------------------------------ | ----------------------------------------------------------------------------------- |
+| `subscriptionsByState`         | Every lease by `pending` / `active` / `suspended` / `expired` / `deleted` / `error` |
+| `subscriptionsLive`            | Leases Google is delivering on                                                      |
+| `subscriptionsSuspended`       | Reactivatable — act promptly, the window is undocumented                            |
+| `subscriptionsExpired`         | Not reactivatable. Recreate.                                                        |
+| `subscriptionsMissing`         | Selected spaces with no live lease. **The number that matters.**                    |
+| `subscriptionsByErrorCategory` | Non-delivering leases by `ConnectorErrorCategory`                                   |
+| `nearestExpiryMinutes`         | Minutes until the nearest live lease lapses. Negative means one already has.        |
+
+**`subscriptionsMissing` is the one to watch.** Because an expired lease is deleted, the live count
+falls below the number of selected spaces while the connection still reads `connected`, the
+credentials still validate and no error category is set. Nothing else in this product moves when
+that happens.
+
+There is no per-space breakdown and no space identifier anywhere in this aggregate — the input type
+`SubscriptionRecord` has three fields (`state`, `suspension_category`, `expires_at`) and a test pins
+that list, because the caller building those records is holding the space name while it does so.
+
+### Suspension reasons, and how to tell them apart
+
+Google suspends a subscription rather than deleting it, and the reason decides the response. They
+fall into three families with nothing in common but the word "suspended".
+
+| Reason                        | Whose problem   | Response                                                                                                        |
+| ----------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------- |
+| `USER_SCOPE_REVOKED`          | The customer's  | A scope was withdrawn. They must re-authorise. **Do not re-issue anything.**                                    |
+| `APP_SCOPE_REVOKED`           | The customer's  | An admin removed the app's grant org-wide. Contact them.                                                        |
+| `RESOURCE_DELETED`            | Nobody's        | The space is gone. Deselect it; there is nothing to reconnect to.                                               |
+| `USER_AUTHORIZATION_FAILURE`  | Possibly ours   | The user's credential failed. If it is the 7-day Testing-mode expiry, it is ours and it will recur weekly.      |
+| `APP_AUTHORIZATION_FAILURE`   | Ours            | Our own credential. Rotate and reconnect.                                                                       |
+| `ENDPOINT_PERMISSION_DENIED`  | **Ours, setup** | Google cannot publish to the topic. Check the publisher principal first — it is the fact that is not confirmed. |
+| `ENDPOINT_NOT_FOUND`          | Ours, setup     | Wrong topic, or right topic in the wrong project.                                                               |
+| `ENDPOINT_RESOURCE_EXHAUSTED` | Ours, capacity  | Our topic or endpoint is over quota. Back-pressure, not permission.                                             |
+| `OTHER`                       | Unknown         | Google will not say. Treat as a gap in this table and report it.                                                |
+
+Recovery is `subscriptions.reactivate`. **How long a suspended subscription stays reactivatable is
+not documented** — so reactivate promptly rather than queueing it behind other work, and if
+reactivation fails, recreate.
+
+The reason itself is reduced to a `ConnectorErrorCategory` before it is stored or exported
+(`SUSPENSION_REASON_CATEGORY`, total over Google's published set). That is why there is no
+`suspension_reason` telemetry attribute and why none is needed: Google's suspension messages quote
+the resource that failed, which here means space display names and the authorising person's address.
+
+### The ack deadline
+
+Chat arrives over a **Pub/Sub push** subscription, and the acknowledgement deadline **doubles as the
+request timeout**.
+
+- Default **10 seconds**, raisable to **600** — and raising it raises how long a push endpoint may
+  block, which is a decision rather than a free win.
+- **It cannot be extended for one message.** Push has no `modifyAckDeadline`; there is no
+  per-message reprieve.
+- A non-2xx **nacks**, and Pub/Sub redelivers with backoff between **100ms and 60s**. There is no
+  fixed retry count — it redelivers until message retention expires.
+- Delivery is **at-least-once**. Exactly-once is **pull-only**, and CAIRN receives by push, so every
+  handler must be idempotent. A duplicated Chat message is a duplicated fact in someone's brief.
+
+Acknowledge, then work — the same discipline as Slack's three seconds, with more room.
+
+### Troubleshooting, in this order
+
+The order is not arbitrary. Each step rules out a cause that would make the next step's evidence
+meaningless, and the first two are first because they are cheap and they are the answer most of the
+time.
+
+1. **Is the authorising account a Workspace account?** A personal Gmail account cannot authorise
+   this connector at all, and every credential, scope and endpoint check passes in that state. It
+   costs one question and it is the Chat equivalent of "was the bot invited".
+2. **Is the refresh token less than 7 days old, and is the app still in "Testing"?** If the consent
+   screen is unpublished, the token expired on a schedule and will do so again next week. This is
+   not an incident, it is the verification work not being finished — check it before you check
+   anything that looks technical, because it explains a weekly pattern that otherwise reads as
+   instability.
+3. **Are the subscriptions alive?** `subscriptionsMissing` and `subscriptionsExpired` first, then
+   `subscriptionsByState`. A lapsed lease is the failure mode unique to this connector: the
+   connection reads `connected`, nothing errors, and no events arrive.
+4. **How long until the next one lapses?** `nearestExpiryMinutes`. Under 120 minutes means the
+   renewal loop has already missed its window; a negative number means a lease has gone and the
+   space needs a **new** subscription, not a renewal.
+5. **If they are suspended, which reason?** Use the table above. This decides whether the response
+   is "contact the customer", "rotate our credential" or "fix our Pub/Sub setup", and the three have
+   nothing in common.
+6. **If the reason is an endpoint one, check the publisher principal.** It is the one fact in this
+   connector that Google's documentation does not settle, and a wrong principal presents as a
+   permission suspension rather than as a setup error.
+7. **Is the push endpoint answering inside the ack deadline?** Repeated redelivery of the same
+   events is the signature. Duplicates are expected at-least-once behaviour; a rising rate of them
+   is a timeout.
+8. **What does the connection say?** `workspacesByState` and `errorsByCategory` for the Google Chat
+   row — the three causes at the top of this runbook, unchanged.
+9. **Escalate.** Reading the customer's Chat messages is not the next step, and it is not a later
+   step either.
+
+### What is wired, and what is not
+
+Kept as a table because the honest answer is neither "done" nor "not started", and every previous
+version of this page rounded to one of the two.
+
+| Piece                             | State                      | Evidence                                                                                                                                                |
+| --------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tables and row-level security     | **Wired**                  | `migrations/versions/20260817_0300_google_chat.py`, revision `c5a92f7e4d18` on `e7b41c8d0392`; RLS + policy on all three tables                         |
+| Configuration                     | **Wired**                  | seven `google_chat_*` settings in `config.py`, with the redirect-URI HTTPS check                                                                        |
+| Renewal sweep                     | **Wired and called**       | `gchat/subscriptions.renew_expiring_subscriptions`, invoked from `jobs/main.py::run_maintenance`; covered by `test_gchat_subscriptions.py`              |
+| Renewal staggering                | **Wired**                  | `_stagger()` sleeps a uniform random interval between leases, so two workers that started together do not stay in lockstep                              |
+| Recreate-vs-renew                 | **Wired**                  | `_needs_creation()` takes the create path for a lapsed lease, including the case nothing marked expired                                                 |
+| Pub/Sub push receiver             | **Wired**                  | `api/routers/gchat_push.py`                                                                                                                             |
+| Connector + subscription health   | **Computable, unreadable** | `ops/connectors.subscription_health` and `gchat/subscriptions.subscription_records` exist; **no route calls them**                                      |
+| Renewal telemetry                 | Wired                      | `gchat/subscriptions.py` calls `record_subscription_renewal` per lease, and once per tenant whose pass raises; pinned by `test_gchat_subscriptions.py`  |
+| Customer-facing connect flow      | **Wired, unusable**        | `api/routers/gchat.py` (install, callback, spaces, disconnect) and a Google Chat card on the Workspace screen. It cannot complete: see the release gate |
+| Space picker in the app           | **Wired**                  | `GoogleChatSpaces` in `routes/AdminPage.tsx` renders `SpacePicker`, but only once the connection is `connected`                                         |
+| Google approvals and live traffic | **Not started here**       | see the release gate below. Nothing in this repository can change this row                                                                              |
+
+`apps/web/e2e/google-chat.e2e.ts` holds the customer-facing half to the code in a real browser: both
+scope strings verbatim and **no third**, the Workspace-account sentence, the connect control present
+for an Owner and absent for a Member, and — with nothing authorised at Google — no space named,
+chosen or shown as delivering. It performs **no** OAuth round trip: everything past the Connect
+button needs the approvals below, so the suite stops there rather than mocking a state the product
+cannot reach.
+
+### The manual release gate
+
+**Google Chat cannot be released from this repository, and no amount of merged code changes that.**
+The `connectors` release gate is `MANUAL` and structurally cannot be anything better. Every item
+below is external, most have lead times measured in weeks, and the first is measured in months.
+
+| Gate                                  | Why it blocks, and what it costs                                                                                                                                                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Restricted-scope OAuth verification   | `chat.messages.readonly` is RESTRICTED. Google's own verification, before anything else.                                                                                                               |
+| CASA / Letter of Assessment           | An independent third-party security assessment ending in a Letter of Assessment, **re-taken at least every 12 months, forever**. Weeks to months of lead time. Start it before the code, not after it. |
+| Google Cloud project                  | One project. The `spaces.messages.get` ceiling is **per project**, shared by every tenant in it.                                                                                                       |
+| Google Chat API                       | Enabled, with the app configured.                                                                                                                                                                      |
+| Workspace Events API                  | Enabled. This is what issues subscriptions; the Chat API alone delivers nothing.                                                                                                                       |
+| Pub/Sub topic with authenticated push | Push to CAIRN's endpoint with an OIDC JWT, an explicit `aud` and a **verified service-account email**. An unauthenticated push endpoint accepts anybody's events.                                      |
+| A real Google **Workspace** account   | For testing and for every customer. **A personal Gmail account cannot authorise this connector at all**, and every configuration check passes in that state.                                           |
+| Real selected-space validation        | One real space, one real message, delivered end to end. Nothing short of this distinguishes "configured" from "working".                                                                               |
+
+Until the app is published and verified the consent screen stays in **Testing**, and there refresh
+tokens expire after **7 days** — so every customer connection breaks weekly until verification
+completes. That is the launch blocker restated as an operational one.
+
+To close the gate, in this order:
+
+1. Confirm the restricted-scope security assessment is **started** — this gates the launch, not the
+   merge.
+2. Confirm the authorising account belongs to a Workspace organisation.
+3. Confirm the Pub/Sub push subscription authenticates, with an explicit `aud` and a verified
+   service-account email.
+4. Add the app to one space and create the subscription.
+5. Post one message in that space.
+6. `GET /v1/internal/operations/connectors` and confirm the Google Chat row reports `inboundVerified`
+   true.
+7. Record what the Pub/Sub publisher principal turned out to be — the one fact Google's
+   documentation does not settle. See the warning in Setup.
+8. Re-run `uv run python -m cairn_api.ops.gates_cli` and record who validated it and when.
+
+`deliveriesLastHour` stays `null` for Google Chat — there is no durable inbound record for it — so
+`inboundVerified` is the field to read.
+
+---
+
 ## What an operator must never do
 
 - **Never read a customer's messages, channels or repositories to debug ingestion.** There is a
@@ -302,6 +587,15 @@ that cannot exist.
   the only way forward, that is a consent-gated, time-boxed, customer-visible support session
   (md/15 §5.2) with a further escalation for activity content — not a decision an operator makes
   during an incident.
+- **Never read a customer's Google Chat messages to debug ingestion.** Not one space, not one
+  message, not "just to confirm the event arrived intact". CAIRN holds `chat.messages.readonly`, so
+  this is technically trivial — which is exactly why it is stated separately from the Slack line
+  above. The capability exists; the authorisation does not. If confirming what a message contained is
+  genuinely the only way forward, that is a consent-gated, time-boxed, customer-visible support
+  session (md/15 §5.2) with a further escalation for activity content, approved by the customer's
+  own Owner or Admin — never a decision an operator makes during an incident. A Chat space's display
+  name is frequently the most sensitive string a customer holds ("Acme × Northwind diligence",
+  "redundancy planning"), which is why CAIRN stores space resource names and never display names.
 - **Never re-issue or rotate credentials in response to `disconnected` or `revoked`.** That is a
   customer decision. Contact them. For Slack, `app_uninstalled` and `tokens_revoked` both mean this,
   and either can arrive first.
@@ -339,5 +633,28 @@ that cannot exist.
   webhook boundary yet, so a workspace losing every event to `http_timeout` is visible only as a
   silence. `x-slack-retry-reason` is the evidence, and it is in the provider's request rather than
   in anything CAIRN stores.
+- **Google Chat's subscription counts are computable but not readable.** The migration has landed
+  (`c5a92f7e4d18`) and `gchat/subscriptions.subscription_records` reads the rows, so this is no
+  longer a database gap. It is an API gap: nothing calls `subscription_health`, and
+  `/v1/internal/operations/connectors` does not carry it, so `subscriptionsMissing` — the number
+  this connector's worst failure mode moves — cannot be seen from any screen. Closing it is a
+  response field and a call, not a query.
+- **Whether a Chat renewal actually ran is now measured.** Closed. `gchat/subscriptions.py` calls
+  `ops/connectors.record_subscription_renewal` at the per-lease site, carrying the bounded
+  `RenewalAction` word as `outcome`, and once with `failed` for a tenant whose entire pass raises —
+  without that second call the worst failure, a whole workspace renewing nothing, was the only one
+  absent from the counter. The sweep itself was already wired: `jobs/main.py::run_maintenance`
+  invokes `renew_expiring_subscriptions` every maintenance pass. `cairn.connector.subscription_renewals`
+  therefore distinguishes a sweep that is failing from a sweep that stopped.
+- **Whether a Chat connection can be _completed_.** The connect flow exists end to end in the
+  product — a card, an install route, a callback, a space picker — and it stops at Google. Without
+  restricted-scope verification, the assessment and a Workspace account, no authorisation succeeds,
+  so every subscription reading above still describes rows that only a test or a manual insert
+  creates today. A wired connect button is not a connected connector.
+- **Whether the Pub/Sub publisher principal is the one Google documents for Chat interaction
+  events.** Unconfirmed, and a wrong guess presents as `ENDPOINT_PERMISSION_DENIED` rather than as a
+  setup error. Verify it in a real project and record what you saw.
+- **How long a suspended Chat subscription stays reactivatable.** Not documented by Google. Act
+  promptly rather than relying on a window nobody has published.
 - **Nothing is alerting on any of this.** The thresholds in `docs/OPERATIONS.md` have no
   destination and nobody is paged. Somebody has to open the screen.

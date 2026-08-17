@@ -15,6 +15,7 @@ from cairn_api.config import get_settings
 from cairn_api.connectors.credentials import build_cipher
 from cairn_api.db.preflight import run_preflight_checks
 from cairn_api.db.session import dispose_engines, platform_session
+from cairn_api.gchat import subscriptions as gchat_subscriptions
 from cairn_api.github import handlers as github_handlers
 from cairn_api.github import jobs as github_jobs
 from cairn_api.jobs.factory import build_queue
@@ -66,6 +67,15 @@ async def run_maintenance(*, interval: float) -> None:
                     session, older_than_seconds=RATE_LIMIT_BUCKET_TTL_SECONDS
                 )
                 expired = await retention.sweep(session)
+                # Google Chat subscriptions are four-hour leases that are
+                # *deleted* when they lapse, so this pass is not housekeeping:
+                # a missed renewal is a space that stops delivering and cannot
+                # be backfilled. It lives here rather than in a scheduler of its
+                # own because a second periodic loop is a second thing to
+                # supervise, and `gchat/subscriptions.py` already claims its
+                # rows `FOR UPDATE SKIP LOCKED` so running it from every worker
+                # is safe and renews nothing twice.
+                renewals = await gchat_subscriptions.renew_expiring_subscriptions(session)
         except Exception as exc:
             await logger.awarning("maintenance.failed", error=str(exc))
         else:
@@ -73,6 +83,12 @@ async def run_maintenance(*, interval: float) -> None:
                 await logger.ainfo("maintenance.rate_limit_buckets_purged", count=purged)
             if expired:
                 await logger.ainfo("maintenance.raw_activity_deleted", count=expired)
+            if renewals.considered:
+                await logger.ainfo(
+                    "maintenance.gchat_subscriptions_renewed",
+                    count=renewals.changed,
+                    failed=renewals.failed,
+                )
 
 
 def register_handlers(queue: JobQueue, target: JobRegistry | None = None) -> None:

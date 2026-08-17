@@ -1663,6 +1663,85 @@ wrong thing carefully.
 
 ---
 
+**✅ Step 31 — Connector foundation. Complete.**
+
+Delivered: a typed connector model, encrypted credential storage, a provider-neutral ingestion
+contract, consent rules, the connector screens, and operations read models.
+
+**Unverified is unrepresentable.** A `VerifiedEvent` cannot be constructed — it is minted only by
+`verify_and_mint`, which takes a module-private proof object no caller outside the verifier can
+build. The alternative, a `verified: bool` on a payload, is a field somebody eventually sets to
+`True` in a hurry. Here the type system refuses the shortcut.
+
+**Secrets are typed, not disciplined.** `SecretValue` uses `__slots__`, redacts its `__repr__`, and
+serialises to `***redacted***` through a Pydantic core schema, so a token cannot reach a log line, a
+traceback or an API response by being interpolated into one. The scanner that enforces this stayed
+strict when it flagged CAIRN's own test fixtures: the fixtures changed, not the detector — a fixture
+that looks like the thing the scanner exists to catch trains its readers to wave one through.
+
+---
+
+**✅ Step 32 — Slack live events. Complete.**
+
+Delivered: HMAC-verified event delivery over `v0:timestamp:body` with `hmac.compare_digest` and a
+±300s replay window, public channels only, explicit per-channel selection, and the picker that makes
+the selection the customer's rather than CAIRN's.
+
+**A tick means CAIRN is reading that room.** Nothing writes the selection optimistically — the
+checkbox moves only when the server confirms, which costs a round trip per channel and buys the one
+property the screen cannot do without.
+
+---
+
+**✅ Step 33 — Google Chat live events. Complete in the product, blocked at Google.**
+
+Delivered: OAuth with PKCE, a Pub/Sub push receiver verifying Google's RS256 JWT against JWKS with an
+explicit audience, per-space Workspace Events subscriptions, a renewal sweep on the existing
+maintenance loop, the space picker, the Trust page record, three tables with RLS, and an end-to-end
+browser test. **1,797 backend tests, 445 web tests, 12 api-client tests, all passing.**
+
+**A subscription is a lease, not a registration.** `includeResource: true` caps it at four hours, so
+the subject of the implementation is the renewal, not the creation — and an expired subscription is
+_deleted_ at Google, so a lapse costs a customer's record permanently rather than costing a retry.
+The alternative, a seven-day lease, spends a `spaces.messages.get` per message against a per-project
+ceiling every tenant shares; crossing it throttles everyone at once. Renewals are claimed
+`FOR UPDATE SKIP LOCKED` and jittered, because Workspace Events publishes no rate limits and an
+unstaggered sweep is the shape most likely to find an undocumented one.
+
+**The renewal counter was defined, exported, tested — and never called.** Found during integration,
+not by a test: `record_subscription_renewal` had zero production call sites, so a dashboard could not
+distinguish a renewal loop that was failing from one that had stopped. Now called per lease with the
+bounded `RenewalAction` word as its outcome, and once with `failed` for a tenant whose entire pass
+raises — without that second call the worst failure, a whole workspace renewing nothing, was the only
+one absent from the metric. This is the vertical-slice rule catching a layer nothing reached, again.
+
+**The 409 told people to retry something that can never succeed.** A Chat space is claimed globally by
+exactly one workspace, so a save refused for that reason is refused identically forever; the client's
+generic message ended "Trying again may work." Now a specific message, keyed on the stable problem
+type, naming neither the space nor the workspace holding it.
+
+**The hand-written client types were deleted the day the contract landed.** The five `GoogleChat*`
+interfaces existed for one commit while the router was in flight, and re-deriving them from
+`paths[...]` immediately produced twelve compile errors — every one real, because the real contract
+marks fields optional that the hand-written shapes claimed were always present. A shape that survives
+the contract landing is a shape that can silently stop matching the server, which on this screen means
+describing surveillance wrongly.
+
+**Not live, and nothing in the product says it is.** `chat.messages.readonly` is a RESTRICTED scope:
+it requires OAuth verification **plus** a CASA security assessment with an annual re-verification, on
+a weeks-to-months timescale, against a real Google Cloud project and a real Google Workspace account
+— a personal Gmail account cannot authorise it at all. No authorisation can succeed today, so every
+subscription state the screens can render describes rows only a test creates. **A wired connect
+button is not a connected connector**, and the runbook opens by saying so.
+
+**Deferred and documented, not silently carried:** `subscription_health` has no reader —
+`/v1/internal/operations/connectors` does not carry `subscriptionsMissing`, so the number this
+connector's worst failure mode moves cannot be seen from any screen; it is a response field and a
+call, not a query. The Pub/Sub publisher principal is unconfirmed, and the reactivation window is
+undocumented by Google.
+
+---
+
 ## ✅ Stage A gate — PASSED
 
 Two tenants exist and are provably isolated. Users can authenticate with correct roles. Events validate. 150 Python tests and 65 TypeScript tests passing, with WCAG contrast, tenant isolation, migration round-trips, and cross-language schema drift all verified in CI.

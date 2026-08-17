@@ -339,6 +339,20 @@ def _connectors_gate(settings: Settings) -> Gate:
     `channels:join`, so an uninvited bot receives nothing at all, and every
     configuration check in the world passes in that state. So the manual step
     named below starts with the invitation rather than the credentials.
+
+    **Google Chat adds a blocker no amount of finished code clears.** Step 33's
+    scope, `chat.messages.readonly`, is a **restricted** OAuth scope: Google
+    requires verification *plus* an independent third-party security assessment
+    (CASA, ending in a Letter of Assessment), re-taken at least every twelve
+    months, and there is no read-only Chat message scope in a lower tier. An
+    assessment runs weeks to months. So a deployment that has not *started* one
+    cannot ship this connector whatever the state of the repository, and that
+    sentence appears in the gate's next step — ahead of the manual check — rather
+    than in a document somebody reads after the code is merged. Until the app is
+    published and verified the consent screen stays in "Testing", where refresh
+    tokens expire after seven days and every customer connection breaks weekly:
+    a connector that works on Monday and is broken by the following Monday, over
+    and over, is indistinguishable from an unstable product.
     """
     from cairn_api.ops.connectors import PROVIDERS, ConnectorProvider, configured_providers, spec
 
@@ -362,7 +376,12 @@ def _connectors_gate(settings: Settings) -> Gate:
             ),
             next_step=(
                 f"Configure at least one chat source ({names}), install it on one "
-                "workspace, and confirm an event arrives."
+                "workspace, and confirm an event arrives. If Google Chat is in "
+                "scope, start the restricted-scope security assessment now rather "
+                "than when the code is ready: chat.messages.readonly is a RESTRICTED "
+                "scope requiring an independent third-party CASA security assessment "
+                "that takes weeks to months, and it gates the launch rather than the "
+                "merge."
             ),
         )
 
@@ -375,15 +394,28 @@ def _connectors_gate(settings: Settings) -> Gate:
         spec(item).manual_verification for item in chat if spec(item).manual_verification
     )
 
+    # Stated *before* the manual steps, because it is the constraint that decides
+    # whether the manual steps are worth doing yet. Google's restricted-scope
+    # assessment is measured in months and owned by somebody outside this
+    # repository; an operator who reads "install it and post a message" first
+    # will do that, see it work, and conclude the connector is ready to launch.
+    blockers = " ".join(spec(item).release_blocker for item in chat if spec(item).release_blocker)
+
     return Gate(
         name="connectors",
         status=GateStatus.UNVERIFIED,
         detail=(
             f"Credentials are configured for: {', '.join(sorted(item.value for item in chat))}. "
             "No inbound delivery has been verified from inside this process."
+            + (
+                " A launch blocker outside this repository is also outstanding: see the next step."
+                if blockers
+                else ""
+            )
         ),
         next_step=(
-            f"{steps} Then confirm the connector read model reports a delivery for "
+            f"{blockers}{' ' if blockers else ''}{steps} Then confirm the connector "
+            "read model reports a delivery for "
             "that provider: GET /v1/internal/operations/connectors, "
             "`inboundVerified` true for its row. A signing secret in an "
             "environment variable proves somebody set a variable — not that the "

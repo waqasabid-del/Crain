@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  GoogleChatSpaceList,
   Integration,
   SlackChannelList,
   SupportScope,
@@ -14,12 +15,20 @@ import { useCallback, useState, type ReactNode } from "react";
 import { useApiClient } from "../api/context.js";
 import { useAuth } from "../auth/context.js";
 import { describeError, type DescribedError } from "../errors.js";
-import { ChannelPicker, ChannelPickerLoading } from "../components/ChannelPicker.js";
+import {
+  ChannelPicker,
+  ChannelPickerLoading,
+  SpacePicker,
+  SpacePickerLoading,
+} from "../components/ChannelPicker.js";
 import {
   ConnectionCard,
   connectionRows,
   ConnectionsLoading,
   CONNECTION_READ_ONLY_NOTE,
+  GOOGLE_CHAT_REFUSALS,
+  GOOGLE_CHAT_SCOPES,
+  GOOGLE_CHAT_WORKSPACE_ACCOUNT,
   SLACK_INVITE_RULE,
   SLACK_REFUSALS,
   SLACK_SCOPES,
@@ -269,7 +278,7 @@ function WorkspaceConnections({ workspaceId }: { workspaceId: string }): ReactNo
           <ul className={styles.connections} aria-label="Connections">
             {connectionRows(state.data).map((row) => {
               const { connection } = row;
-              const isSlack = row.source === "slack";
+              const connected = connection.state === "connected";
 
               return (
                 <li key={connection.id}>
@@ -277,16 +286,25 @@ function WorkspaceConnections({ workspaceId }: { workspaceId: string }): ReactNo
                     connection={connection}
                     canManage={false}
                     readOnlyNote={readOnlyNote}
-                    {...(isSlack
+                    {...(row.source === "slack"
                       ? {
                           requestedScopes: SLACK_SCOPES,
                           refusals: SLACK_REFUSALS,
                           notice: SLACK_INVITE_RULE,
-                          ...(connection.state === "connected"
+                          ...(connected
                             ? { children: <SlackChannelRecord workspaceId={workspaceId} /> }
                             : {}),
                         }
-                      : {})}
+                      : row.source === "google_chat"
+                        ? {
+                            requestedScopes: GOOGLE_CHAT_SCOPES,
+                            refusals: GOOGLE_CHAT_REFUSALS,
+                            notice: GOOGLE_CHAT_WORKSPACE_ACCOUNT,
+                            ...(connected
+                              ? { children: <GoogleChatSpaceRecord workspaceId={workspaceId} /> }
+                              : {}),
+                          }
+                        : {})}
                   />
                 </li>
               );
@@ -334,6 +352,51 @@ function SlackChannelRecord({ workspaceId }: { workspaceId: string }): ReactNode
   return (
     <ChannelPicker
       selection={state.data}
+      canManage={false}
+      readOnlyNote="An Owner or an Admin chooses these on the workspace screen. It is read-only here because this page is the record, not the control."
+    />
+  );
+}
+
+/**
+ * Which Google Chat spaces are being read, and whether they are actually
+ * delivering.
+ *
+ * **Selected is not the same as arriving**, and this page is exactly where that
+ * distinction has to hold: a space listed as chosen whose subscription expired
+ * is not being read, and a record that omits the subscription state says the
+ * opposite of what is true. So the read-only picker renders each chosen space
+ * with its state in words — and renders nothing at all for a field the backend
+ * did not send. There is no invented renewal date and no invented count here;
+ * the last successful delivery is whatever the connection itself recorded, shown
+ * by the card above, and absent when CAIRN has not recorded one.
+ *
+ * A failure to load is not an error panel. This is one detail inside a record on
+ * a page full of other records, so it says what is missing in a sentence and
+ * leaves the rest of the page intact.
+ */
+function GoogleChatSpaceRecord({ workspaceId }: { workspaceId: string }): ReactNode {
+  const client = useApiClient();
+  const load = useCallback(
+    (signal: AbortSignal): Promise<GoogleChatSpaceList> =>
+      client.listGoogleChatSpaces(workspaceId, { signal }),
+    [client, workspaceId],
+  );
+  const { state } = useAsync(load, "load the Google Chat spaces");
+
+  if (state.status === "loading") return <SpacePickerLoading />;
+  if (state.status === "failed") {
+    return (
+      <p className={styles.readOnly}>
+        CAIRN could not read which Google Chat spaces are selected just now, so this record is
+        incomplete rather than empty.
+      </p>
+    );
+  }
+
+  return (
+    <SpacePicker
+      spaces={state.data}
       canManage={false}
       readOnlyNote="An Owner or an Admin chooses these on the workspace screen. It is read-only here because this page is the record, not the control."
     />

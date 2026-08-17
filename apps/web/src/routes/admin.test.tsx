@@ -1,4 +1,8 @@
 import type {
+  GoogleChatDisconnect,
+  GoogleChatInstall,
+  GoogleChatSpaceList,
+  GoogleChatSpaceSelection,
   Integration,
   Notifications,
   Privacy,
@@ -1526,6 +1530,593 @@ describe("the trust and privacy centre", () => {
       await screen.findByRole("heading", { name: /when cairn staff have looked/i });
 
       await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+    });
+  });
+});
+
+/**
+ * Google Chat, wired into the same screen.
+ *
+ * Step 33 is deliberately not a third integration system: the card, the connect
+ * button, the three OAuth outcomes and the confirmation are the ones Slack
+ * already uses. What this block is for is the handful of things that are
+ * genuinely different about Google, and each of them is a way this screen could
+ * tell somebody a false thing about surveillance.
+ *
+ * - **A tick comes only from a backend-confirmed `selected`.** `PUT` answers
+ *   with resource names, `reconcileSpaces` folds them back, and a refused save
+ *   leaves the checkbox exactly where it was.
+ * - **Selected is not delivering.** Google's subscriptions expire and their
+ *   automatic renewal fails when the authorising account loses access. A space
+ *   drawn as fine while its subscription is suspended is the failure the whole
+ *   picker exists to prevent.
+ * - **A personal Gmail account cannot authorise this**, which is the sentence
+ *   that decides whether pressing Connect can work at all.
+ */
+describe("connecting Google Chat", () => {
+  const GOOGLE_CHAT: Integration = {
+    source: "google_chat",
+    account: "northwind.example",
+    installationId: 11,
+    connectedAt: "2026-07-20T09:00:00Z",
+    disconnectedAt: null,
+    suspended: false,
+  };
+
+  /** The server's own standing sentence, sent with every space response. */
+  const SPACE_NOTICE =
+    "CAIRN reads a space only from the moment you select it, and only while its Google subscription is active.";
+
+  const SPACES: GoogleChatSpaceList = {
+    spaces: [
+      {
+        name: "spaces/AAAA1",
+        displayName: "Platform",
+        eligible: true,
+        selected: true,
+        subscriptionState: "active",
+        expireTime: "2026-09-01T09:00:00Z",
+        errorCategory: null,
+      },
+      {
+        name: "spaces/AAAA2",
+        displayName: "Design",
+        eligible: true,
+        selected: false,
+        subscriptionState: null,
+        expireTime: null,
+        errorCategory: null,
+      },
+      {
+        name: "spaces/AAAA3",
+        displayName: "Ali and Jo",
+        eligible: false,
+        selected: false,
+        subscriptionState: null,
+        expireTime: null,
+        errorCategory: "configuration_invalid",
+      },
+    ],
+    notice: SPACE_NOTICE,
+  };
+
+  const GOOGLE_INSTALL: GoogleChatInstall = {
+    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=nonce",
+    expiresAt: "2026-08-17T10:15:00Z",
+    notice: "This link authorises one Google Workspace account.",
+  };
+
+  const GOOGLE_DISCONNECTED: GoogleChatDisconnect = {
+    state: "disconnected",
+    disconnectedAt: "2026-08-17T10:20:00Z",
+    credentialCleared: true,
+    retentionNotice: "What was already recorded stays until the retention period ends.",
+  };
+
+  function saved(spaceNames: string[]): GoogleChatSpaceSelection {
+    return { spaceNames, notice: SPACE_NOTICE };
+  }
+
+  /** A workspace with Google Chat connected, and every endpoint stubbed. */
+  function googleClient(overrides = {}): ReturnType<typeof createStubClient> {
+    return client({
+      listIntegrations: vi.fn(() => Promise.resolve([GOOGLE_CHAT])),
+      startGoogleChatInstall: vi.fn(() => Promise.resolve(GOOGLE_INSTALL)),
+      listGoogleChatSpaces: vi.fn(() => Promise.resolve(SPACES)),
+      setGoogleChatSpaces: vi.fn(() => Promise.resolve(saved(["spaces/AAAA1"]))),
+      disconnectGoogleChat: vi.fn(() => Promise.resolve(GOOGLE_DISCONNECTED)),
+      ...overrides,
+    });
+  }
+
+  /** Google Chat not yet connected — the card is listed all the same. */
+  function unconnectedGoogleClient(overrides = {}): ReturnType<typeof createStubClient> {
+    return googleClient({
+      listIntegrations: vi.fn(() => Promise.resolve(INTEGRATIONS)),
+      ...overrides,
+    });
+  }
+
+  /** See `captureNavigation` above: jsdom neither performs nor records it. */
+  function captureGoogleNavigation(): ReturnType<typeof vi.fn> {
+    const assign = vi.fn();
+    const { href, origin, pathname, search } = window.location;
+    vi.stubGlobal("location", { href, origin, pathname, search, assign });
+    return assign;
+  }
+
+  async function openSpaces(): Promise<void> {
+    await userEvent.click(await screen.findByRole("button", { name: /choose spaces/i }));
+  }
+
+  describe("what the reader is told before they authorise anything", () => {
+    it("lists Google Chat even though nobody has connected it", async () => {
+      // The scopes, the refusals and the account requirement have to be readable
+      // while the answer is still "no".
+      renderAdmin(unconnectedGoogleClient());
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+      expect(
+        within(card(/^google chat$/i)).getByText(/reading nothing from google chat/i),
+      ).toBeVisible();
+    });
+
+    it("names both scopes exactly, in the literal form and in plain words", async () => {
+      renderAdmin(unconnectedGoogleClient());
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+      const chat = within(card(/^google chat$/i));
+
+      expect(chat.getByText("chat.spaces.readonly")).toBeVisible();
+      expect(chat.getByText("chat.messages.readonly")).toBeVisible();
+      expect(
+        chat.getByText(/list the spaces the person who authorises cairn can see/i),
+      ).toBeVisible();
+      expect(chat.getByText(/read the messages in the spaces you select/i)).toBeVisible();
+    });
+
+    it("asks for no third scope", async () => {
+      // Locked deliberately. The day somebody adds a scope this fails, and
+      // whoever added it has to write the sentence that explains it to a
+      // customer.
+      renderAdmin(unconnectedGoogleClient());
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+      const scopes = within(card(/^google chat$/i)).getAllByText(/^chat\./);
+
+      expect(scopes.map((node) => node.textContent)).toEqual([
+        "chat.spaces.readonly",
+        "chat.messages.readonly",
+      ]);
+    });
+
+    it("states the six things the grant makes impossible", async () => {
+      renderAdmin(unconnectedGoogleClient());
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+      const chat = within(card(/^google chat$/i));
+
+      expect(chat.getByText(/asks for no permission to write to google chat/i)).toBeVisible();
+      expect(chat.getByText(/read your direct messages/i)).toBeVisible();
+      expect(chat.getByText(/react to a message/i)).toBeVisible();
+      expect(chat.getByText(/no read-state, no presence and no typing indicator/i)).toBeVisible();
+      expect(chat.getByText(/does not request membership data/i)).toBeVisible();
+      expect(chat.getByText(/no admin scope and no organisation-wide access/i)).toBeVisible();
+    });
+
+    it("says that a personal Gmail account cannot authorise it", async () => {
+      // **The sentence that decides whether Connect can work.** Without it,
+      // somebody meets an opaque Google error and cannot tell a wrong account
+      // from a broken product.
+      renderAdmin(unconnectedGoogleClient());
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+      const chat = within(card(/^google chat$/i));
+
+      expect(chat.getByText(/a personal gmail account cannot authorise this/i)).toBeVisible();
+      expect(chat.getByText(/belong to a google workspace organisation/i)).toBeVisible();
+    });
+  });
+
+  describe("starting the grant", () => {
+    it("asks the API where to send the customer, then sends them", async () => {
+      // Two steps rather than a link: the URL does not exist until it is asked
+      // for, because the install endpoint mints a single-use state nonce.
+      const assign = captureGoogleNavigation();
+      const startGoogleChatInstall = vi.fn(() => Promise.resolve(GOOGLE_INSTALL));
+      renderAdmin(unconnectedGoogleClient({ startGoogleChatInstall }));
+
+      await userEvent.click(await screen.findByRole("button", { name: /connect google chat/i }));
+
+      expect(startGoogleChatInstall).toHaveBeenCalledWith(WORKSPACE);
+      expect(assign).toHaveBeenCalledWith(GOOGLE_INSTALL.authorizeUrl);
+    });
+
+    it("says when the link it just minted stops working", async () => {
+      // A state nonce is single-use and time-boxed. Somebody who opens the
+      // consent screen and comes back after lunch gets a failure whose only
+      // explanation is this line.
+      captureGoogleNavigation();
+      renderAdmin(unconnectedGoogleClient());
+
+      await userEvent.click(await screen.findByRole("button", { name: /connect google chat/i }));
+
+      expect(await screen.findByText(/this link stops working at/i)).toBeVisible();
+      expect(screen.getByText(/authorises one google workspace account/i)).toBeVisible();
+    });
+
+    it("says which source failed to start, next to that card", async () => {
+      renderAdmin(
+        unconnectedGoogleClient({
+          startGoogleChatInstall: vi.fn(() => Promise.reject(apiError(500))),
+        }),
+      );
+
+      await userEvent.click(await screen.findByRole("button", { name: /connect google chat/i }));
+
+      const chat = within(card(/^google chat$/i));
+      expect(await chat.findByRole("alert")).toBeVisible();
+    });
+
+    it("offers Reconnect once the connection has stopped working", async () => {
+      renderAdmin(
+        googleClient({
+          listIntegrations: vi.fn(() => Promise.resolve([{ ...GOOGLE_CHAT, suspended: true }])),
+        }),
+      );
+
+      expect(await screen.findByRole("button", { name: /reconnect google chat/i })).toBeVisible();
+    });
+  });
+
+  describe("coming back from Google's consent screen", () => {
+    it("says plainly that it worked, and that nothing is being read yet", async () => {
+      renderAdmin(googleClient(), "googleChat=connected");
+
+      expect(await screen.findByText(/google chat is connected/i)).toBeVisible();
+      expect(screen.getByText(/no spaces are chosen yet, so nothing is being read/i)).toBeVisible();
+    });
+
+    it("treats a denial as an answer, not as a failure", async () => {
+      // Somebody was asked for permission and said no. An alert and an apology
+      // would teach them their deliberate decision broke the product.
+      renderAdmin(unconnectedGoogleClient(), "googleChat=denied");
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+      const chat = within(card(/^google chat$/i));
+
+      expect(chat.getByText(/nothing was connected/i)).toBeVisible();
+      expect(chat.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("says a failure connected nothing, and puts it where the reader is looking", async () => {
+      renderAdmin(unconnectedGoogleClient(), "googleChat=error");
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+
+      expect(within(card(/^google chat$/i)).getByRole("alert")).toHaveTextContent(
+        /nothing was connected and nothing is being read/i,
+      );
+    });
+
+    it("puts a Google return on the Google card and not on Slack's", async () => {
+      // One parameter per provider. A shared one would put a Google denial on
+      // the Slack card, which is a false statement about which grant was
+      // refused.
+      renderAdmin(unconnectedGoogleClient(), "googleChat=denied");
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+
+      expect(within(card(/^google chat$/i)).getByText(/nothing was connected/i)).toBeVisible();
+      expect(within(card(/^slack$/i)).queryByText(/nothing was connected/i)).toBeNull();
+    });
+
+    it("ignores a return value it does not recognise", async () => {
+      // The value is attacker-controllable. Rendering an arbitrary one would put
+      // a stranger's word on a page whose whole point is that its words are
+      // CAIRN's.
+      renderAdmin(unconnectedGoogleClient(), "googleChat=%3Cscript%3E");
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+
+      expect(within(card(/^google chat$/i)).queryByText(/nothing was connected/i)).toBeNull();
+    });
+  });
+
+  describe("choosing spaces", () => {
+    it("sends the whole selection, never a delta", async () => {
+      // PUT replaces rather than merges, so an unchecked box has to arrive as an
+      // absence — and an absence is only meaningful when everything else is
+      // present.
+      const setGoogleChatSpaces = vi.fn(() =>
+        Promise.resolve(saved(["spaces/AAAA1", "spaces/AAAA2"])),
+      );
+      renderAdmin(googleClient({ setGoogleChatSpaces }));
+      await openSpaces();
+
+      await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+
+      expect(setGoogleChatSpaces).toHaveBeenCalledWith(WORKSPACE, ["spaces/AAAA1", "spaces/AAAA2"]);
+    });
+
+    it("ticks only what the save came back with", async () => {
+      // **The rule.** The server answered with one name, so one box is ticked —
+      // whatever was clicked.
+      renderAdmin(
+        googleClient({
+          setGoogleChatSpaces: vi.fn(() => Promise.resolve(saved(["spaces/AAAA2"]))),
+        }),
+      );
+      await openSpaces();
+
+      await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+
+      expect(await screen.findByRole("checkbox", { name: "Design" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Platform" })).not.toBeChecked();
+    });
+
+    it("leaves the box where it was when the save is refused, and says why", async () => {
+      renderAdmin(
+        googleClient({ setGoogleChatSpaces: vi.fn(() => Promise.reject(apiError(403))) }),
+      );
+      await openSpaces();
+
+      await userEvent.click(screen.getByRole("checkbox", { name: "Design" }));
+
+      expect(await screen.findByText(/does not have access to that/i)).toBeVisible();
+      expect(screen.getByRole("checkbox", { name: "Design" })).not.toBeChecked();
+    });
+
+    it("shows an ineligible space as unselectable, with a reason, rather than hiding it", async () => {
+      renderAdmin(googleClient());
+      await openSpaces();
+
+      const dm = screen.getByRole("checkbox", { name: "Ali and Jo" });
+      expect(dm).toBeDisabled();
+      expect(
+        screen.getByText(/cairn cannot read this space, so it cannot be chosen/i),
+      ).toBeVisible();
+    });
+
+    it("says a selected space is not delivering when its subscription is suspended", async () => {
+      renderAdmin(
+        googleClient({
+          listGoogleChatSpaces: vi.fn(() =>
+            Promise.resolve({
+              ...SPACES,
+              spaces: [{ ...SPACES.spaces![0]!, subscriptionState: "suspended" }],
+            }),
+          ),
+        }),
+      );
+      await openSpaces();
+
+      expect(
+        screen.getByText(/the subscription is suspended, so nothing is arriving from this space/i),
+      ).toBeVisible();
+    });
+
+    it("warns while a subscription is renewing rather than after it has failed", async () => {
+      renderAdmin(
+        googleClient({
+          listGoogleChatSpaces: vi.fn(() =>
+            Promise.resolve({
+              ...SPACES,
+              spaces: [{ ...SPACES.spaces![0]!, subscriptionState: "renewing" }],
+            }),
+          ),
+        }),
+      );
+      await openSpaces();
+
+      expect(screen.getByText(/the subscription is renewing/i)).toBeVisible();
+      expect(screen.getByText(/the space stops delivering/i)).toBeVisible();
+    });
+
+    it("shows a skeleton while the spaces load, and announces it", async () => {
+      const pending = new Promise<GoogleChatSpaceList>(() => undefined);
+      renderAdmin(googleClient({ listGoogleChatSpaces: vi.fn(() => pending) }));
+
+      expect(await screen.findByText(/loading the google chat spaces/i)).toBeInTheDocument();
+    });
+
+    it("answers a permission refusal rather than reporting a generic failure", async () => {
+      renderAdmin(
+        googleClient({ listGoogleChatSpaces: vi.fn(() => Promise.reject(apiError(403))) }),
+      );
+
+      expect(await screen.findByText(/does not have access to that/i)).toBeVisible();
+    });
+
+    it("offers a retry when the spaces could not be loaded", async () => {
+      const listGoogleChatSpaces = vi
+        .fn()
+        .mockRejectedValueOnce(apiError(500))
+        .mockResolvedValue(SPACES);
+      renderAdmin(googleClient({ listGoogleChatSpaces }));
+
+      await userEvent.click(await screen.findByRole("button", { name: /try again/i }));
+
+      expect(await screen.findByRole("button", { name: /choose spaces/i })).toBeVisible();
+      expect(listGoogleChatSpaces).toHaveBeenCalledTimes(2);
+    });
+
+    it("gives a Member the record read-only, and says who can change it", async () => {
+      const member = googleClient({
+        getSession: vi.fn(() =>
+          Promise.resolve({
+            ...SESSION,
+            workspaces: [{ ...SESSION.workspaces[0]!, role: "member" as const }],
+          }),
+        ),
+      });
+      renderAdmin(member);
+
+      await screen.findByRole("heading", { name: /spaces cairn reads/i });
+
+      expect(screen.queryByRole("button", { name: /choose spaces/i })).not.toBeInTheDocument();
+      expect(
+        screen.getByText(
+          /an owner or an admin of this workspace chooses which google chat spaces/i,
+        ),
+      ).toBeVisible();
+      // The record itself, not only a count.
+      expect(screen.getByText("Platform")).toBeVisible();
+    });
+
+    it("gives a Viewer no connect control, and names who has one", async () => {
+      const viewer = unconnectedGoogleClient({
+        getSession: vi.fn(() =>
+          Promise.resolve({
+            ...SESSION,
+            workspaces: [{ ...SESSION.workspaces[0]!, role: "viewer" as const }],
+          }),
+        ),
+      });
+      renderAdmin(viewer);
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+      const chat = within(card(/^google chat$/i));
+
+      expect(chat.queryByRole("button", { name: /connect google chat/i })).not.toBeInTheDocument();
+      expect(
+        chat.getByText(/an owner or an admin of this workspace connects and disconnects sources/i),
+      ).toBeVisible();
+      // And they can still read exactly what it would ask for.
+      expect(chat.getByText("chat.messages.readonly")).toBeVisible();
+    });
+
+    it("restores focus to the trigger when the picker is closed", async () => {
+      renderAdmin(googleClient());
+      await openSpaces();
+
+      await userEvent.click(screen.getByRole("button", { name: /done choosing spaces/i }));
+
+      expect(screen.getByRole("button", { name: /choose spaces/i })).toHaveFocus();
+    });
+
+    it("passes an axe audit with the space picker open", async () => {
+      const { container } = renderAdmin(googleClient());
+      await openSpaces();
+
+      await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+    });
+  });
+
+  describe("disconnecting", () => {
+    it("states the truth before it happens", async () => {
+      renderAdmin(googleClient());
+
+      await screen.findByRole("heading", { name: /^google chat — northwind.example$/i });
+      const chat = within(card(/^google chat — northwind.example$/i));
+      await userEvent.click(chat.getByRole("button", { name: /^disconnect$/i }));
+
+      const confirmation = screen.getByRole("group", { name: /disconnect google chat/i });
+      expect(confirmation).toHaveTextContent(/stops new collection immediately/i);
+      expect(confirmation).toHaveTextContent(/deletes the google credential cairn stored/i);
+      expect(confirmation).toHaveTextContent(/does not delete what has already been recorded/i);
+    });
+
+    it("disconnects only after the reader has confirmed", async () => {
+      const disconnectGoogleChat = vi.fn(() => Promise.resolve(GOOGLE_DISCONNECTED));
+      renderAdmin(googleClient({ disconnectGoogleChat }));
+
+      await screen.findByRole("heading", { name: /^google chat/i });
+      const chat = within(card(/^google chat/i));
+      await userEvent.click(chat.getByRole("button", { name: /^disconnect$/i }));
+      expect(disconnectGoogleChat).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByRole("button", { name: /disconnect google chat/i }));
+
+      expect(disconnectGoogleChat).toHaveBeenCalledWith(WORKSPACE);
+    });
+
+    it("says which card failed when the disconnect is refused", async () => {
+      renderAdmin(
+        googleClient({ disconnectGoogleChat: vi.fn(() => Promise.reject(apiError(403))) }),
+      );
+
+      await screen.findByRole("heading", { name: /^google chat/i });
+      const chat = within(card(/^google chat/i));
+      await userEvent.click(chat.getByRole("button", { name: /^disconnect$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /disconnect google chat/i }));
+
+      expect(await chat.findByRole("alert")).toHaveTextContent(/does not have access to that/i);
+    });
+  });
+
+  describe("the Trust page's record of it", () => {
+    function renderTrustWith(stub: ReturnType<typeof createStubClient>): void {
+      renderRoute(
+        <AppLayout>
+          <TrustPage />
+        </AppLayout>,
+        { client: stub, route: "/trust" },
+      );
+    }
+
+    /** Enough of the Trust payload for the page to render around the record. */
+    const GOOGLE_TRUST: Trust = {
+      sources: [
+        {
+          source: "google_chat",
+          label: "Google Chat",
+          reads: "Messages in the spaces you choose. Never direct messages.",
+          connected: true,
+        },
+      ],
+      refusals: ["CAIRN never scores or ranks people."],
+      commitments: [
+        { title: "Everyone sees the same thing", detail: "Roles decide what you can configure." },
+      ],
+      retentionDays: 90,
+      region: "us-central1",
+      awaitingNotification: 0,
+      subprocessors: [{ title: "Google Cloud (Vertex AI)", detail: "Runs the models." }],
+    };
+
+    /** The Trust page needs its own payload as well as the connections. */
+    function trustClient(overrides = {}): ReturnType<typeof createStubClient> {
+      return googleClient({ getTrust: vi.fn(() => Promise.resolve(GOOGLE_TRUST)), ...overrides });
+    }
+
+    it("records the spaces and their subscription state, read-only", async () => {
+      renderTrustWith(trustClient());
+
+      await screen.findByRole("heading", { name: /spaces cairn reads/i });
+
+      expect(screen.getByText("Platform")).toBeVisible();
+      expect(
+        screen.getByText(
+          /the subscription is active, so messages from this space are reaching cairn/i,
+        ),
+      ).toBeVisible();
+      expect(screen.queryByRole("button", { name: /choose spaces/i })).not.toBeInTheDocument();
+    });
+
+    it("invents no last delivery when the connection recorded none", async () => {
+      // **The page's whole claim is that its numbers are read from the
+      // workspace.** A plausible "Last successful sync 4 minutes ago" from a
+      // field the server never sent would discredit every other line on it.
+      renderTrustWith(trustClient());
+
+      await screen.findByRole("heading", { name: /^google chat — northwind.example$/i });
+
+      expect(
+        within(card(/^google chat — northwind.example$/i)).queryByText(/last successful sync/i),
+      ).toBeNull();
+    });
+
+    it("says the record is incomplete rather than empty when the spaces cannot be read", async () => {
+      // One detail inside a record on a page full of records. An error panel
+      // about a space list is out of proportion to what a reader came for.
+      renderTrustWith(
+        trustClient({ listGoogleChatSpaces: vi.fn(() => Promise.reject(apiError(500))) }),
+      );
+
+      expect(
+        await screen.findByText(/could not read which google chat spaces are selected just now/i),
+      ).toBeVisible();
     });
   });
 });

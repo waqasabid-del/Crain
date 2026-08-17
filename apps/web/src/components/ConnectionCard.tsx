@@ -175,6 +175,17 @@ export interface ConnectionCardProps {
   /** What disconnecting actually does, when the default sentence is not the
    * whole truth for this provider. */
   disconnectEffect?: ReactNode;
+  /**
+   * What is true immediately after a grant, when the provider's own answer is
+   * more specific than "connected".
+   *
+   * Slack's is the `/invite` requirement, Google Chat's is that a connection
+   * with no spaces chosen reads nothing. Both are the difference between
+   * somebody understanding why nothing is arriving and concluding the product is
+   * broken — and neither is true of the other provider, so the card holds
+   * neither and is told.
+   */
+  connectedDetail?: string;
   /** Provider-specific detail that belongs inside the record — the Slack
    * channel picker sits here. */
   children?: ReactNode;
@@ -195,6 +206,7 @@ export function ConnectionCard({
   refusals,
   notice,
   disconnectEffect,
+  connectedDetail,
   children,
 }: ConnectionCardProps): ReactNode {
   const headingId = useId();
@@ -276,7 +288,11 @@ export function ConnectionCard({
 
       {oauthReturn !== undefined && (
         <div className={styles.return}>
-          <OAuthReturnMessage outcome={oauthReturn} provider={connection.provider} />
+          <OAuthReturnMessage
+            outcome={oauthReturn}
+            provider={connection.provider}
+            {...(connectedDetail === undefined ? {} : { connectedDetail })}
+          />
         </div>
       )}
 
@@ -445,9 +461,11 @@ export function ConnectionCard({
 function OAuthReturnMessage({
   outcome,
   provider,
+  connectedDetail,
 }: {
   outcome: OAuthReturn;
   provider: string;
+  connectedDetail?: string;
 }): ReactNode {
   if (outcome === "error") {
     return (
@@ -462,7 +480,7 @@ function OAuthReturnMessage({
   return (
     <StatusNote>
       {outcome === "connected"
-        ? `${provider} is connected. CAIRN is not reading anything yet — it reads only the channels chosen below, and only after the CAIRN app has been invited to them.`
+        ? `${provider} is connected. CAIRN is not reading anything yet — it reads only what is chosen below.${connectedDetail === undefined ? "" : ` ${connectedDetail}`}`
         : `Nothing was connected. You did not give CAIRN permission, so ${provider} shared nothing with it and there is nothing to undo. You can start again whenever you want to.`}
     </StatusNote>
   );
@@ -528,6 +546,17 @@ export const SLACK_REFUSALS: string[] = [
 export const SLACK_INVITE_RULE =
   "Slack only sends CAIRN messages from a channel the CAIRN app has been invited to. Choosing a channel here is not enough on its own: somebody has to run /invite @CAIRN in that channel in Slack, or it will stay silent.";
 
+/**
+ * What is true the instant Slack is authorised.
+ *
+ * The grant is not the end of the setup, and this is the difference between
+ * somebody understanding why nothing is arriving and concluding the product is
+ * broken. Said on the OAuth return, where they are looking, rather than left to
+ * the invite rule further down the card.
+ */
+export const SLACK_CONNECTED_DETAIL =
+  "Messages start arriving only after the CAIRN app has been invited to a channel you have chosen — run /invite @CAIRN there in Slack.";
+
 /** No backfill. Said up front, because "we imported your last 90 days" is what
  * people assume a connection does, and discovering otherwise a week later reads
  * as data loss. */
@@ -564,6 +593,103 @@ export function slackNotConnected(): Connection {
   };
 }
 
+// --------------------------------------------------------------------------
+// Google Chat
+// --------------------------------------------------------------------------
+
+/**
+ * The scopes CAIRN requests from Google Chat. Exactly these two, and no others.
+ *
+ * Both are `readonly` and both are stated as what they *permit* rather than what
+ * they are for. `chat.messages.readonly` is the one that matters: it is read
+ * access to the messages in the spaces the reader selects, and describing it as
+ * "so CAIRN can understand your team's work" would put CAIRN's intent where the
+ * permission belongs.
+ */
+export const GOOGLE_CHAT_SCOPES: ScopeGrant[] = [
+  {
+    scope: "chat.spaces.readonly",
+    means:
+      "List the spaces the person who authorises CAIRN can see, so you can choose which ones CAIRN reads.",
+  },
+  {
+    scope: "chat.messages.readonly",
+    means:
+      "Read the messages in the spaces you select. Only those, and only from the moment you select them.",
+  },
+];
+
+/**
+ * What CAIRN cannot do in Google Chat, stated rather than left to be inferred.
+ *
+ * Each line is a permission CAIRN does not request, so Google itself refuses the
+ * attempt — these are enforced by the grant rather than by CAIRN's own good
+ * behaviour, and that is the difference worth writing down.
+ */
+export const GOOGLE_CHAT_REFUSALS: string[] = [
+  "Post or reply. CAIRN asks for no permission to write to Google Chat, so nothing it does can appear in a space.",
+  "Read your direct messages. CAIRN reads named spaces only; Google does not grant it your DMs and it does not ask for them.",
+  "React to a message, or read anybody's reactions.",
+  "See what you have read, or whether you have read it. There is no read-state, no presence and no typing indicator.",
+  "See who is a member of a space, or when somebody joined or left. CAIRN does not request membership data.",
+  "Use anything administrative. CAIRN asks for no admin scope and no organisation-wide access, so it reads through one person's ordinary account and nothing beyond what that account can already see.",
+];
+
+/**
+ * **The sentence that decides whether any of this can work at all.**
+ *
+ * The Google Chat API is a Google Workspace API: a personal Gmail account has no
+ * Chat spaces to grant and Google refuses the authorisation. Without this line
+ * somebody presses Connect, meets an opaque Google error, and has no way to tell
+ * a wrong account from a broken product.
+ */
+export const GOOGLE_CHAT_WORKSPACE_ACCOUNT =
+  "A personal Gmail account cannot authorise this. The account you sign in with has to belong to a Google Workspace organisation — Google Chat spaces exist only there, and Google refuses the request from a personal account.";
+
+/** No backfill. Said up front, because "we imported your last 90 days" is what
+ * people assume a connection does, and discovering otherwise a week later reads
+ * as data loss. */
+export const GOOGLE_CHAT_NO_HISTORY =
+  "Choosing a space starts collection from that moment. CAIRN does not read anything that was said in it before, and there is no history import.";
+
+/**
+ * What is true the instant Google Chat is authorised.
+ *
+ * A connection with no spaces chosen reads nothing at all — which is the right
+ * default and an unexplained silence if nobody says so.
+ */
+export const GOOGLE_CHAT_CONNECTED_DETAIL =
+  "No spaces are chosen yet, so nothing is being read. CAIRN reads a space only once it is selected below.";
+
+/**
+ * What disconnecting Google Chat does, precisely.
+ *
+ * Three separate facts, because the reader is entitled to all three and they
+ * have different answers: collection stops now, the credential is destroyed, and
+ * what was already recorded is *not* deleted. Deleting it is a different
+ * request, and not a side effect of a button labelled Disconnect.
+ */
+export const GOOGLE_CHAT_DISCONNECT_EFFECT =
+  "Disconnecting stops new collection immediately and deletes the Google credential CAIRN stored, so it cannot read anything more without being authorised again. It also ends the subscriptions Google delivers messages through. It does not delete what has already been recorded: that stays, and is removed on this workspace's retention schedule like every other source.";
+
+/**
+ * Google Chat before anybody has connected it.
+ *
+ * Rendered rather than omitted, so the scopes, the refusals and the Workspace
+ * account requirement are all readable while the answer is still "no". Consent
+ * that is only explained after the Google consent screen is consent to something
+ * the reader had not been told; this card is the telling.
+ */
+export function googleChatNotConnected(): Connection {
+  return {
+    id: "google_chat",
+    provider: "Google Chat",
+    state: "disconnected",
+    stateDetail: "Not connected, so CAIRN is reading nothing from Google Chat.",
+    reads: PROVIDERS.google_chat.reads,
+  };
+}
+
 /** One row of a connections list: the card's view of a source, and the payload
  * it came from. `integration` is null for a source nobody has connected. */
 export interface ConnectionRow {
@@ -594,6 +720,10 @@ export function connectionRows(integrations: Integration[]): ConnectionRow[] {
 
   if (!integrations.some((integration) => integration.source === "slack")) {
     rows.push({ source: "slack", connection: slackNotConnected(), integration: null });
+  }
+
+  if (!integrations.some((integration) => integration.source === "google_chat")) {
+    rows.push({ source: "google_chat", connection: googleChatNotConnected(), integration: null });
   }
 
   return rows;
@@ -691,11 +821,11 @@ export function ConnectionsLoading({ label, count = 2 }: ConnectionsLoadingProps
  *
  * Client-side knowledge rather than a server field, and stated as such: it is
  * the same promise the Trust page makes, so the two must not be able to drift.
- * Google Chat gets its entry when that step lands; an unrecognised source falls
- * back to a sentence that claims nothing.
+ * An unrecognised source falls back to a sentence that claims nothing.
  *
- * `satisfies` rather than an annotation, so `PROVIDERS.slack` is known to exist
- * and `slackNotConnected` cannot be reading an absent key.
+ * `satisfies` rather than an annotation, so `PROVIDERS.slack` and
+ * `PROVIDERS.google_chat` are known to exist and the two `…NotConnected`
+ * builders cannot be reading an absent key.
  */
 const PROVIDERS = {
   github: {
@@ -707,6 +837,11 @@ const PROVIDERS = {
     label: "Slack",
     reads:
       "Reading messages in the public channels you choose, and who wrote them. Never direct messages, private channels or group DMs.",
+  },
+  google_chat: {
+    label: "Google Chat",
+    reads:
+      "Reading messages in the spaces you choose, through one Google Workspace account. Never direct messages, never reactions, never who has read what.",
   },
 } satisfies Record<string, { label: string; reads: string }>;
 

@@ -315,6 +315,113 @@ class TestTheChainIsConnected:
 
         assert facts == [], "a deleted message was written as a current statement"
 
+    async def test_a_chat_message_becomes_a_fact_cited_to_google_chat(
+        self,
+        platform: AsyncSession,
+        workspace: tuple[Tenant, GitHubInstallation],
+        providers: Providers,
+    ) -> None:
+        """The same gap as Slack's, one connector later.
+
+        The evidence reader knew two payload shapes; a Google Chat delivery
+        reaching the understanding job would have found nothing to cite and
+        produced no facts — silently, with no error anywhere. A connector that
+        receives messages and never reaches a brief is exactly what the
+        vertical-slice rule exists to catch.
+
+        The source label matters as much as the fact: filed as "github" it would
+        appear as a commit on the Trust page and in the per-source opt-out, which
+        is the one place a reader checks whether a statement came from somewhere
+        they agreed to.
+        """
+        tenant, _ = workspace
+        payload = {
+            "type": "google_chat_event",
+            "event_type": "google.workspace.chat.message.v1.created",
+            "message": {
+                "name": "spaces/AAAADELIVERY/messages/MSG1",
+                "createTime": "2026-08-17T09:30:00Z",
+                "space": {"name": "spaces/AAAADELIVERY"},
+                "sender": {"name": "users/107700770077007700770", "type": "HUMAN"},
+                "text": "Shipped the payments migration to production this morning.",
+            },
+        }
+        delivery_id = await store_delivery(platform, tenant, payload)
+
+        handler = make_handler(providers=providers)
+        async with tenant_session(tenant.id) as session:
+            await handler(
+                session,
+                JobEnvelope(
+                    job_type=UNDERSTAND_JOB,
+                    tenant_id=tenant.id,
+                    payload={"delivery_id": delivery_id},
+                ),
+            )
+            await session.commit()
+
+        async with tenant_session(tenant.id) as session:
+            facts = list(await session.scalars(select(FactRow)))
+
+        assert facts, "a Google Chat message produced no facts"
+        cited = [ref for fact in facts for ref in fact.sources]
+        assert cited, "a Google Chat fact reached the store with no source"
+        assert all(ref.source == "google_chat" for ref in cited), (
+            "a Google Chat statement was filed as another source"
+        )
+        assert all(
+            ref.evidence_id == "google_chat:message:spaces/AAAADELIVERY/messages/MSG1"
+            for ref in cited
+        )
+        # Provenance a reader can open, built from the resource name rather than
+        # fetched inside an acknowledgement budget that cannot be extended.
+        assert all(ref.url == "https://chat.google.com/room/AAAADELIVERY/MSG1" for ref in cited)
+
+    async def test_a_deleted_chat_message_cites_nothing(
+        self,
+        platform: AsyncSession,
+        workspace: tuple[Tenant, GitHubInstallation],
+        providers: Providers,
+    ) -> None:
+        """A deletion must not leave a statement standing as current.
+
+        Google's documented delete payload still echoes the message's `text` and
+        `sender`; that is boilerplate about a message that no longer exists, and
+        re-reading it would resurrect exactly the claim the deletion retracted.
+        The citation stops resolving instead — the delete is discriminated by the
+        stored CloudEvent type, since the three payload shapes are identical.
+        """
+        tenant, _ = workspace
+        payload = {
+            "type": "google_chat_event",
+            "event_type": "google.workspace.chat.message.v1.deleted",
+            "message": {
+                "name": "spaces/AAAADELIVERY/messages/MSG2",
+                "createTime": "2026-08-17T09:30:00Z",
+                "space": {"name": "spaces/AAAADELIVERY"},
+                "sender": {"name": "users/107700770077007700770", "type": "HUMAN"},
+                "text": "Shipped the payments migration to production this morning.",
+            },
+        }
+        delivery_id = await store_delivery(platform, tenant, payload)
+
+        handler = make_handler(providers=providers)
+        async with tenant_session(tenant.id) as session:
+            await handler(
+                session,
+                JobEnvelope(
+                    job_type=UNDERSTAND_JOB,
+                    tenant_id=tenant.id,
+                    payload={"delivery_id": delivery_id},
+                ),
+            )
+            await session.commit()
+
+        async with tenant_session(tenant.id) as session:
+            facts = list(await session.scalars(select(FactRow)))
+
+        assert facts == [], "a deleted message was written as a current statement"
+
     async def test_reprocessing_the_same_delivery_does_not_duplicate_facts(
         self,
         platform: AsyncSession,

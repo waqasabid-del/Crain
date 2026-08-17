@@ -235,6 +235,58 @@ class TestTheConnectorGateCannotPass:
         assert "invite" in gate.next_step
 
 
+class GoogleChatSettings(Settings):
+    """`Settings` with the two fields Google Chat's OAuth half will add.
+
+    A subclass because `Settings` is configured with `extra="ignore"`, so passing
+    these to `model_validate` today is silently dropped — and a test built on
+    that would assert against a provider that is not configured while looking
+    like it asserted the opposite.
+    """
+
+    google_chat_project_id: str = ""
+    google_chat_service_account: str = ""
+
+
+GOOGLE_CHAT_CONFIGURED: dict[str, object] = {
+    "google_chat_project_id": "cairn-chat-prod",
+    "google_chat_service_account": "cairn-chat@cairn-chat-prod.iam.gserviceaccount.com",
+}
+
+
+class TestGoogleChatCannotShipOnCodeAlone:
+    """Step 33's blocker, stated where the release list is assembled.
+
+    Chat's scope `chat.messages.readonly` is **restricted**: Google requires
+    verification plus an independent third-party security assessment (CASA), and
+    re-assessment at least every twelve months. There is no lower-tier read-only
+    Chat message scope. Assessments run weeks to months, so a deployment that has
+    not started one cannot ship this connector however finished the code is —
+    which is exactly the kind of fact that gets discovered at launch unless a gate
+    says it every time it is evaluated. The detailed assertions live in
+    `test_connector_ops.py`; these pin it into the release list.
+    """
+
+    def test_configured_chat_is_manual_and_still_blocks(self) -> None:
+        gate = gate_named(
+            "connectors", GoogleChatSettings.model_validate({**DEPLOYED, **GOOGLE_CHAT_CONFIGURED})
+        )
+
+        assert gate.status is GateStatus.UNVERIFIED
+        assert gate.blocks_release
+        assert "google_chat" in gate.detail
+
+    def test_the_next_step_names_the_assessment_before_the_manual_check(self) -> None:
+        gate = gate_named(
+            "connectors", GoogleChatSettings.model_validate({**DEPLOYED, **GOOGLE_CHAT_CONFIGURED})
+        )
+
+        assert "security assessment" in gate.next_step
+        assert gate.next_step.index("security assessment") < gate.next_step.index(
+            "add the app to one space"
+        )
+
+
 class TestTheHonestSummary:
     def test_a_local_environment_reports_the_work_that_remains(
         self, monkeypatch: pytest.MonkeyPatch

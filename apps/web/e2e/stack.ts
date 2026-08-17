@@ -47,6 +47,20 @@ export const ACME_OWNER: SeededAccount = {
 };
 
 /**
+ * Acme's Member. Same workspace as {@link ACME_OWNER}, one role down.
+ *
+ * `administers()` in `routes/AdminPage.tsx` admits `owner` and `admin` only, so
+ * a Member is the cheapest account that proves the connection screen is
+ * readable-but-not-actionable. Acme rather than Globex on purpose: a role test
+ * that changed the workspace as well as the role would not isolate which of the
+ * two decided the outcome.
+ */
+export const ACME_MEMBER: SeededAccount = {
+  email: "sara@acme.example.com",
+  password: SEED_PASSWORD,
+};
+
+/**
  * Globex's owner — the second tenant, and the point of the isolation step.
  *
  * The seed exists in this shape deliberately: "one proves nothing about

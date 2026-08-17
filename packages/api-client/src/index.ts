@@ -69,6 +69,42 @@ export type SlackChannelSelection =
 export type SlackDisconnect =
   paths["/v1/workspaces/{workspace_id}/integrations/slack/disconnect"]["post"]["responses"][200]["content"]["application/json"];
 
+/*
+ * ---------------------------------------------------------------------------
+ * Google Chat
+ * ---------------------------------------------------------------------------
+ *
+ * Derived from `paths[...]`, exactly as the Slack types above are. These were
+ * hand-written for one commit while the server router was landing; that is the
+ * shape that can silently stop matching the server, and on this screen a shape
+ * that stops matching the server describes surveillance wrongly.
+ */
+
+/** Where to send a customer to authorise Google Chat, and when the link lapses. */
+export type GoogleChatInstall =
+  paths["/v1/workspaces/{workspace_id}/integrations/google-chat/install"]["post"]["responses"][200]["content"]["application/json"];
+
+/** The spaces CAIRN could read, and which are already chosen. */
+export type GoogleChatSpaceList =
+  paths["/v1/workspaces/{workspace_id}/integrations/google-chat/spaces"]["get"]["responses"][200]["content"]["application/json"];
+
+/**
+ * One Google Chat space, as the API describes it.
+ *
+ * Indexed out of the list response rather than declared separately, so the row a
+ * component renders and the payload the server sends cannot diverge. `name` is
+ * Google's resource name (`spaces/AAAA…`) and is the identity the `PUT` takes
+ * back; `displayName` is the only thing a reader ever sees.
+ */
+export type GoogleChatSpace = NonNullable<GoogleChatSpaceList["spaces"]>[number];
+
+/** The selection the server confirmed — the only thing that may draw a tick. */
+export type GoogleChatSpaceSelection =
+  paths["/v1/workspaces/{workspace_id}/integrations/google-chat/spaces"]["put"]["responses"][200]["content"]["application/json"];
+
+export type GoogleChatDisconnect =
+  paths["/v1/workspaces/{workspace_id}/integrations/google-chat/disconnect"]["post"]["responses"][200]["content"]["application/json"];
+
 /**
  * How far a support session reaches.
  *
@@ -313,6 +349,37 @@ export interface CairnClient {
 
   /** Stop new collection and clear the stored credential. */
   disconnectSlack(workspaceId: string, options?: RequestOptions): Promise<SlackDisconnect>;
+
+  /** Begin connecting Google Chat. Returns where to send the customer.
+   *
+   * Same shape as Slack's and for the same reason: the API answers with the
+   * authorise URL rather than a 302, because a redirect on a credentialed
+   * request is followed by `fetch` and Google's consent screen would never
+   * appear. The caller moves the window itself.
+   */
+  startGoogleChatInstall(workspaceId: string, options?: RequestOptions): Promise<GoogleChatInstall>;
+
+  /** The spaces CAIRN could read, and which are already chosen. */
+  listGoogleChatSpaces(workspaceId: string, options?: RequestOptions): Promise<GoogleChatSpaceList>;
+
+  /** Replace the whole selection.
+   *
+   * Resource names, not display names, and the full state rather than a delta —
+   * a partial update makes "unselect everything" indistinguishable from "change
+   * nothing", and being wrong in that direction means reading a space nobody
+   * chose.
+   */
+  setGoogleChatSpaces(
+    workspaceId: string,
+    spaceNames: string[],
+    options?: RequestOptions,
+  ): Promise<GoogleChatSpaceSelection>;
+
+  /** Stop new collection and clear the stored credential. */
+  disconnectGoogleChat(
+    workspaceId: string,
+    options?: RequestOptions,
+  ): Promise<GoogleChatDisconnect>;
   /** The caller and nobody else: there is deliberately no subject parameter, so
    * no administrator can label a colleague's role. */
   setWorkRole(
@@ -615,6 +682,38 @@ export function createClient(options: ClientOptions): CairnClient {
       request<SlackDisconnect>(
         "POST",
         `/v1/workspaces/${workspaceId}/integrations/slack/disconnect`,
+        undefined,
+        options,
+      ),
+
+    startGoogleChatInstall: (workspaceId: string, options?: RequestOptions) =>
+      request<GoogleChatInstall>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/integrations/google-chat/install`,
+        undefined,
+        options,
+      ),
+
+    listGoogleChatSpaces: (workspaceId: string, options?: RequestOptions) =>
+      request<GoogleChatSpaceList>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/integrations/google-chat/spaces`,
+        undefined,
+        options,
+      ),
+
+    setGoogleChatSpaces: (workspaceId: string, spaceNames: string[], options?: RequestOptions) =>
+      request<GoogleChatSpaceSelection>(
+        "PUT",
+        `/v1/workspaces/${workspaceId}/integrations/google-chat/spaces`,
+        { spaceNames },
+        options,
+      ),
+
+    disconnectGoogleChat: (workspaceId: string, options?: RequestOptions) =>
+      request<GoogleChatDisconnect>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/integrations/google-chat/disconnect`,
         undefined,
         options,
       ),

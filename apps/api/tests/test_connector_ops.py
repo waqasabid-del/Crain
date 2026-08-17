@@ -103,10 +103,16 @@ ALLOWED_FIELD_TYPES = {
     "bool",
     "float | None",
     "datetime",
+    "datetime | None",
     "str | None",
     "ConnectorProvider",
     "Mapping[str, int]",
     "tuple[ConnectorHealth, ...]",
+    # Step 33's subscription aggregate. Both are enums already closed next to
+    # the columns that store them, reused rather than restated — see
+    # `test_the_subscription_categories_are_the_ones_the_column_already_closed`.
+    "GoogleChatSubscriptionState",
+    "ConnectorErrorCategory | None",
 }
 
 #: Field names allowed to contain a forbidden word, listed exactly.
@@ -119,7 +125,27 @@ ALLOWED_FIELD_TYPES = {
 #: stays on the list above.
 EXEMPT_FIELDS = frozenset({"credentials_configured"})
 
-MODELS = (connectors.ConnectorHealth, connectors.ConnectorFleet)
+MODELS = (
+    connectors.ConnectorHealth,
+    connectors.ConnectorFleet,
+    # Step 33's subscription aggregate, and the value type its reducer consumes.
+    # The input type is in here on purpose: it is the place a space identifier
+    # would arrive, because the caller building it holds one.
+    connectors.SubscriptionHealth,
+    connectors.SubscriptionRecord,
+)
+
+#: Every `str | None` field across the models, and the constants each may hold.
+#:
+#: A `str` on an operations model is where a provider's error body ends up during
+#: an incident, and provider errors quote the request that failed — a channel, a
+#: space, a message fragment. Each one is pinned to a closed set of module
+#: constants so that the value is a deliberate edit rather than a judgement call
+#: at 3am, and the mapping is exhaustive so a third one cannot arrive unnoticed.
+REASON_FIELDS = {
+    "deliveries_unobservable_reason": connectors.DELIVERY_UNOBSERVABLE_REASONS,
+    "subscriptions_unobservable_reason": connectors.SUBSCRIPTION_UNOBSERVABLE_REASONS,
+}
 
 
 class TestTheReadModelCannotCarryContent:
@@ -157,23 +183,26 @@ class TestTheReadModelCannotCarryContent:
                 f"an age, a flag or a closed-set category"
             )
 
-    def test_the_one_free_text_field_may_only_hold_a_constant(self) -> None:
-        """`deliveries_unobservable_reason` is the single `str` on the model.
+    def test_every_free_text_field_may_only_hold_a_constant(self) -> None:
+        """The only `str` fields on these models are the two "why not" reasons.
 
-        It exists because "no number" needs a reason, and it is the obvious
+        They exist because "no number" needs a reason, and each is the obvious
         place for somebody to put a provider's error body during an incident —
-        which for Slack and Chat quotes channel names and message fragments.
-        Constraining its values to a module constant is what stops that being a
-        judgement call at 3am.
+        which for Slack and Chat quotes channel names, space names and message
+        fragments. Constraining their values to module constants is what stops
+        that being a judgement call at 3am, and the exhaustive mapping is what
+        stops a third free-text field arriving without one.
         """
-        reason_fields = [
+        reason_fields = {
             item.name
             for model in MODELS
             for item in dataclasses.fields(model)
             if str(item.type) == "str | None"
-        ]
-        assert reason_fields == ["deliveries_unobservable_reason"]
+        }
+        assert reason_fields == set(REASON_FIELDS)
+
         assert connectors.NO_DELIVERY_RECORD in connectors.DELIVERY_UNOBSERVABLE_REASONS
+        assert connectors.NO_SUBSCRIPTION_RECORD in connectors.SUBSCRIPTION_UNOBSERVABLE_REASONS
 
     def test_the_categories_are_the_ones_the_column_already_closed(self) -> None:
         """Reused from `db/connector_models.py`, not restated.
@@ -380,6 +409,333 @@ class TestSlackNeededNoChangeToTheReadModel:
         assert slack.throttled_workspaces == 2
 
 
+class TestGoogleChatNeededNoChangeToTheReadModel:
+    """Step 33 asks the same question of Google Chat that Step 32 asked of Slack.
+
+    The answer is the same: `ConnectorHealth` did not change. Chat writes
+    `source_connections` like every other provider, so its row is produced,
+    counted and reported as configured-but-unverified with no new field, query or
+    enum. The field list is pinned again rather than assumed, because "it was
+    provider-neutral last time" is not evidence.
+
+    What Chat *does* add is a second aggregate, and the reason it is separate is
+    structural rather than stylistic: a Chat subscription is a lease **per
+    space** with a four-hour life, and `source_connections` has one row per
+    connection. Folding N leases into one connection row would mean either a
+    per-space breakdown — forbidden — or an average that hides the one lease that
+    died.
+    """
+
+    def test_google_chat_added_no_field_to_the_read_model(self) -> None:
+        """The exact field list from Step 31, unchanged by two chat providers."""
+        assert [item.name for item in dataclasses.fields(connectors.ConnectorHealth)] == [
+            "provider",
+            "credentials_configured",
+            "workspaces_connected",
+            "workspaces_ever_synced",
+            "workspaces_by_state",
+            "workspaces_by_health",
+            "errors_by_category",
+            "oldest_unsuccessful_sync_minutes",
+            "deliveries_last_hour",
+            "failures_last_hour",
+            "deliveries_total",
+            "deliveries_unobservable_reason",
+        ]
+
+    def test_google_chat_is_a_row_like_any_other(self) -> None:
+        """No branch, no special case: one entry in `PROVIDERS`."""
+        assert connectors.spec(connectors.ConnectorProvider.GOOGLE_CHAT).provider is (
+            connectors.ConnectorProvider.GOOGLE_CHAT
+        )
+        assert connectors.ConnectorProvider.GOOGLE_CHAT in {
+            item.provider for item in connectors.PROVIDERS
+        }
+
+    def test_a_subscription_record_has_nowhere_to_put_a_space(self) -> None:
+        """The input type to the aggregate, pinned exactly.
+
+        This is the one place a space identifier would plausibly arrive: the
+        caller building these records holds the space name, the space id and the
+        subscription name, and passing one through "so support can see which
+        space is broken" is a one-word edit. Pinning the field list means that
+        edit fails a test instead of shipping.
+        """
+        assert [item.name for item in dataclasses.fields(connectors.SubscriptionRecord)] == [
+            "state",
+            "suspension_category",
+            "expires_at",
+        ]
+
+    def test_the_subscription_categories_are_the_ones_the_column_already_closed(self) -> None:
+        """Reused from `db/gchat_models.py`, not restated.
+
+        A parallel lifecycle enum here would be a second answer to "is this
+        subscription working", and the two would diverge at the first state
+        Google added — with the renewal loop reading one and the operator's
+        screen reading the other.
+        """
+        from cairn_api.db import gchat_models
+
+        assert connectors.GoogleChatSubscriptionState is gchat_models.GoogleChatSubscriptionState
+
+    def test_the_aggregate_reports_counts_and_one_age(self) -> None:
+        """Live, suspended, expired and the nearest expiry — nothing else."""
+        now = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
+        states = connectors.GoogleChatSubscriptionState
+        records = [
+            connectors.SubscriptionRecord(state=states.ACTIVE, expires_at=now + timedelta(hours=3)),
+            connectors.SubscriptionRecord(
+                state=states.ACTIVE, expires_at=now + timedelta(minutes=45)
+            ),
+            connectors.SubscriptionRecord(
+                state=states.SUSPENDED,
+                suspension_category=connectors.ConnectorErrorCategory.CONFIGURATION_INVALID,
+            ),
+            connectors.SubscriptionRecord(state=states.EXPIRED),
+        ]
+
+        health = connectors.subscription_health(records, expected=6, now=now)
+
+        assert health.subscriptions_live == 2
+        assert health.subscriptions_suspended == 1
+        assert health.subscriptions_expired == 1
+        assert health.nearest_expiry_minutes == 45
+        assert health.subscriptions_by_error_category == {"configuration_invalid": 1}
+        assert health.observable is True
+
+    def test_a_lease_that_no_longer_exists_is_counted_as_missing(self) -> None:
+        """The number this aggregate exists for.
+
+        An expired Chat subscription is **deleted**, not renewed, so the live
+        count falls below the number of selected spaces while the connection
+        still reads `connected` and every credential check passes. Nothing else
+        on any screen in this product moves when that happens.
+        """
+        health = connectors.subscription_health(
+            [connectors.SubscriptionRecord(state=connectors.GoogleChatSubscriptionState.ACTIVE)],
+            expected=4,
+        )
+
+        assert health.subscriptions_missing == 3
+        assert health.expiry_is_permanent_loss is True
+
+    def test_nothing_stored_reports_a_reason_rather_than_zero(self) -> None:
+        """The `slo.py` rule, applied to a store whose migration has not landed.
+
+        "0 suspended, 0 expired" reads as a healthy renewal loop, and there is no
+        renewal loop to read. Empty breakdowns with a reason are the honest
+        state — and `subscriptions_missing` is `None` rather than the number of
+        selected spaces, which would page somebody about leases nobody has looked
+        for yet.
+        """
+        health = connectors.subscription_health(None, expected=9)
+
+        assert health.subscriptions_by_state == {}
+        assert health.subscriptions_by_error_category == {}
+        assert health.subscriptions_missing is None
+        assert health.observable is False
+        assert (
+            health.subscriptions_unobservable_reason in connectors.SUBSCRIPTION_UNOBSERVABLE_REASONS
+        )
+
+    def test_only_a_live_lease_counts_towards_the_nearest_expiry(self) -> None:
+        """A suspended lease is already not delivering and an expired one is
+        already gone. Counting either would make the nearest-expiry number
+        *improve* at the moment a subscription died."""
+        now = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
+        states = connectors.GoogleChatSubscriptionState
+        health = connectors.subscription_health(
+            [
+                connectors.SubscriptionRecord(
+                    state=states.SUSPENDED,
+                    suspension_category=connectors.ConnectorErrorCategory.UNKNOWN,
+                    expires_at=now + timedelta(minutes=5),
+                ),
+                connectors.SubscriptionRecord(
+                    state=states.ACTIVE, expires_at=now + timedelta(hours=2)
+                ),
+            ],
+            now=now,
+        )
+
+        assert health.nearest_expiry_minutes == 120
+        assert health.renewal_due_within_minutes == 0
+
+    def test_the_lease_is_four_hours_and_renewal_is_forever(self) -> None:
+        """Four hours with `includeResource: true` and no domain-wide delegation.
+
+        Twelve renewals per selected space per day, in every customer, for as
+        long as the connector exists. That is the connector's steady-state load
+        and the reason renewals must be staggered rather than swept by one cron.
+        """
+        limits = connectors.GOOGLE_CHAT_SUBSCRIPTION
+
+        assert limits.ttl_hours == 4.0
+        assert limits.renew_after_hours == 2.0
+        assert limits.renewals_per_subscription_per_day == 12
+        assert limits.request_rate_limits_published is False
+
+    def test_the_seven_day_lease_is_recorded_with_what_it_costs(self) -> None:
+        """`includeResource: false` buys a seven-day lease and a harder wall.
+
+        Every message then costs a `spaces.messages.get` against 3,000 reads per
+        **project** per 60 seconds — shared by every tenant on that Cloud
+        project, so one busy customer throttles all of them. CAIRN took the
+        four-hour lease and renews; the trade is recorded so the next person to
+        notice the renewal loop does not "simplify" it.
+        """
+        limits = connectors.GOOGLE_CHAT_SUBSCRIPTION
+
+        assert limits.ttl_hours_without_resource == 168.0
+        assert limits.reads_per_project_per_minute == 3_000
+        assert limits.ttl_hours < limits.ttl_hours_without_resource
+
+    def test_the_expiration_reminder_cannot_arrive_in_time(self) -> None:
+        """Google documents a reminder 12 hours before expiry. The lease is 4
+        hours long, so the reminder would have to precede the subscription.
+
+        Google's own guidance is to track `expireTime` and renew, and this test
+        exists so that a renewal loop built on the reminder fails here rather
+        than in a customer's account.
+        """
+        limits = connectors.GOOGLE_CHAT_SUBSCRIPTION
+
+        assert limits.documented_expiration_reminder_lead_hours == 12.0
+        assert limits.expiration_reminder_is_reachable is False
+
+    def test_an_expired_lease_is_a_gap_rather_than_a_delay(self) -> None:
+        """It is deleted permanently and cannot be renewed — only recreated.
+
+        A renewal loop that only knows how to renew will retry forever against a
+        subscription that no longer exists, and the events published for that
+        space in the meantime were never delivered anywhere.
+        """
+        assert connectors.GOOGLE_CHAT_SUBSCRIPTION.expired_subscription_is_recoverable is False
+        assert connectors.subscription_health(None).expiry_is_permanent_loss is True
+
+    def test_how_long_a_suspended_lease_stays_reactivatable_is_unknown(self) -> None:
+        """`subscriptions.reactivate` exists; the window is undocumented.
+
+        `None` records the absence of an answer rather than a guess, which is the
+        same rule the delivery counts follow. The operational consequence is to
+        reactivate promptly rather than queue it.
+        """
+        assert connectors.GOOGLE_CHAT_SUBSCRIPTION.reactivation_window_hours is None
+
+    def test_the_publisher_principal_is_not_confirmed(self) -> None:
+        """Google names `chat-api-push@system.gserviceaccount.com` for Chat
+        *interaction* events and does not say whether Workspace-Events-for-Chat
+        publishes as the same principal.
+
+        Granting the wrong one surfaces as an `ENDPOINT_PERMISSION_DENIED`
+        suspension rather than as a configuration error, which is why it is
+        recorded as unconfirmed rather than written into a setup guide as fact.
+        """
+        assert connectors.GOOGLE_CHAT_SUBSCRIPTION.publisher_principal_confirmed is False
+
+    def test_the_seven_day_refresh_token_trap_is_recorded(self) -> None:
+        """While the consent screen is in "Testing" with external user type,
+        refresh tokens expire after 7 days and every customer connection breaks
+        weekly. The 101st token per account per client id silently invalidates
+        the oldest, with no error anywhere."""
+        limits = connectors.GOOGLE_CHAT_SUBSCRIPTION
+
+        assert limits.refresh_token_days_while_testing == 7
+        assert limits.refresh_tokens_per_account_per_client == 100
+
+    def test_a_personal_account_cannot_authorise_the_connector(self) -> None:
+        """The authorising user must belong to a Workspace organisation. Every
+        configuration check passes for a personal Gmail account, which makes this
+        an onboarding qualification rather than a support ticket."""
+        assert connectors.GOOGLE_CHAT_SUBSCRIPTION.personal_accounts_can_authorise is False
+
+    def test_the_push_ack_deadline_is_also_the_request_timeout(self) -> None:
+        """Default 10 seconds, raisable to 600, and not extendable per message —
+        push has no `modifyAckDeadline`. Delivery is at-least-once; exactly-once
+        is pull-only, so every handler must be idempotent."""
+        limits = connectors.GOOGLE_CHAT_LIMITS
+
+        assert limits.ack_deadline_seconds == 10.0
+        assert limits.ack_deadline_max_seconds == 600.0
+        assert limits.ack_deadline_extendable_per_delivery is False
+        assert limits.delivers_at_least_once is True
+        assert limits.retry_backoff_seconds_range == (0.1, 60.0)
+
+    def test_pubsub_retries_have_no_fixed_count(self) -> None:
+        """Slack retries three times; Pub/Sub redelivers until retention expires.
+
+        `None` rather than an invented integer, for the reason the delivery counts
+        report `None` rather than zero: a number here would be read as a number.
+        """
+        assert connectors.GOOGLE_CHAT_LIMITS.retry_attempts is None
+        assert connectors.SLACK_LIMITS.retry_attempts == 3
+
+    def test_the_restricted_scope_is_recorded_as_the_launch_blocker(self) -> None:
+        """`chat.messages.readonly` is RESTRICTED: verification plus an
+        independent third-party CASA assessment, re-taken at least every 12
+        months. There is no lower-tier read-only Chat message scope.
+
+        `chat.spaces.readonly` is SENSITIVE — verification, no third party — and
+        the two are kept apart because conflating them makes the assessment look
+        optional.
+        """
+        scopes = {item.name: item for item in connectors.GOOGLE_CHAT_SCOPES}
+
+        assert scopes["chat.messages.readonly"].tier is connectors.ScopeTier.RESTRICTED
+        assert scopes["chat.messages.readonly"].requires_security_assessment is True
+        assert scopes["chat.spaces.readonly"].tier is connectors.ScopeTier.SENSITIVE
+        assert scopes["chat.spaces.readonly"].requires_security_assessment is False
+        assert connectors.RESTRICTED_SCOPE_REVERIFICATION_MONTHS == 12
+
+    def test_every_suspension_reason_reduces_to_a_category(self) -> None:
+        """Total over Google's published set, so a reason cannot arrive unmapped.
+
+        The mapping is also why this connector needs no new telemetry attribute:
+        `suspension_reason` is not on the allow-list and does not have to be.
+        """
+        assert set(connectors.SUSPENSION_REASON_CATEGORY) == set(connectors.SuspensionReason)
+        for reason, category in connectors.SUSPENSION_REASON_CATEGORY.items():
+            assert isinstance(category, connectors.ConnectorErrorCategory), reason
+
+    def test_the_suspension_reasons_keep_ours_and_theirs_apart(self) -> None:
+        """Three families with nothing in common but the word "suspended".
+
+        The customer withdrew a grant, our credential failed, or our endpoint is
+        wrong. A single "suspended" count sends somebody to re-authorise a
+        customer who deliberately removed us — the one response that must never
+        follow.
+        """
+        mapping = connectors.SUSPENSION_REASON_CATEGORY
+        reasons = connectors.SuspensionReason
+        categories = connectors.ConnectorErrorCategory
+
+        assert mapping[reasons.USER_SCOPE_REVOKED] is categories.PERMISSION_REVOKED
+        assert mapping[reasons.APP_SCOPE_REVOKED] is categories.PERMISSION_REVOKED
+        assert mapping[reasons.USER_AUTHORIZATION_FAILURE] is categories.AUTHENTICATION_EXPIRED
+        assert mapping[reasons.RESOURCE_DELETED] is categories.CONFIGURATION_INVALID
+        assert mapping[reasons.ENDPOINT_PERMISSION_DENIED] is categories.CONFIGURATION_INVALID
+        assert mapping[reasons.ENDPOINT_NOT_FOUND] is categories.CONFIGURATION_INVALID
+        assert mapping[reasons.ENDPOINT_RESOURCE_EXHAUSTED] is categories.RATE_LIMITED
+        assert mapping[reasons.OTHER] is categories.UNKNOWN
+
+    def test_google_chat_is_not_the_provider_that_drops_events_when_throttled(self) -> None:
+        """Slack's ceiling discards events; Chat's loss mode is a lapsed lease.
+
+        Recorded as different questions because the responses differ — one is a
+        rate limit to alert on, the other is a renewal loop to fix — and because
+        reusing Slack's flag would put Chat's real failure mode under a label
+        that does not describe it.
+        """
+        chat = connectors.ConnectorHealth(
+            provider=connectors.ConnectorProvider.GOOGLE_CHAT, credentials_configured=True
+        )
+
+        assert chat.drops_events_when_throttled is False
+        assert chat.event_budget_per_hour is None
+        assert connectors.subscription_health(None).expiry_is_permanent_loss is True
+
+
 class TestNoMetricMeasuresAPerson:
     """A product boundary, not a preference (md/05 §B.2).
 
@@ -537,6 +893,64 @@ class TestNoMetricMeasuresAPerson:
             assert "team_id" not in attributes
             assert "minute_rate_limited" not in attributes
 
+    def test_a_renewal_is_counted_without_naming_the_lease(self) -> None:
+        """Twelve renewals per selected space per day is the highest-frequency
+        machine work in this connector, and the only early warning that the
+        renewal loop is failing — a failed renewal is recoverable, a lapsed lease
+        is not.
+
+        A subscription names a space, so nothing identifying the lease is
+        exported: `source` and `outcome`, as with every other connector counter.
+        """
+        captured: list[dict[str, Any]] = []
+
+        class _Recording:
+            def add(self, amount: int, attributes: dict[str, Any] | None = None) -> None:
+                captured.append(attributes or {})
+
+        original = connectors.connector_subscription_renewals
+        connectors.connector_subscription_renewals = _Recording()  # type: ignore[assignment]
+        try:
+            connectors.record_subscription_renewal(
+                source=connectors.ConnectorProvider.GOOGLE_CHAT, outcome="processed"
+            )
+        finally:
+            connectors.connector_subscription_renewals = original
+
+        assert captured == [{"source": "google_chat", "outcome": "processed"}]
+        assert set(captured[0]) <= ALLOWED
+
+    def test_a_suspension_reaches_telemetry_as_a_category_not_a_reason(self) -> None:
+        """`suspension_reason` is not on the telemetry allow-list, and does not
+        need to be.
+
+        Google's reason is a closed set and would be safe to export, but adding
+        an attribute is an edit to a file this module does not own — so every
+        reason is reduced to a `ConnectorErrorCategory` the exporter already
+        accepts, and the full reason stays inside the product on the subscription
+        aggregate. The alert fires either way.
+        """
+        captured: list[dict[str, Any]] = []
+
+        class _Recording:
+            def add(self, amount: int, attributes: dict[str, Any] | None = None) -> None:
+                captured.append(attributes or {})
+
+        original = connectors.connector_errors
+        connectors.connector_errors = _Recording()  # type: ignore[assignment]
+        try:
+            connectors.record_subscription_suspended(
+                source=connectors.ConnectorProvider.GOOGLE_CHAT,
+                reason=connectors.SuspensionReason.USER_SCOPE_REVOKED,
+            )
+        finally:
+            connectors.connector_errors = original
+
+        assert captured == [{"source": "google_chat", "error_category": "permission_revoked"}]
+        assert "suspension_reason" not in ALLOWED
+        for attributes in captured:
+            assert set(attributes) <= ALLOWED
+
     def test_a_source_can_only_be_a_known_provider(self) -> None:
         """`source` is the one identifier the metrics carry. Typed as the enum,
         so it cannot become a workspace, an account or a channel."""
@@ -582,6 +996,35 @@ SLACK_CONFIGURED: dict[str, object] = {
 def configured_slack(**overrides: object) -> Settings:
     """A deployed environment with Slack credentials set and nothing proven."""
     return Settings.model_validate({**DEPLOYED, **SLACK_CONFIGURED, **overrides})
+
+
+class GoogleChatSettings(Settings):
+    """`Settings` with the two fields Google Chat's OAuth half will add.
+
+    A subclass rather than a dictionary because `Settings` is configured with
+    `extra="ignore"`: passing `google_chat_project_id` to `model_validate` today
+    is silently dropped, and a test built on that would assert against a provider
+    that is not configured while appearing to assert the opposite.
+
+    `ops/connectors.py` reads these with `getattr(..., None)` for the same
+    reason — `config.py` is another engineer's file and the fields land there in
+    the OAuth half of Step 33.
+    """
+
+    google_chat_project_id: str = ""
+    google_chat_service_account: str = ""
+
+
+def configured_google_chat(**overrides: object) -> Settings:
+    """A deployed environment with Chat credentials set and nothing proven."""
+    return GoogleChatSettings.model_validate(
+        {
+            **DEPLOYED,
+            "google_chat_project_id": "cairn-chat-prod",
+            "google_chat_service_account": "cairn-chat@cairn-chat-prod.iam.gserviceaccount.com",
+            **overrides,
+        }
+    )
 
 
 def connector_gate(settings: Settings) -> Any:
@@ -688,6 +1131,121 @@ class TestTheConnectorGateNeverClaimsMoreThanEvidence:
         )
         assert (
             connectors.missing_credentials(connectors.ConnectorProvider.SLACK, configured_slack())
+            == ()
+        )
+
+
+class TestTheGoogleChatGateNamesTheAssessment:
+    """Configuration is never proof, and for Chat it is not even close.
+
+    Two environment variables can be perfectly correct while the restricted-scope
+    security assessment has not been *started* — an independent third-party
+    review that runs weeks to months and gates the launch rather than the merge.
+    A gate that reported "configured" without saying so would let a team finish
+    the code, read a green-ish line, and discover the real blocker at launch.
+    """
+
+    def test_configured_credentials_are_manual_never_passed(self) -> None:
+        gate = connector_gate(configured_google_chat())
+
+        assert gate.status is GateStatus.UNVERIFIED
+        assert gate.blocks_release
+        assert "google_chat" in gate.detail
+
+    def test_passed_stays_unreachable_with_chat_configured(self) -> None:
+        """Every input the gate has is still configuration. None is a delivery."""
+        for settings in (
+            configured_google_chat(),
+            configured_google_chat(**SLACK_CONFIGURED),
+            configured_google_chat(github_app_id="12345"),
+        ):
+            assert connector_gate(settings).status is not GateStatus.PASSED
+
+    def test_the_next_step_names_the_security_assessment(self) -> None:
+        """The single largest blocker in the connector programme, stated in the
+        gate rather than buried in a runbook.
+
+        `chat.messages.readonly` is RESTRICTED: OAuth verification **plus** an
+        independent third-party CASA assessment ending in a Letter of Assessment,
+        re-taken at least every 12 months. There is no read-only Chat message
+        scope that avoids the tier.
+        """
+        step = connector_gate(configured_google_chat()).next_step
+
+        assert "security assessment" in step
+        assert "RESTRICTED" in step
+        assert "chat.messages.readonly" in step
+        assert "12 months" in step
+
+    def test_the_assessment_precedes_the_manual_check(self) -> None:
+        """Order matters. An operator who reads "add the app to a space and post
+        a message" first will do exactly that, watch it work, and conclude the
+        connector is ready to launch — while the thing that actually gates the
+        launch has not been started."""
+        step = connector_gate(configured_google_chat()).next_step
+
+        assert step.index("security assessment") < step.index("add the app to one space")
+
+    def test_it_says_finished_code_does_not_clear_it(self) -> None:
+        """A deployment that has not begun the assessment cannot ship this
+        connector however complete the repository is, and the gate says so in
+        those terms rather than implying it."""
+        step = connector_gate(configured_google_chat()).next_step
+
+        assert "cannot ship" in step
+        assert "weeks to months" in step
+
+    def test_the_seven_day_refresh_token_trap_is_in_the_gate(self) -> None:
+        """Until the app is published and verified the consent screen stays in
+        "Testing", where refresh tokens last 7 days. A connector that breaks
+        every customer's connection weekly is not shippable, and the two facts
+        are stated together because they have one cause."""
+        step = connector_gate(configured_google_chat()).next_step
+
+        assert "7 days" in step
+        assert "Testing" in step
+
+    def test_the_manual_check_starts_with_the_account_type(self) -> None:
+        """A personal Gmail account cannot authorise this connector at all, and
+        every configuration check passes in that state — the Chat equivalent of
+        Slack's uninvited bot."""
+        step = connector_gate(configured_google_chat()).next_step
+
+        assert "Workspace organisation" in step
+        assert step.index("Workspace organisation") < step.index("post one message")
+
+    def test_an_unconfigured_environment_still_warns_about_the_assessment(self) -> None:
+        """Started before the code, not after it. A blocked gate that names only
+        the environment variables teaches a team to configure first and discover
+        the months-long dependency last."""
+        gate = connector_gate(Settings())
+
+        assert gate.status is GateStatus.BLOCKED
+        assert "security assessment" in gate.next_step
+        assert "CAIRN_GOOGLE_CHAT_PROJECT_ID" in gate.next_step
+
+    def test_slack_alone_does_not_drag_the_chat_blocker_in(self) -> None:
+        """The blocker is composed from the configured providers, not branched
+        on. A Slack-only deployment has no assessment to start and must not be
+        told it does."""
+        step = connector_gate(configured_slack()).next_step
+
+        assert "security assessment" not in step
+        assert "invite" in step
+
+    def test_missing_chat_credentials_are_named_one_by_one(self) -> None:
+        missing = connectors.missing_credentials(
+            connectors.ConnectorProvider.GOOGLE_CHAT, Settings.model_validate(DEPLOYED)
+        )
+
+        assert missing == (
+            "CAIRN_GOOGLE_CHAT_PROJECT_ID",
+            "CAIRN_GOOGLE_CHAT_SERVICE_ACCOUNT",
+        )
+        assert (
+            connectors.missing_credentials(
+                connectors.ConnectorProvider.GOOGLE_CHAT, configured_google_chat()
+            )
             == ()
         )
 

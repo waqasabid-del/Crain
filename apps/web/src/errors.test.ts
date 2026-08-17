@@ -79,6 +79,25 @@ describe("describing an API failure", () => {
     expect(described.message).toMatch(/could not reach the server/i);
   });
 
+  it("does not tell someone to retry a Google Chat space another workspace holds", () => {
+    // A space is claimed globally, by one workspace. The generic message ends
+    // "Trying again may work", which here is false forever — the save is
+    // refused identically until somebody elsewhere disconnects it.
+    const error = new ApiError({
+      type: "https://cairn.dev/problems/google-chat-space-claimed",
+      title: "Space already connected",
+      status: 409,
+      detail: "",
+    });
+
+    const { message } = describeError(error, "save that space choice");
+
+    expect(message).toMatch(/already reading that Google Chat space/i);
+    expect(message).not.toMatch(/trying again/i);
+    // Neither the space nor the workspace holding it may appear.
+    expect(message).not.toMatch(/spaces\//i);
+  });
+
   it("carries the request id when the server sent one", () => {
     const error = new ApiError({
       type: "about:blank",

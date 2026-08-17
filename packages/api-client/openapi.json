@@ -1028,6 +1028,168 @@
         "title": "GitHubInstallationResponse",
         "type": "object"
       },
+      "GoogleChatDisconnectResponse": {
+        "additionalProperties": false,
+        "description": "What disconnecting did, stated precisely enough to be trusted.",
+        "properties": {
+          "credentialCleared": {
+            "title": "Credentialcleared",
+            "type": "boolean"
+          },
+          "disconnectedAt": {
+            "format": "date-time",
+            "title": "Disconnectedat",
+            "type": "string"
+          },
+          "retentionNotice": {
+            "title": "Retentionnotice",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["state", "disconnectedAt", "credentialCleared", "retentionNotice"],
+        "title": "GoogleChatDisconnectResponse",
+        "type": "object"
+      },
+      "GoogleChatInstallResponse": {
+        "additionalProperties": false,
+        "description": "Where to send the customer, and what they need to know first.",
+        "properties": {
+          "authorizeUrl": {
+            "title": "Authorizeurl",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          }
+        },
+        "required": ["authorizeUrl", "expiresAt", "notice"],
+        "title": "GoogleChatInstallResponse",
+        "type": "object"
+      },
+      "GoogleChatSpaceListResponse": {
+        "additionalProperties": false,
+        "description": "The picker's contents. Eligible spaces only.",
+        "properties": {
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          },
+          "spaces": {
+            "items": {
+              "$ref": "#/components/schemas/GoogleChatSpaceResponse"
+            },
+            "title": "Spaces",
+            "type": "array"
+          }
+        },
+        "required": ["notice"],
+        "title": "GoogleChatSpaceListResponse",
+        "type": "object"
+      },
+      "GoogleChatSpaceResponse": {
+        "additionalProperties": false,
+        "description": "One space the workspace could select, and the state of its feed.",
+        "properties": {
+          "displayName": {
+            "title": "Displayname",
+            "type": "string"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "errorCategory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errorcategory"
+          },
+          "expireTime": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expiretime"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "selected": {
+            "title": "Selected",
+            "type": "boolean"
+          },
+          "subscriptionState": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscriptionstate"
+          }
+        },
+        "required": ["name", "displayName", "eligible", "selected"],
+        "title": "GoogleChatSpaceResponse",
+        "type": "object"
+      },
+      "GoogleChatSpaceSelectionRequest": {
+        "additionalProperties": false,
+        "description": "The full state of the picker, not a delta.\n\nA replace rather than a merge: unchecking a box has to mean something, and\nthe something it means is withdrawing permission to read a conversation.",
+        "properties": {
+          "spaceNames": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Spacenames",
+            "type": "array"
+          }
+        },
+        "title": "GoogleChatSpaceSelectionRequest",
+        "type": "object"
+      },
+      "GoogleChatSpaceSelectionResponse": {
+        "additionalProperties": false,
+        "description": "What CAIRN may now process. Resource names only \u2014 deliberately no names.",
+        "properties": {
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          },
+          "spaceNames": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Spacenames",
+            "type": "array"
+          }
+        },
+        "required": ["notice"],
+        "title": "GoogleChatSpaceSelectionResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3049,6 +3211,98 @@
         "tags": ["auth"]
       }
     },
+    "/v1/integrations/google-chat/callback": {
+      "get": {
+        "description": "Where Google sends the customer back.\n\n**Any ``error`` parameter is a failed install.** The callback branches on the\n*presence* of the parameter, never on the literal ``access_denied``: an\nequality check that missed would fall through to \"exchange the code\" with no\ncode, and the customer would see a parse failure instead of \"you declined\".\nThe value is read only to choose between \"denied\" and \"error\", and is then\ndiscarded.\n\nThe order of the checks is the security property. The state is claimed \u2014\natomically, single-use \u2014 *before* anything is exchanged, so a replayed\ncallback fails on the second attempt whether or not the first one worked.\nThen the caller is proved to **still** be a member of the state's workspace\n**with permission to connect**: minutes passed, and in those minutes the\nperson may have been removed or demoted, and an install that completes on a\npermission that no longer exists is one nobody currently authorised. Only\nthen is the code sent to Google.\n\nRedirects rather than returning JSON, because the thing following this URL is\na browser mid-navigation, and the destination is built from\n``public_app_url`` rather than from the request \u2014 the same rule as\nverification links, for the same reason.",
+        "operationId": "finish_install_v1_integrations_google_chat_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Back to the workspace's admin screen."
+          },
+          "307": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish connecting a Google Chat account",
+        "tags": ["google-chat"]
+      }
+    },
     "/v1/integrations/slack/callback": {
       "get": {
         "description": "Where Slack sends the customer back.\n\n**Any ``error`` parameter is a failed install.** Slack's documentation does\nnot state verbatim which value comes back when somebody presses Cancel, so\nthis does not compare against the literal ``access_denied`` \u2014 an equality\ncheck that missed would fall through to \"exchange the code\" with no code, and\nthe customer would see a parse failure instead of \"you declined\". Presence is\nthe condition; the value is read for categorisation and then discarded.\n\nThe order of the checks is the security property. The state is claimed \u2014\natomically, single-use \u2014 *before* anything is exchanged, so a replayed\ncallback fails on the second attempt whether or not the first one worked.\nThen the caller is proved to still be a member of the state's workspace with\npermission to connect, so a leaked state cannot be redeemed by anyone else.\nOnly then is the code sent to Slack.\n\nRedirects rather than returning JSON, because the thing following this URL is\na browser mid-navigation, and the destination is built from\n``public_app_url`` rather than from the request \u2014 the same rule as\nverification links, for the same reason.",
@@ -5061,6 +5315,269 @@
         },
         "summary": "Stop capturing activity from a GitHub installation",
         "tags": ["administration"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/google-chat/disconnect": {
+      "post": {
+        "description": "Stop collecting, tear the leases down, and drop the refresh token.\n\nAll three, in one call, with no option to do only the first. A disconnect\nthat leaves the credential behind keeps CAIRN holding a standing grant to\nread a customer's conversations after they asked it to stop \u2014 and from\noutside there is no way to tell the two apart, which is exactly why the\nresponse says which happened.\n\nThe subscriptions are removed **before** the credential is destroyed, because\ndeleting a lease at Google needs a token. Every space is blocked locally\nwhether or not that succeeds: `remove_all_subscriptions` marks each row before\nit calls Google and does not stop on an error, and the connection state this\nhandler then sets is itself what `spaces.is_space_permitted` refuses on. A\nlease that survives at Google therefore delivers into a workspace that will\nnot read it, and lapses on its own inside four hours.\n\n**The response tells the truth about retention.** Disconnecting stops new\ncollection; it does not delete what was already recorded. Saying otherwise\nwould be the shorter sentence and a false one.",
+        "operationId": "disconnect_google_chat_v1_workspaces__workspace_id__integrations_google_chat_disconnect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleChatDisconnectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to disconnect integrations."
+          },
+          "404": {
+            "description": "No Google Chat account is connected."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disconnect Google Chat and destroy the stored credential",
+        "tags": ["google-chat"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/google-chat/install": {
+      "post": {
+        "description": "Issue a one-time state with its PKCE verifier, and return the authorise URL.\n\nReturns the URL rather than redirecting. The caller is a browser application\ndoing this from an admin screen, and a 302 out of an XHR is either followed\ninvisibly or blocked \u2014 neither of which lets the interface warn about the\n\"add the app to the space\" step before the customer is standing on Google's\nconsent screen.\n\nRuns on the platform connection because ``google_chat_oauth_states`` is\ndeliberately unreachable from the application role: the callback has to read\nthe row with no tenant context to scope to, so every statement against that\ntable is platform-side and the grant set says so.",
+        "operationId": "begin_install_v1_workspaces__workspace_id__integrations_google_chat_install_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleChatInstallResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to connect integrations."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Google Chat is not configured on this deployment."
+          }
+        },
+        "summary": "Begin connecting a Google Chat account",
+        "tags": ["google-chat"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/google-chat/spaces": {
+      "get": {
+        "description": "The picker's contents: every eligible named space, and the state of its feed.\n\nGated on `INTEGRATIONS_CONNECT` \u2014 Owner and Admin \u2014 rather than on plain\nmembership. This is the one endpoint in the API that returns Google Chat\nspace **display names**, and the people who may see the list are the people\nwho may change what CAIRN reads. A Member gains nothing from a list they\ncannot act on, and a space name is frequently the most sensitive string a\ncustomer holds.\n\nDirect messages, one-to-one app conversations and unnamed spaces never reach\nthis response: `spaces.eligible_spaces` removes them, in addition to the\nserver-side filter Google is asked for. Two filters rather than one, because\na picker that offered a direct message would not be noticed until somebody\nselected it.",
+        "operationId": "list_spaces_v1_workspaces__workspace_id__integrations_google_chat_spaces_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleChatSpaceListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to connect integrations."
+          },
+          "404": {
+            "description": "No Google Chat account is connected."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "Google could not be reached."
+          }
+        },
+        "summary": "List the Google Chat spaces CAIRN could read",
+        "tags": ["google-chat"]
+      },
+      "put": {
+        "description": "Replace the selection with exactly these spaces, and move the subscriptions.\n\n``PUT`` rather than ``POST``, and a replace rather than a merge, because the\nbody is the full state of a set of checkboxes. A merge would make unchecking\na box do nothing \u2014 and the box being unchecked is somebody withdrawing\npermission for CAIRN to read a conversation, which is the single operation on\nthis endpoint that must not silently fail.\n\nAn empty list is valid and means \"process nothing\", which is also the state a\nfreshly connected account is in.\n\n**This is where the subscription lifecycle is driven from.** Selecting a space\ncreates a Workspace Events lease; deselecting deletes the selection row \u2014\nwhich blocks ingestion the moment it lands \u2014 and then tears the lease down.\nThe commit happens after both, so a caller that receives 200 has had every\nremoval persisted.",
+        "operationId": "save_spaces_v1_workspaces__workspace_id__integrations_google_chat_spaces_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleChatSpaceSelectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleChatSpaceSelectionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to connect integrations."
+          },
+          "404": {
+            "description": "No Google Chat account is connected."
+          },
+          "409": {
+            "description": "A space is already connected to another workspace."
+          },
+          "422": {
+            "description": "A value was not a Google Chat space resource name."
+          }
+        },
+        "summary": "Choose which Google Chat spaces CAIRN may process",
+        "tags": ["google-chat"]
       }
     },
     "/v1/workspaces/{workspace_id}/integrations/slack/channels": {

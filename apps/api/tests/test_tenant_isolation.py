@@ -392,6 +392,48 @@ class TestRowLevelSecurity:
             # written platform-side, before any tenant is known.
             "slack_channel_selections": {"SELECT", "INSERT", "DELETE"},
             #
+            # The Google Chat half of the same design, with the same grant set
+            # and the same reasoning: the presence of a row *is* the permission
+            # to read a space, so selecting inserts and deselecting deletes, and
+            # there is nothing to UPDATE. The one privilege UPDATE would enable
+            # is rewriting `space_name` on an existing row — turning a permission
+            # somebody granted for one conversation into a permission for
+            # another, with `selected_by_user_id` still naming the person who
+            # never agreed to it.
+            #
+            # Both writes run from inside a workspace, where the policy's WITH
+            # CHECK stops a scoped session writing another tenant's row. The
+            # endpoint itself happens to run platform-side (it also writes
+            # `google_chat_subscriptions`, below), so this grant is what a
+            # tenant-scoped ingestion path needs to *read* — the INSERT and
+            # DELETE are kept because they are safe here and because narrowing
+            # them would make this table's posture differ from
+            # `slack_channel_selections` for no reason a reader could recover.
+            "google_chat_space_selections": {"SELECT", "INSERT", "DELETE"},
+            # SELECT only, and deliberately narrower than the selection table.
+            # A subscription row is **not** a permission — it is CAIRN's record
+            # of a lease it holds at Google — so nothing a customer does from
+            # inside tenant context should write one. Creation, renewal and
+            # deletion all happen platform-side, from the selection endpoint and
+            # from the maintenance loop, both of which already know the tenant.
+            #
+            # INSERT would let a scoped session invent a lease pointing at
+            # another workspace's space name; UPDATE would let it flip a
+            # `DELETED` row back to `ACTIVE`, which is precisely the state
+            # `subscriptions.remove_subscription` writes *before* it calls
+            # Google in order to block a deselected space immediately. A
+            # privilege that can undo a withdrawal of consent is the one an
+            # injection gets to use first.
+            "google_chat_subscriptions": {"SELECT"},
+            #
+            # `google_chat_oauth_states` is deliberately **absent** from this
+            # list, exactly as `slack_oauth_states` is below and for the same
+            # reasons — plus one more that is specific to Google: the row also
+            # holds the PKCE `code_verifier`, which cannot be hashed because it
+            # is a value we present to Google rather than one we recognise. A
+            # scoped session that could read this table could complete an
+            # install an admin started.
+            #
             # `slack_oauth_states` is deliberately **absent** from this list: it
             # has no grant at all, and `test_the_slack_install_state_is_
             # unreachable_from_the_application_role` below asserts that rather
