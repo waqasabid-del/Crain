@@ -45,6 +45,41 @@
         "title": "AcceptInvitationRequest",
         "type": "object"
       },
+      "AttributionHealthResponse": {
+        "additionalProperties": false,
+        "description": "Whether attribution is working here, in counts and nothing else.\n\n**No per-person figures, by construction.** There is no field here that\ncould carry a name, an id, an address or a volume of activity. md/05 \u00a7B.3.3\nmakes a per-person breakdown a product-reclassifying feature, and md/15\n\u00a72.3 says an Admin may not see more about a member than the member sees \u2014\nso an \"unresolved by person\" list is a leaderboard with the ranking left as\nan exercise for the reader.",
+        "properties": {
+          "disputed": {
+            "title": "Disputed",
+            "type": "integer"
+          },
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          },
+          "resolvedByProvider": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Resolvedbyprovider",
+            "type": "object"
+          },
+          "revoked": {
+            "title": "Revoked",
+            "type": "integer"
+          },
+          "unresolvedByProvider": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Unresolvedbyprovider",
+            "type": "object"
+          }
+        },
+        "required": ["disputed", "revoked", "notice"],
+        "title": "AttributionHealthResponse",
+        "type": "object"
+      },
       "AuditEntryResponse": {
         "additionalProperties": false,
         "description": "One recorded staff action.\n\n`entryHash` is returned so a reader can verify the chain independently\nrather than trusting the server's own verdict on itself.",
@@ -373,6 +408,24 @@
         "title": "CitationResponse",
         "type": "object"
       },
+      "ConfirmIdentityRequest": {
+        "additionalProperties": false,
+        "description": "A person saying an account is theirs, from an authenticated session.\n\n**No subject field, deliberately.** The person is resolved from the session,\nso there is nothing here for an administrator to point at a colleague. An\nOwner claiming a member's account would override the one thing md/05 \u00a7B.2.3\nsays cannot be overridden \u2014 that the record is the person's own.",
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/ConnectorProvider"
+          },
+          "providerAccountId": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Provideraccountid",
+            "type": "string"
+          }
+        },
+        "required": ["provider", "providerAccountId"],
+        "title": "ConfirmIdentityRequest",
+        "type": "object"
+      },
       "ConnectGitHubRequest": {
         "additionalProperties": false,
         "description": "Bind a GitHub App installation to this workspace.\n\nThe `installation_id` arrives as a query parameter on GitHub's post-install\nredirect. The caller must be an authenticated member with permission to\nconnect integrations, which is the whole point: an inbound webhook must\nnever be able to create this mapping, or whoever installed the app would\nhave their activity bound to a workspace nobody chose.",
@@ -575,6 +628,12 @@
         "title": "ConnectorHealthView",
         "type": "object"
       },
+      "ConnectorProvider": {
+        "description": "Which system a connection reaches.\n\nClosed, because a provider is not a label: each value implies a webhook\nverifier, an identity resolver and a retention rule. A free string would let\na typo create a connection nothing on the ingestion side can service, and it\nwould look connected in the UI.",
+        "enum": ["github", "slack", "google_chat"],
+        "title": "ConnectorProvider",
+        "type": "string"
+      },
       "ConsentResponse": {
         "additionalProperties": false,
         "description": "What CAIRN may attribute to the caller, and what it never does.\n\nThe refusals travel with the choices deliberately. md/05 \u00a7B.3.4 requires the\ncontractual refusals to be stated in-product, and the moment a person is\ndeciding whether to opt out is the moment they are most entitled to read\nthem \u2014 not a policy page they would have to go looking for.",
@@ -741,6 +800,73 @@
         },
         "required": ["available"],
         "title": "EvaluationSummary",
+        "type": "object"
+      },
+      "ExternalIdentityResponse": {
+        "additionalProperties": false,
+        "description": "One provider account bound to the reader, with how CAIRN knows.\n\nReturned only for the caller's own person. There is no variant of this model\ncarrying somebody else's link, and no route that would produce one.",
+        "properties": {
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "linkedAt": {
+            "format": "date-time",
+            "title": "Linkedat",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ConnectorProvider"
+          },
+          "providerAccountId": {
+            "title": "Provideraccountid",
+            "type": "string"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revokedat"
+          },
+          "revokedReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revokedreason"
+          },
+          "state": {
+            "$ref": "#/components/schemas/IdentityLinkState"
+          },
+          "verification": {
+            "$ref": "#/components/schemas/IdentityVerification"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "providerAccountId",
+          "verification",
+          "state",
+          "linkedAt",
+          "explanation"
+        ],
+        "title": "ExternalIdentityResponse",
         "type": "object"
       },
       "FacetPerson": {
@@ -1229,6 +1355,40 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "IdentityKind": {
+        "description": "What sort of identifier a claim carries.",
+        "enum": ["email", "github_login"],
+        "title": "IdentityKind",
+        "type": "string"
+      },
+      "IdentityLinkState": {
+        "description": "Where this link stands now.\n\nDeliberately not a boolean. \"Linked / not linked\" cannot distinguish an\naccount nobody has claimed from one somebody withdrew, and those need\ndifferent words on screen and different behaviour in the pipeline.",
+        "enum": ["active", "revoked", "disputed"],
+        "title": "IdentityLinkState",
+        "type": "string"
+      },
+      "IdentityProposalResponse": {
+        "additionalProperties": false,
+        "description": "An identifier CAIRN already attached to the reader by inference.\n\nThe reader's own `identities` rows in `PROPOSED` state, and nothing else.\nThis is deliberately *not* a list of unclaimed accounts in the workspace \u2014\nsee the route docstring for why that list must never exist.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/IdentityKind"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "value"],
+        "title": "IdentityProposalResponse",
+        "type": "object"
+      },
+      "IdentityVerification": {
+        "description": "How CAIRN came to believe this account belongs to this person.\n\nStored rather than inferred, because \"how do you know?\" is the question the\nTrust Center has to answer in the person's own words, and reconstructing it\nlater from timestamps would be a guess about a guess.",
+        "enum": ["verified_email_match", "self_confirmed"],
+        "title": "IdentityVerification",
+        "type": "string"
+      },
       "IntegrationResponse": {
         "additionalProperties": false,
         "description": "One source, and whether it is currently reading.\n\nDisconnected integrations are returned rather than filtered out: a gap in the\nfeed is explained by \"GitHub was disconnected on the 4th\" and unexplained by\nsilence.",
@@ -1548,6 +1708,33 @@
         "title": "ModelSpendLine",
         "type": "object"
       },
+      "MyIdentitiesResponse": {
+        "additionalProperties": false,
+        "description": "Everything CAIRN links to the reader across sources, and how.",
+        "properties": {
+          "identities": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalIdentityResponse"
+            },
+            "title": "Identities",
+            "type": "array"
+          },
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          },
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityProposalResponse"
+            },
+            "title": "Proposals",
+            "type": "array"
+          }
+        },
+        "required": ["notice"],
+        "title": "MyIdentitiesResponse",
+        "type": "object"
+      },
       "NotificationStatus": {
         "additionalProperties": false,
         "description": "Worker notification across the workspace.",
@@ -1834,6 +2021,19 @@
         },
         "required": ["repository", "state", "commitsImported", "finished"],
         "title": "RepositoryProgress",
+        "type": "object"
+      },
+      "RevokeIdentityRequest": {
+        "additionalProperties": false,
+        "description": "Ending a link, and whether the link was ever right.\n\n`disputed` separates \"this was mine and I am unlinking it\" from \"this was\nnever mine\". Both stop attribution at once; only the second says the\noriginal link was wrong, and flattening the two would lose the distinction\nthe person actually made.",
+        "properties": {
+          "disputed": {
+            "default": false,
+            "title": "Disputed",
+            "type": "boolean"
+          }
+        },
+        "title": "RevokeIdentityRequest",
         "type": "object"
       },
       "RoleUpdate": {
@@ -4584,6 +4784,70 @@
         "tags": ["workspaces"]
       }
     },
+    "/v1/workspaces/{workspace_id}/attribution-health": {
+      "get": {
+        "description": "Counts, so an Owner can tell whether to ask members to confirm accounts.\n\n**Owner and Admin, and counts only.** The gate is `WORKSPACE_SETTINGS`\nrather than a new permission because this is a fact about the workspace's\nconfiguration \u2014 how many source accounts have an owner \u2014 and inventing an\n`identities.view` permission would make *how much is visible about people* a\nfunction of role, which md/05 \u00a7B.3.3 and `permissions.py` both refuse.\n\nThe gate is therefore doing much less work than it looks like it is. What\nactually protects members is the return type: `attribution_health` groups by\nprovider and state and never by person, so there is no name, no id, no\naddress and no activity volume to withhold. An Admin reading this learns\nexactly one thing a member could not \u2014 a count \u2014 and md/15 \u00a72.3's rule that\nan Admin may not see more *about a member* than the member sees is intact\nbecause nothing here is about a member at all.",
+        "operationId": "workspace_attribution_health_v1_workspaces__workspace_id__attribution_health_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttributionHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to manage workspace settings."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Whether attribution is working in this workspace",
+        "tags": ["identities"]
+      }
+    },
     "/v1/workspaces/{workspace_id}/brief": {
       "get": {
         "description": "Serve the period's brief: from the archive if it is a record, else fresh.\n\nA finished period is generated once and kept; the current one is generated\nlive, never stored, and reused from `briefs.BriefCache` for a few minutes so\na morning's readers share one model call. Every claim carries the facts and\nthe evidence it rests on, and claims failing synthesis' four gates are\ndropped rather than caveated \u2014 the count is reported instead.\n\nThe rate limit is applied only when something is actually generated, so\nneither reading the archive nor reading a cached brief is rationed: reading\nis not what costs money.",
@@ -6159,6 +6423,223 @@
         },
         "summary": "Withdraw an invitation",
         "tags": ["workspaces"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/me/identities": {
+      "get": {
+        "description": "The caller's own links, the caller's own proposals, and the rule.\n\n**`proposals` is not a menu of unclaimed accounts, and must never become\none.** It returns only the `PROPOSED` rows of the existing `identities`\ntable that are *already attached to the caller's own `Person`* \u2014 identifiers\nCAIRN inferred were theirs and is showing them so they can correct it.\n\nListing the workspace's *unresolved* provider accounts here is the thing\nthis whole step exists to prevent. Handing every member a list of\ncolleagues' unclaimed accounts next to a \"that's me\" button is the\nclaim-a-colleague attack served as a feature: the second person to look at\nthe list takes whatever the first has not claimed, the link is recorded as\n`SELF_CONFIRMED`, and from then on somebody else's work is in their record\nwith CAIRN's own evidence field vouching for it. The exclusive index would\nnot stop it \u2014 it only decides who gets there first. So the query is scoped\nto `Person.user_id == caller` and there is no parameter, no filter and no\nflag that widens it.\n\n**Ended links are shown.** A person is entitled to see that an account was\nonce attributed to them and no longer is \u2014 hiding it makes the record less\ncheckable at exactly the moment somebody is checking it.",
+        "operationId": "my_identities_v1_workspaces__workspace_id__me_identities_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyIdentitiesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Which source accounts CAIRN believes are yours",
+        "tags": ["identities"]
+      },
+      "post": {
+        "description": "Record that the caller owns a provider account.\n\n**Self only, by construction rather than by a check.** The `Person` written\nis the one the caller's own session resolved to; the request body has no\nsubject field, and there is no second route that takes one. That absence is\nthe design \u2014 an Owner who could confirm a colleague's account would be\nwriting evidence, in CAIRN's own words, that a member's work belongs to\nwhoever the Owner chose.\n\n**No permission is declared**, and requiring one would be the wrong axis.\nEvery role including Viewer may answer a question about themselves, and\nmaking that a grant would mean a person's own account was something the\nworkspace let them have.\n\nIdempotent when the account is already theirs: confirming twice is a\ndouble-click, not a second claim.\n\nRefused with 409 when somebody else holds the account, and the refusal names\nnobody. Which colleague holds an account is not the asker's to know \u2014 saying\nso would turn this endpoint into an oracle for mapping accounts to people.",
+        "operationId": "confirm_identity_v1_workspaces__workspace_id__me_identities_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmIdentityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalIdentityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "CAIRN has not linked any activity to your account yet."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "409": {
+            "description": "That account is already linked to somebody in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm a source account is yours",
+        "tags": ["identities"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/me/identities/{identity_id}/revoke": {
+      "post": {
+        "description": "End a link, keeping the row and its evidence.\n\n**Only the caller's own links.** The lookup is filtered by the caller's\n`Person`, so another member's link is a 404 rather than a permission error \u2014\nfrom outside, a link that is not yours is indistinguishable from one that\ndoes not exist, which is also what row-level security gives us across\nworkspaces.\n\nNothing is deleted. The row, its verification method, when it was linked and\nwhy it ended all survive, and so does every fact the link ever produced \u2014\nfacts carry the provider actor id recorded at ingestion, which was never\nderived from this table and is not rewritten now.\n\nIdempotent: an already-ended link is returned unchanged rather than\nerroring. Re-stamping the timestamp would move the moment attribution\nactually stopped, which is the one thing the row exists to record.",
+        "operationId": "revoke_identity_v1_workspaces__workspace_id__me_identities__identity_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "identity_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Identity Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeIdentityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalIdentityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such link of yours in this workspace."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop attributing one of your source accounts to you",
+        "tags": ["identities"]
       }
     },
     "/v1/workspaces/{workspace_id}/me/role": {

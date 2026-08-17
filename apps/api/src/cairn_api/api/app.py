@@ -38,6 +38,7 @@ from cairn_api.api.routers import (
     gchat,
     gchat_push,
     health,
+    identities,
     internal,
     me,
     onboarding,
@@ -176,6 +177,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(facts.router, prefix=API_PREFIX)
     app.include_router(onboarding.router, prefix=API_PREFIX)
     app.include_router(me.router, prefix=API_PREFIX)
+    # Its own module rather than more of `me.py`, and mounted under the same
+    # `/workspaces/{workspace_id}` prefix. Cross-source identity is where the
+    # self-only rule is load-bearing — every route there resolves its person
+    # from the session and none takes a subject — and keeping it in one file
+    # means that property is checkable by reading one file rather than by
+    # trusting that a later addition to a longer one kept the pattern.
+    app.include_router(identities.router, prefix=API_PREFIX)
     app.include_router(admin.router, prefix=API_PREFIX)
     app.include_router(trust.router, prefix=API_PREFIX)
     app.include_router(support.router, prefix=API_PREFIX)

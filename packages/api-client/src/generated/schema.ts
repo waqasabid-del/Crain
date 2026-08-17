@@ -747,6 +747,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/workspaces/{workspace_id}/attribution-health": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Whether attribution is working in this workspace
+     * @description Counts, so an Owner can tell whether to ask members to confirm accounts.
+     *
+     *     **Owner and Admin, and counts only.** The gate is `WORKSPACE_SETTINGS`
+     *     rather than a new permission because this is a fact about the workspace's
+     *     configuration — how many source accounts have an owner — and inventing an
+     *     `identities.view` permission would make *how much is visible about people* a
+     *     function of role, which md/05 §B.3.3 and `permissions.py` both refuse.
+     *
+     *     The gate is therefore doing much less work than it looks like it is. What
+     *     actually protects members is the return type: `attribution_health` groups by
+     *     provider and state and never by person, so there is no name, no id, no
+     *     address and no activity volume to withhold. An Admin reading this learns
+     *     exactly one thing a member could not — a count — and md/15 §2.3's rule that
+     *     an Admin may not see more *about a member* than the member sees is intact
+     *     because nothing here is about a member at all.
+     */
+    get: operations["workspace_attribution_health_v1_workspaces__workspace_id__attribution_health_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/workspaces/{workspace_id}/brief": {
     parameters: {
       query?: never;
@@ -1331,6 +1365,104 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/workspaces/{workspace_id}/me/identities": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Which source accounts CAIRN believes are yours
+     * @description The caller's own links, the caller's own proposals, and the rule.
+     *
+     *     **`proposals` is not a menu of unclaimed accounts, and must never become
+     *     one.** It returns only the `PROPOSED` rows of the existing `identities`
+     *     table that are *already attached to the caller's own `Person`* — identifiers
+     *     CAIRN inferred were theirs and is showing them so they can correct it.
+     *
+     *     Listing the workspace's *unresolved* provider accounts here is the thing
+     *     this whole step exists to prevent. Handing every member a list of
+     *     colleagues' unclaimed accounts next to a "that's me" button is the
+     *     claim-a-colleague attack served as a feature: the second person to look at
+     *     the list takes whatever the first has not claimed, the link is recorded as
+     *     `SELF_CONFIRMED`, and from then on somebody else's work is in their record
+     *     with CAIRN's own evidence field vouching for it. The exclusive index would
+     *     not stop it — it only decides who gets there first. So the query is scoped
+     *     to `Person.user_id == caller` and there is no parameter, no filter and no
+     *     flag that widens it.
+     *
+     *     **Ended links are shown.** A person is entitled to see that an account was
+     *     once attributed to them and no longer is — hiding it makes the record less
+     *     checkable at exactly the moment somebody is checking it.
+     */
+    get: operations["my_identities_v1_workspaces__workspace_id__me_identities_get"];
+    put?: never;
+    /**
+     * Confirm a source account is yours
+     * @description Record that the caller owns a provider account.
+     *
+     *     **Self only, by construction rather than by a check.** The `Person` written
+     *     is the one the caller's own session resolved to; the request body has no
+     *     subject field, and there is no second route that takes one. That absence is
+     *     the design — an Owner who could confirm a colleague's account would be
+     *     writing evidence, in CAIRN's own words, that a member's work belongs to
+     *     whoever the Owner chose.
+     *
+     *     **No permission is declared**, and requiring one would be the wrong axis.
+     *     Every role including Viewer may answer a question about themselves, and
+     *     making that a grant would mean a person's own account was something the
+     *     workspace let them have.
+     *
+     *     Idempotent when the account is already theirs: confirming twice is a
+     *     double-click, not a second claim.
+     *
+     *     Refused with 409 when somebody else holds the account, and the refusal names
+     *     nobody. Which colleague holds an account is not the asker's to know — saying
+     *     so would turn this endpoint into an oracle for mapping accounts to people.
+     */
+    post: operations["confirm_identity_v1_workspaces__workspace_id__me_identities_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/me/identities/{identity_id}/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Stop attributing one of your source accounts to you
+     * @description End a link, keeping the row and its evidence.
+     *
+     *     **Only the caller's own links.** The lookup is filtered by the caller's
+     *     `Person`, so another member's link is a 404 rather than a permission error —
+     *     from outside, a link that is not yours is indistinguishable from one that
+     *     does not exist, which is also what row-level security gives us across
+     *     workspaces.
+     *
+     *     Nothing is deleted. The row, its verification method, when it was linked and
+     *     why it ended all survive, and so does every fact the link ever produced —
+     *     facts carry the provider actor id recorded at ingestion, which was never
+     *     derived from this table and is not rewritten now.
+     *
+     *     Idempotent: an already-ended link is returned unchanged rather than
+     *     erroring. Re-stamping the timestamp would move the moment attribution
+     *     actually stopped, which is the one thing the row exists to record.
+     */
+    post: operations["revoke_identity_v1_workspaces__workspace_id__me_identities__identity_id__revoke_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/workspaces/{workspace_id}/me/role": {
     parameters: {
       query?: never;
@@ -1799,6 +1931,33 @@ export interface components {
       token: string;
     };
     /**
+     * AttributionHealthResponse
+     * @description Whether attribution is working here, in counts and nothing else.
+     *
+     *     **No per-person figures, by construction.** There is no field here that
+     *     could carry a name, an id, an address or a volume of activity. md/05 §B.3.3
+     *     makes a per-person breakdown a product-reclassifying feature, and md/15
+     *     §2.3 says an Admin may not see more about a member than the member sees —
+     *     so an "unresolved by person" list is a leaderboard with the ranking left as
+     *     an exercise for the reader.
+     */
+    AttributionHealthResponse: {
+      /** Disputed */
+      disputed: number;
+      /** Notice */
+      notice: string;
+      /** Resolvedbyprovider */
+      resolvedByProvider?: {
+        [key: string]: number;
+      };
+      /** Revoked */
+      revoked: number;
+      /** Unresolvedbyprovider */
+      unresolvedByProvider?: {
+        [key: string]: number;
+      };
+    };
+    /**
      * AuditEntryResponse
      * @description One recorded staff action.
      *
@@ -1995,6 +2154,20 @@ export interface components {
       url?: string | null;
     };
     /**
+     * ConfirmIdentityRequest
+     * @description A person saying an account is theirs, from an authenticated session.
+     *
+     *     **No subject field, deliberately.** The person is resolved from the session,
+     *     so there is nothing here for an administrator to point at a colleague. An
+     *     Owner claiming a member's account would override the one thing md/05 §B.2.3
+     *     says cannot be overridden — that the record is the person's own.
+     */
+    ConfirmIdentityRequest: {
+      provider: components["schemas"]["ConnectorProvider"];
+      /** Provideraccountid */
+      providerAccountId: string;
+    };
+    /**
      * ConnectGitHubRequest
      * @description Bind a GitHub App installation to this workspace.
      *
@@ -2094,6 +2267,17 @@ export interface components {
       /** Workspaceseversynced */
       workspacesEverSynced: number;
     };
+    /**
+     * ConnectorProvider
+     * @description Which system a connection reaches.
+     *
+     *     Closed, because a provider is not a label: each value implies a webhook
+     *     verifier, an identity resolver and a retention rule. A free string would let
+     *     a typo create a connection nothing on the ingestion side can service, and it
+     *     would look connected in the UI.
+     * @enum {string}
+     */
+    ConnectorProvider: "github" | "slack" | "google_chat";
     /**
      * ConsentResponse
      * @description What CAIRN may attribute to the caller, and what it never does.
@@ -2195,6 +2379,36 @@ export interface components {
        * @default 0
        */
       passed: number;
+    };
+    /**
+     * ExternalIdentityResponse
+     * @description One provider account bound to the reader, with how CAIRN knows.
+     *
+     *     Returned only for the caller's own person. There is no variant of this model
+     *     carrying somebody else's link, and no route that would produce one.
+     */
+    ExternalIdentityResponse: {
+      /** Explanation */
+      explanation: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Linkedat
+       * Format: date-time
+       */
+      linkedAt: string;
+      provider: components["schemas"]["ConnectorProvider"];
+      /** Provideraccountid */
+      providerAccountId: string;
+      /** Revokedat */
+      revokedAt?: string | null;
+      /** Revokedreason */
+      revokedReason?: string | null;
+      state: components["schemas"]["IdentityLinkState"];
+      verification: components["schemas"]["IdentityVerification"];
     };
     /**
      * FacetPerson
@@ -2438,6 +2652,45 @@ export interface components {
       status: string;
     };
     /**
+     * IdentityKind
+     * @description What sort of identifier a claim carries.
+     * @enum {string}
+     */
+    IdentityKind: "email" | "github_login";
+    /**
+     * IdentityLinkState
+     * @description Where this link stands now.
+     *
+     *     Deliberately not a boolean. "Linked / not linked" cannot distinguish an
+     *     account nobody has claimed from one somebody withdrew, and those need
+     *     different words on screen and different behaviour in the pipeline.
+     * @enum {string}
+     */
+    IdentityLinkState: "active" | "revoked" | "disputed";
+    /**
+     * IdentityProposalResponse
+     * @description An identifier CAIRN already attached to the reader by inference.
+     *
+     *     The reader's own `identities` rows in `PROPOSED` state, and nothing else.
+     *     This is deliberately *not* a list of unclaimed accounts in the workspace —
+     *     see the route docstring for why that list must never exist.
+     */
+    IdentityProposalResponse: {
+      kind: components["schemas"]["IdentityKind"];
+      /** Value */
+      value: string;
+    };
+    /**
+     * IdentityVerification
+     * @description How CAIRN came to believe this account belongs to this person.
+     *
+     *     Stored rather than inferred, because "how do you know?" is the question the
+     *     Trust Center has to answer in the person's own words, and reconstructing it
+     *     later from timestamps would be a guess about a guess.
+     * @enum {string}
+     */
+    IdentityVerification: "verified_email_match" | "self_confirmed";
+    /**
      * IntegrationResponse
      * @description One source, and whether it is currently reading.
      *
@@ -2625,6 +2878,18 @@ export interface components {
       warnings: number;
     };
     /**
+     * MyIdentitiesResponse
+     * @description Everything CAIRN links to the reader across sources, and how.
+     */
+    MyIdentitiesResponse: {
+      /** Identities */
+      identities?: components["schemas"]["ExternalIdentityResponse"][];
+      /** Notice */
+      notice: string;
+      /** Proposals */
+      proposals?: components["schemas"]["IdentityProposalResponse"][];
+    };
+    /**
      * NotificationStatus
      * @description Worker notification across the workspace.
      */
@@ -2797,6 +3062,22 @@ export interface components {
       repository: string;
       /** State */
       state: string;
+    };
+    /**
+     * RevokeIdentityRequest
+     * @description Ending a link, and whether the link was ever right.
+     *
+     *     `disputed` separates "this was mine and I am unlinking it" from "this was
+     *     never mine". Both stop attribution at once; only the second says the
+     *     original link was wrong, and flattening the two would lose the distinction
+     *     the person actually made.
+     */
+    RevokeIdentityRequest: {
+      /**
+       * Disputed
+       * @default false
+       */
+      disputed: boolean;
     };
     /**
      * RoleUpdate
@@ -4504,6 +4785,53 @@ export interface operations {
       };
     };
   };
+  workspace_attribution_health_v1_workspaces__workspace_id__attribution_health_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AttributionHealthResponse"];
+        };
+      };
+      /** @description Requires permission to manage workspace settings. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No such workspace, or you are not a member. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   get_brief_v1_workspaces__workspace_id__brief_get: {
     parameters: {
       query?: {
@@ -5501,6 +5829,149 @@ export interface operations {
         content?: never;
       };
       /** @description No such outstanding invitation. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  my_identities_v1_workspaces__workspace_id__me_identities_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MyIdentitiesResponse"];
+        };
+      };
+      /** @description No such workspace, or you are not a member. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  confirm_identity_v1_workspaces__workspace_id__me_identities_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ConfirmIdentityRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ExternalIdentityResponse"];
+        };
+      };
+      /** @description CAIRN has not linked any activity to your account yet. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No such workspace, or you are not a member. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description That account is already linked to somebody in this workspace. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  revoke_identity_v1_workspaces__workspace_id__me_identities__identity_id__revoke_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        identity_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RevokeIdentityRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ExternalIdentityResponse"];
+        };
+      };
+      /** @description No such link of yours in this workspace. */
       404: {
         headers: {
           [name: string]: unknown;

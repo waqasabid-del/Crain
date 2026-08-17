@@ -445,6 +445,31 @@ class TestRowLevelSecurity:
             # another tenant even if it tried.
             "people": {"SELECT", "INSERT", "UPDATE", "DELETE"},
             "identities": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            # Cross-source identity, and the one grant set in this list chosen by
+            # subtraction rather than by what the code happens to call.
+            #
+            # SELECT: the pipeline resolves a provider account to a person on
+            # every event, and a member reads their own links.
+            # INSERT: both ways in are written from inside tenant context — the
+            # ingestion path matching two verified addresses, and a member
+            # confirming their own account — so the policy's WITH CHECK is what
+            # stops a scoped session writing a link into another workspace.
+            # UPDATE: revoking. Ending a link sets `state`, `revoked_at` and a
+            # reason on the existing row, which is the whole revocation
+            # mechanism; without UPDATE a person could not withdraw a link at
+            # all.
+            #
+            # **No DELETE, deliberately.** Revocation keeps the row and its
+            # evidence (md/12 §6's rule applied to attribution): what CAIRN
+            # believed, on what evidence, and when that stopped is exactly the
+            # history somebody checks when they find work attributed to the
+            # wrong person. A DELETE grant would also be the privilege that
+            # makes an inconvenient link disappear under time pressure, and it
+            # would let a compromised application role erase the trail of a
+            # link it had planted — the same reasoning that keeps DELETE off
+            # `facts` and `internal_audit_log`. Tenant removal still cascades,
+            # because referential actions run with the table owner's rights.
+            "external_identities": {"SELECT", "INSERT", "UPDATE"},
             # Same reasoning: a backfill worker runs inside tenant context, and
             # the policy's WITH CHECK stops a scoped session writing a row for
             # another workspace. DELETE so a disconnected integration's runs can

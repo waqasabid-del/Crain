@@ -105,6 +105,56 @@ export type GoogleChatSpaceSelection =
 export type GoogleChatDisconnect =
   paths["/v1/workspaces/{workspace_id}/integrations/google-chat/disconnect"]["post"]["responses"][200]["content"]["application/json"];
 
+/*
+ * ---------------------------------------------------------------------------
+ * Connected identities
+ * ---------------------------------------------------------------------------
+ *
+ * Which provider accounts belong to the signed-in person, and how CAIRN knows.
+ * Every type is indexed out of the generated document, so a field the server
+ * renames is a compile error here rather than a blank on the one screen whose
+ * subject is whether the record about somebody is right.
+ */
+
+/** The caller's own links, plus the identifiers already proposed for them. */
+export type MyIdentities =
+  paths["/v1/workspaces/{workspace_id}/me/identities"]["get"]["responses"][200]["content"]["application/json"];
+
+/**
+ * One link between a provider account and the signed-in person.
+ *
+ * Indexed out of the list rather than declared separately, so a row a component
+ * renders and a row the server sends cannot drift apart.
+ */
+export type ExternalIdentity = NonNullable<MyIdentities["identities"]>[number];
+
+/**
+ * An identifier CAIRN has already associated with this person and has not been
+ * confirmed. **Proposals are the caller's own and nobody else's** — the server
+ * never lists unclaimed accounts belonging to the workspace at large, because a
+ * menu of colleagues' accounts beside a "that's me" button is the exact attack
+ * the verification rules exist to prevent.
+ */
+export type IdentityProposal = NonNullable<MyIdentities["proposals"]>[number];
+
+/** How CAIRN came to believe a link is real. Categorical, never a score. */
+export type IdentityVerification = ExternalIdentity["verification"];
+
+/** Where a link stands now: live, withdrawn, or disputed. */
+export type IdentityLinkState = ExternalIdentity["state"];
+
+/**
+ * Attribution across the workspace, in counts only.
+ *
+ * Read by Owners and Admins so they can ask members to confirm their own
+ * accounts. It carries no name, no per-person row and no measure of anybody's
+ * activity — an "unresolved by person" breakdown is a leaderboard with the
+ * ranking left to the reader, and md/15 §2.3 forbids an administrator seeing
+ * more about a member than the member sees about themselves.
+ */
+export type AttributionHealth =
+  paths["/v1/workspaces/{workspace_id}/attribution-health"]["get"]["responses"][200]["content"]["application/json"];
+
 /**
  * How far a support session reaches.
  *
@@ -380,6 +430,45 @@ export interface CairnClient {
     workspaceId: string,
     options?: RequestOptions,
   ): Promise<GoogleChatDisconnect>;
+
+  /**
+   * The provider accounts CAIRN believes are the caller's, and how it knows.
+   *
+   * Self only, by construction: there is deliberately no subject parameter on
+   * this or either mutation below, so no administrator has a route through
+   * which to claim, merge or reassign a colleague's identity. md/05 makes the
+   * record the person's own, and an override would be the one thing the product
+   * promises cannot be overridden.
+   */
+  getMyIdentities(workspaceId: string, options?: RequestOptions): Promise<MyIdentities>;
+
+  /** Confirm that a provider account is the caller's own. */
+  confirmMyIdentity(
+    workspaceId: string,
+    provider: string,
+    providerAccountId: string,
+    options?: RequestOptions,
+  ): Promise<ExternalIdentity>;
+
+  /**
+   * Stop attributing a provider account to the caller.
+   *
+   * `disputed` separates "this was mine and I am unlinking it" from "this was
+   * never mine". Both stop attribution; only the second says the original link
+   * was wrong, and the person is entitled to have that recorded in their words.
+   * Neither deletes anything: the link, its evidence and every fact it produced
+   * survive.
+   */
+  revokeMyIdentity(
+    workspaceId: string,
+    identityId: string,
+    disputed: boolean,
+    options?: RequestOptions,
+  ): Promise<ExternalIdentity>;
+
+  /** Counts of resolved and unresolved links, for Owners and Admins. Never a
+   * name, a per-person row, or any measure of anybody's activity. */
+  getAttributionHealth(workspaceId: string, options?: RequestOptions): Promise<AttributionHealth>;
   /** The caller and nobody else: there is deliberately no subject parameter, so
    * no administrator can label a colleague's role. */
   setWorkRole(
@@ -714,6 +803,48 @@ export function createClient(options: ClientOptions): CairnClient {
       request<GoogleChatDisconnect>(
         "POST",
         `/v1/workspaces/${workspaceId}/integrations/google-chat/disconnect`,
+        undefined,
+        options,
+      ),
+
+    getMyIdentities: (workspaceId: string, options?: RequestOptions) =>
+      request<MyIdentities>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/me/identities`,
+        undefined,
+        options,
+      ),
+
+    confirmMyIdentity: (
+      workspaceId: string,
+      provider: string,
+      providerAccountId: string,
+      options?: RequestOptions,
+    ) =>
+      request<ExternalIdentity>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/me/identities`,
+        { provider, providerAccountId },
+        options,
+      ),
+
+    revokeMyIdentity: (
+      workspaceId: string,
+      identityId: string,
+      disputed: boolean,
+      options?: RequestOptions,
+    ) =>
+      request<ExternalIdentity>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/me/identities/${identityId}/revoke`,
+        { disputed },
+        options,
+      ),
+
+    getAttributionHealth: (workspaceId: string, options?: RequestOptions) =>
+      request<AttributionHealth>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/attribution-health`,
         undefined,
         options,
       ),

@@ -87,6 +87,14 @@ export function createStubClient(overrides: Partial<CairnClient> = {}): CairnCli
     listGoogleChatSpaces: vi.fn(unexpected("listGoogleChatSpaces")),
     setGoogleChatSpaces: vi.fn(unexpected("setGoogleChatSpaces")),
     disconnectGoogleChat: vi.fn(unexpected("disconnectGoogleChat")),
+    // Benign defaults, like `listSupportSessions` above: the identities block
+    // renders on screens whose tests are about something else entirely, and
+    // failing those on an unstubbed call would move the cost of this feature
+    // onto every unrelated test.
+    getMyIdentities: vi.fn(() => Promise.resolve({ identities: [], proposals: [], notice: "" })),
+    confirmMyIdentity: vi.fn(unexpected("confirmMyIdentity")),
+    revokeMyIdentity: vi.fn(unexpected("revokeMyIdentity")),
+    getAttributionHealth: vi.fn(unexpected("getAttributionHealth")),
     getPrivacy: vi.fn(unexpected("getPrivacy")),
     setRetention: vi.fn(unexpected("setRetention")),
     getNotifications: vi.fn(unexpected("getNotifications")),

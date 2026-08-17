@@ -23,7 +23,10 @@ from pydantic.alias_generators import to_camel
 
 from cairn_api.auth.service import MIN_PASSWORD_LENGTH
 from cairn_api.auth.tokens import MAX_PASSWORD_BYTES
+from cairn_api.db.connector_models import ConnectorProvider
+from cairn_api.db.external_identity_models import IdentityLinkState, IdentityVerification
 from cairn_api.db.fact_models import FactOrigin
+from cairn_api.db.identity_models import IdentityKind
 from cairn_api.db.models import Region, TenantRole, WorkRole
 from cairn_api.db.support_models import SupportScope, SupportSessionStatus
 from cairn_api.domain import Certainty
@@ -310,6 +313,111 @@ class WorkRoleUpdate(ApiModel):
 
 class WorkRoleResponse(ApiModel):
     work_role: WorkRole | None = None
+
+
+class ExternalIdentityResponse(ApiModel):
+    """One provider account bound to the reader, with how CAIRN knows.
+
+    Returned only for the caller's own person. There is no variant of this model
+    carrying somebody else's link, and no route that would produce one.
+    """
+
+    id: uuid.UUID
+    provider: ConnectorProvider
+
+    #: The provider's own stable id, shown because it is what the reader has to
+    #: recognise. Never a display name: a display name is renameable, and a row
+    #: keyed on one silently changes meaning when somebody edits their profile.
+    provider_account_id: str
+
+    verification: IdentityVerification
+    state: IdentityLinkState
+    linked_at: datetime
+    revoked_at: datetime | None = None
+    revoked_reason: str | None = None
+
+    #: Server-composed prose answering "how do you know this is me?".
+    #:
+    #: Categorical, never numeric. md/05 §A.2.1 makes certainty a word rather
+    #: than a score, and a percentage next to a person's name invites exactly
+    #: the comparison the product refuses to support. Composed on the server so
+    #: every surface says the same sentence about the same evidence.
+    explanation: str
+
+
+class IdentityProposalResponse(ApiModel):
+    """An identifier CAIRN already attached to the reader by inference.
+
+    The reader's own `identities` rows in `PROPOSED` state, and nothing else.
+    This is deliberately *not* a list of unclaimed accounts in the workspace —
+    see the route docstring for why that list must never exist.
+    """
+
+    kind: IdentityKind
+    value: str
+
+
+class MyIdentitiesResponse(ApiModel):
+    """Everything CAIRN links to the reader across sources, and how."""
+
+    identities: list[ExternalIdentityResponse] = Field(default_factory=list)
+    proposals: list[IdentityProposalResponse] = Field(default_factory=list)
+
+    #: The two ways in, stated as a closed list on the screen where somebody is
+    #: deciding whether to trust the answer. A rule a reader cannot see is a
+    #: rule they have to take on faith.
+    notice: str
+
+
+class ConfirmIdentityRequest(ApiModel):
+    """A person saying an account is theirs, from an authenticated session.
+
+    **No subject field, deliberately.** The person is resolved from the session,
+    so there is nothing here for an administrator to point at a colleague. An
+    Owner claiming a member's account would override the one thing md/05 §B.2.3
+    says cannot be overridden — that the record is the person's own.
+    """
+
+    provider: ConnectorProvider
+    provider_account_id: str = Field(min_length=1, max_length=255)
+
+
+class RevokeIdentityRequest(ApiModel):
+    """Ending a link, and whether the link was ever right.
+
+    `disputed` separates "this was mine and I am unlinking it" from "this was
+    never mine". Both stop attribution at once; only the second says the
+    original link was wrong, and flattening the two would lose the distinction
+    the person actually made.
+    """
+
+    disputed: bool = False
+
+
+class AttributionHealthResponse(ApiModel):
+    """Whether attribution is working here, in counts and nothing else.
+
+    **No per-person figures, by construction.** There is no field here that
+    could carry a name, an id, an address or a volume of activity. md/05 §B.3.3
+    makes a per-person breakdown a product-reclassifying feature, and md/15
+    §2.3 says an Admin may not see more about a member than the member sees —
+    so an "unresolved by person" list is a leaderboard with the ranking left as
+    an exercise for the reader.
+    """
+
+    #: Live links, keyed by provider value.
+    resolved_by_provider: dict[str, int] = Field(default_factory=dict)
+
+    #: Withdrawn or disputed links, keyed by provider value.
+    unresolved_by_provider: dict[str, int] = Field(default_factory=dict)
+
+    disputed: int
+    revoked: int
+
+    #: What this screen deliberately cannot tell an administrator. Stated in the
+    #: response rather than in the interface, so every client repeats the same
+    #: limit instead of implying a fuller view exists somewhere.
+    notice: str
 
 
 class SupportAccessEventResponse(ApiModel):
