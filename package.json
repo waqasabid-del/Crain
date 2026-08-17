@@ -34,7 +34,9 @@
     "py:test": "uv run pytest",
     "check": "pnpm lint && pnpm typecheck && pnpm format:check && pnpm py:lint && pnpm py:format:check && pnpm py:typecheck",
     "prepare": "lefthook install",
-    "comments": "uv run --project apps/api python scripts/comment_ratio.py"
+    "comments": "uv run --project apps/api python scripts/comment_ratio.py",
+    "ops:backup": "./scripts/backup.sh",
+    "ops:restore-rehearsal": "./scripts/restore-rehearsal.sh"
   },
   "devDependencies": {
     "@cairn/config": "workspace:*",

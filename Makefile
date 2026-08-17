@@ -3,7 +3,7 @@
 # A single obvious entry point for routine work — a command people have to
 # remember is a command they get wrong.
 
-.PHONY: help setup dev db-up db-down db-reset migrate migration seed schema serve worker eval queue-up queue-down check test test-py test-ts fmt
+.PHONY: help setup dev db-up db-down db-reset migrate migration seed schema serve worker eval queue-up queue-down check test test-py test-ts fmt backup restore-rehearsal
 
 help:
 	@echo "setup      Install all dependencies"
@@ -19,6 +19,8 @@ help:
 	@echo "worker     Run a job worker"
 	@echo "eval       Run the AI evaluation harness (pipeline=reference|broken)"
 	@echo "queue-up   Start the Pub/Sub emulator"
+	@echo "backup     Dump the local database"
+	@echo "restore-rehearsal  Dump, restore into a disposable copy, and verify it"
 	@echo "check      Lint, format and typecheck everything"
 	@echo "test       Run all tests"
 	@echo "fmt        Format everything"
@@ -108,6 +110,19 @@ queue-up:
 
 queue-down:
 	docker compose stop pubsub
+
+# Backup and rehearsed restore. See docs/BACKUP-RESTORE.md.
+#
+# `restore-rehearsal` is the one that matters: a dump nobody has restored from
+# is a hypothesis, so this restores into a separate, disposable database and
+# then verifies the copy — alembic revision, row counts, and one real row read
+# back. It refuses to touch a database whose name suggests production, and
+# refuses to restore over its own source.
+backup:
+	./scripts/backup.sh
+
+restore-rehearsal:
+	./scripts/restore-rehearsal.sh
 
 check:
 	pnpm check
