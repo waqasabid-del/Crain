@@ -16,6 +16,7 @@ from sqlalchemy import CursorResult, delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cairn_api import sources as canonical
 from cairn_api.db.consent_models import SourceOptOut
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.fact_models import FactPerson, FactSource
@@ -23,16 +24,20 @@ from cairn_api.db.fact_models import FactPerson, FactSource
 logger = structlog.get_logger(__name__)
 
 #: Listed rather than derived from connected integrations (md/11 §4.1).
-SOURCES: tuple[str, ...] = ("github", "chat", "meeting", "document")
+#: Re-exported from `cairn_api.sources`, never restated. Two tuples agreeing by
+#: convention is exactly how `chat` and `slack` drifted apart, and the symptom
+#: was a person's opt-out silently doing nothing.
+SOURCES: tuple[str, ...] = canonical.SOURCES
 
 
 async def opt_out(
     session: AsyncSession, *, tenant_id: uuid.UUID, person_id: uuid.UUID, source: str
 ) -> int:
     """Record an opt-out; returns the number of attributions unlinked."""
-    if source not in SOURCES:
-        msg = f"Unknown source: {source}"
-        raise ValueError(msg)
+    # Fails closed: an unrecognised source is refused rather than recorded, so a
+    # typo cannot create an opt-out row that matches no evidence and reads as
+    # honoured on every screen.
+    canonical.parse(source)
 
     await session.execute(
         insert(SourceOptOut)

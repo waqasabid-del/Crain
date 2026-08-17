@@ -238,9 +238,16 @@ SOURCE_COPY: dict[str, tuple[str, str]] = {
         "GitHub",
         "Commit messages, pull request titles and reviews. Never the contents of your code.",
     ),
-    "chat": (
-        "Chat",
-        "Messages in the channels your workspace connects. Never direct messages.",
+    # Two entries, not one "Chat". A person connects, authorises and disconnects
+    # these separately, so one toggle could not express "stop reading my Slack
+    # but keep Google Chat" — and the coarser reading always won.
+    "slack": (
+        "Slack",
+        "Messages in the public channels your workspace connects. Never direct messages.",
+    ),
+    "google_chat": (
+        "Google Chat",
+        "Messages in the spaces your workspace connects. Never direct messages.",
     ),
     "meeting": (
         "Meetings",

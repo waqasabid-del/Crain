@@ -16,6 +16,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cairn_api import sources as canonical
 from cairn_api.config import Settings, get_settings
 from cairn_api.db.fact_models import FactSource
 from cairn_api.db.github_models import WebhookDelivery
@@ -259,9 +260,14 @@ def _source_of(evidence_id: str) -> str:
     The id is minted with its provider prefix at the moment the evidence is
     read, so this cannot drift from the thing it describes — unlike a parallel
     argument threaded down from the caller, which is what it replaced.
+
+    **Fails closed on an unknown prefix.** This used to return `"github"` for
+    anything unrecognised. That value is written to `fact_sources.source` and is
+    what the opt-out gate compares a person's refusal against, so an unknown
+    prefix silently relabelled evidence as a source the workspace had probably
+    connected — and consent was then enforced against a label CAIRN invented.
     """
-    prefix, _, _ = evidence_id.partition(":")
-    return prefix if prefix in {"github", "slack", "google_chat"} else "github"
+    return canonical.source_of_evidence_id(evidence_id).value
 
 
 def _slack_timestamp(ts: str) -> datetime | None:

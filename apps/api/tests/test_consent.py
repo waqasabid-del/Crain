@@ -348,9 +348,36 @@ class TestScope:
         activity is captured.
 
         A source the pipeline can read but the notification cannot refuse is a
-        gap in the promise, so the list is checked against the dataset's own
-        source taxonomy rather than maintained by hand in two places.
-        """
-        from cairn_api.evaluation.cases import Source
+        gap in the promise. This used to assert plain equality with the
+        evaluation dataset's taxonomy, which held while the two happened to
+        coincide — and stopped holding the moment production learned to tell
+        Slack from Google Chat.
 
-        assert set(consent.SOURCES) == {source.value for source in Source}
+        **They are related, not identical, and the difference is the point.** The
+        evaluation taxonomy names *categories of evidence* for measuring
+        extraction quality; `consent.SOURCES` names *products a customer
+        connects, authorises and disconnects*. One evaluation category, `chat`,
+        corresponds to two such products. Asserting equality again would force
+        one of them to be wrong: either the fixtures claim a Slack provenance
+        they never had, or consent loses the ability to refuse one chat product
+        without the other.
+
+        So the assertion is coverage in both directions, which is the property
+        the promise actually needs.
+        """
+        from cairn_api import sources as canonical
+        from cairn_api.evaluation.cases import Source as EvaluationSource
+
+        #: The one category that is two products. Every other name is shared.
+        bridge = {"chat": {item.value for item in canonical.LEGACY_CHAT_SOURCES}}
+
+        measurable = {
+            value
+            for source in EvaluationSource
+            for value in bridge.get(source.value, {source.value})
+        }
+
+        assert measurable == set(consent.SOURCES), (
+            "a source the pipeline can read but nobody can refuse, or a source "
+            "somebody can refuse that no evaluation case covers"
+        )
