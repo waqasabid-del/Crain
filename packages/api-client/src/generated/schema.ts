@@ -2031,8 +2031,18 @@ export interface components {
        * @default false
        */
       hedgedBySystem: boolean;
+      /**
+       * Resolvedactors
+       * @default 0
+       */
+      resolvedActors: number;
       /** Text */
       text: string;
+      /**
+       * Unresolvedactors
+       * @default 0
+       */
+      unresolvedActors: number;
     };
     /**
      * BriefResponse
@@ -2503,6 +2513,11 @@ export interface components {
       origin: components["schemas"]["FactOrigin"];
       /** People */
       people?: components["schemas"]["FactPersonResponse"][];
+      /**
+       * Resolvedactors
+       * @default 0
+       */
+      resolvedActors: number;
       /** Sources */
       sources?: components["schemas"]["FactSourceResponse"][];
       /** Statement */
@@ -2511,6 +2526,11 @@ export interface components {
       supersededById?: string | null;
       /** Supersessionreason */
       supersessionReason?: string | null;
+      /**
+       * Unresolvedactors
+       * @default 0
+       */
+      unresolvedActors: number;
       /**
        * Validfrom
        * Format: date-time

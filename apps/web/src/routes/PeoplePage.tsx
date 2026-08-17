@@ -108,6 +108,25 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
                 This list is read-only here. Roles and invitations are changed in Workspace
                 settings, by an admin.
               </StatusNote>
+              {/*
+                The one thing this screen says about identity, and it is about
+                the reader alone.
+
+                A members list is where comparative measurement between people
+                first appears in a product, so nothing here is per colleague:
+                no indicator of who has connected what, which would be a
+                connection leaderboard by another name (md/05 §B.3.3). What is
+                worth saying is why the reader's own name is sometimes missing
+                from a fact elsewhere in CAIRN, and where they fix that.
+              */}
+              <StatusNote live={false}>
+                Nothing on this page describes how much anyone has done. If work of yours is
+                recorded elsewhere without your name on it, connecting your own accounts in
+                Preferences is what links it up.{" "}
+                <Link className={utility.actionLink} href="/settings">
+                  Preferences
+                </Link>
+              </StatusNote>
             </div>
           </>
         ))}

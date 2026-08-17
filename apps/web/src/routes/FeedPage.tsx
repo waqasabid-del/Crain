@@ -17,8 +17,8 @@ import {
 import { useApiClient } from "../api/context.js";
 import { useAuth } from "../auth/context.js";
 import { contentSourceFor, IS_SAMPLE_CONTENT, type ContentSource } from "../brief/adapter.js";
-import type { Claim, Fact, FactKind } from "../brief/types.js";
-import { ClaimList } from "../components/ClaimList.js";
+import type { Fact, FactKind } from "../brief/types.js";
+import { ClaimList, type ClaimEntry } from "../components/ClaimList.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { SampleBanner } from "../components/SampleBanner.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
@@ -47,16 +47,54 @@ const SOURCE_LABELS: Record<string, string> = {
 
 /** Mapped onto `Claim` rather than given a second card component, so the Feed
  * cannot quietly lose the sources disclosure the Brief has. */
-function toClaim(fact: Fact): Claim {
+function toClaim(fact: Fact): ClaimEntry {
   return {
     text: fact.statement,
     certainty: fact.certainty,
     citations: fact.sources ?? [],
     // The mention, not the resolved id: "who" is the reader's question, and
     // the resolution belongs to the identity graph.
-    credits: (fact.people ?? []).map((person) => person.mention),
+    credits: (fact.people ?? [])
+      .map((person) => person.mention)
+      .filter((mention) => mention.trim() !== ""),
     hedgedBySystem: false,
+    // Carried on the claim itself as well as in `attribution`: the brief API
+    // now sends these counts natively, so the shape a Feed claim presents and
+    // the shape a Brief claim presents stay identical.
+    resolvedActors: fact.resolvedActors,
+    unresolvedActors: fact.unresolvedActors,
+    // Counts, never accounts. The API sends no provider handle here and the
+    // screen derives none: see `Attribution` in `ClaimList`.
+    attribution: {
+      resolvedActors: fact.resolvedActors,
+      unresolvedActors: fact.unresolvedActors,
+    },
   };
+}
+
+/** Whether anything in view came from an account CAIRN has not placed yet. */
+function hasUnresolved(facts: Fact[]): boolean {
+  return facts.some((fact) => fact.unresolvedActors > 0);
+}
+
+/**
+ * The way out, said once above a list rather than beside every row that shows
+ * it. The per-claim note states what CAIRN knows; this states what a reader can
+ * do about it — and repeating a link forty times down a feed is how a neutral
+ * fact starts to read as nagging.
+ */
+function UnresolvedRoute({ facts }: { facts: Fact[] }): ReactNode {
+  if (!hasUnresolved(facts)) return null;
+
+  return (
+    <p className={styles.attributionRoute}>
+      Some of what follows came from an account CAIRN has not matched to a person yet, so it is
+      recorded without a name rather than guessed at.{" "}
+      <Link className={utility.actionLink} href="/settings">
+        Connect your own accounts
+      </Link>
+    </p>
+  );
 }
 
 /** One person, project and source rather than several: a native multi-select
@@ -535,6 +573,7 @@ function Stream({
 function FeedSections({ facts }: { facts: Fact[] }): ReactNode {
   return (
     <>
+      <UnresolvedRoute facts={facts} />
       {SECTIONS.map(({ kind, title }) => {
         const matching = facts.filter((fact) => fact.kind === kind);
         // Empty sections are omitted: a column of "0" headings reads as a
@@ -618,6 +657,8 @@ function Results({
 
   return (
     <>
+      <UnresolvedRoute facts={items.map((hit) => hit.fact)} />
+
       {byWords.length > 0 && (
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>

@@ -62,6 +62,8 @@ const WEEK: FactPage = {
       validFrom: "2026-08-10T09:00:00Z",
       occurredAt: "2026-08-10T09:00:00Z",
       people: [{ mention: "Priya Nair" }],
+      resolvedActors: 0,
+      unresolvedActors: 0,
       sources: [{ evidenceId: "ev-pr-482", source: "github" }],
     },
   ],

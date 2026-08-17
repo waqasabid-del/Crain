@@ -45,6 +45,8 @@ const BRIEF: Brief = {
       text: "Priya shipped rate limiting to production.",
       certainty: "verified",
       hedgedBySystem: false,
+      resolvedActors: 0,
+      unresolvedActors: 0,
       credits: ["Priya Nair"],
       factIds: ["11111111-1111-1111-1111-111111111111"],
       citations: [
@@ -59,6 +61,8 @@ const BRIEF: Brief = {
       text: "It sounded like the payments cutover will need a staged rollout.",
       certainty: "suggested",
       hedgedBySystem: true,
+      resolvedActors: 0,
+      unresolvedActors: 0,
       credits: [],
       factIds: ["22222222-2222-2222-2222-222222222222"],
       // No permalink: a meeting transcript has none. The citation is still

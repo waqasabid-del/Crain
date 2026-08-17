@@ -33,6 +33,8 @@ const BRIEF: Brief = {
     {
       text: "Priya shipped rate limiting to production.",
       hedgedBySystem: false,
+      resolvedActors: 0,
+      unresolvedActors: 0,
       certainty: "verified",
       credits: ["Priya Nair"],
       citations: [
@@ -46,6 +48,8 @@ const BRIEF: Brief = {
     {
       text: "It sounded like the payments cutover will need a staged rollout.",
       hedgedBySystem: true,
+      resolvedActors: 0,
+      unresolvedActors: 0,
       certainty: "suggested",
       credits: [],
       // Deliberately unlinked: a meeting transcript has no permalink. An

@@ -65,7 +65,19 @@ class Fact(BaseModel):
     certainty: Certainty
 
     #: Empty is legitimate here, unlike empty `sources`.
+    #:
+    #: **Names only.** A provider account id must never appear here: this list
+    #: becomes brief credits, feed credits and every evaluation export, and a
+    #: Slack member id rendered as somebody's name is a disclosure.
     people: list[str] = Field(default_factory=list)
+
+    #: Provider accounts behind this fact that are, and are not, linked to a
+    #: person. Counts rather than ids, for the reason `people` carries no ids —
+    #: enough for a brief to say "one contributor here has not connected their
+    #: account", never enough to say who. Zero on freshly extracted facts, which
+    #: have not been through attribution yet.
+    resolved_actors: int = 0
+    unresolved_actors: int = 0
 
     #: When the event happened, not when extracted: supersession (Step 16) orders
     #: by occurrence so a backfill cannot overwrite current state.

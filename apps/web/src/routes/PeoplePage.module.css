@@ -76,8 +76,16 @@
   color: var(--fg-default);
 }
 
-/* The read-only note, under the table it describes. */
+/*
+ * The notes under the table: what cannot be changed here, and what the reader
+ * can do about their own record. Two separate sentences with space between
+ * them, because they answer two unrelated questions and running them together
+ * makes both easier to skip.
+ */
 .readOnly {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
   max-width: var(--prose-max-width);
   margin-top: var(--space-5);
 }

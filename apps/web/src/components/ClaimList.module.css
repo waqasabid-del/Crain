@@ -41,6 +41,22 @@
 }
 
 /*
+ * What CAIRN can say about who is behind the claim.
+ *
+ * Set as quiet prose at the foot of the card rather than as a chip or a badge.
+ * A pill would give it the visual weight of a status, and "one contributor has
+ * not connected their account yet" is not a status — it is a sentence about the
+ * limits of what the system knows, and it should read like one.
+ */
+.attribution {
+  max-width: var(--prose-max-width);
+  margin: var(--space-3) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/*
  * The citation affordance.
  *
  * `margin-left: auto` pushes it to the trailing edge on a wide card and it wraps

@@ -1,4 +1,6 @@
 import { CertaintyBadge } from "@cairn/ui";
+import clsx from "clsx";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 import type { Claim, SourceRef } from "../brief/types.js";
@@ -85,8 +87,110 @@ function Citation({ citation }: { citation: SourceRef }): ReactNode {
   );
 }
 
+/**
+ * How many provider accounts stand behind one statement, and whether CAIRN can
+ * place them — counts only, never the accounts.
+ *
+ * The links underneath carry Slack `U…` and Google Chat `users/…` identifiers.
+ * Those are private provider ids: the API filters them out of `people`
+ * altogether, because publishing one as a credit would identify a colleague by
+ * a handle they never chose to share. But dropping them without trace leaves a
+ * reader unable to tell *nobody else was involved* from *somebody was, and
+ * CAIRN cannot yet say who* — and to a person checking whether their own record
+ * is complete those are entirely different answers. The number is the honest
+ * middle, and it is the only thing this component is ever given.
+ *
+ * It is a property of one statement, never of a person. Nothing here may be
+ * summed across facts, sorted, or shown beside a name: md/05 §B.3.3 makes a
+ * per-person tally a product-reclassifying feature rather than a style choice.
+ */
+export interface Attribution {
+  /** Accounts behind this fact that the identity graph has linked to a person. */
+  resolvedActors: number;
+  /** …and that it has not linked yet. */
+  unresolvedActors: number;
+}
+
+/** A claim, optionally carrying the attribution counts for the fact behind it.
+ * An intersection rather than a new shape, so a screen with nothing to say
+ * about attribution — the Brief — passes a plain `Claim` and is unaffected. */
+export type ClaimEntry = Claim & { attribution?: Attribution };
+
+/** Small numbers as words, so the note reads as a sentence rather than a
+ * readout. Larger ones stay numeric: "seventeen contributors" is worse. */
+const NUMBER_WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+
+function inWords(count: number): string {
+  return NUMBER_WORDS[count] ?? String(count);
+}
+
+function sentenceCase(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+export interface AttributionNoteProps {
+  attribution: Attribution | undefined;
+  /**
+   * Offer the way out as well as the fact. Set where the reader is looking at
+   * their own record and the link is the next thing they would want; left off
+   * where a page shows the same route once above a whole list, so a long feed
+   * does not repeat one link forty times.
+   */
+  route?: boolean;
+  className?: string;
+}
+
+/**
+ * What CAIRN can and cannot say about who is behind a statement.
+ *
+ * Two deliberate choices in the wording of the unresolved case. It is not
+ * phrased as a failure — the reader did nothing, and a screen that reads like a
+ * defect notice teaches people to distrust the record rather than to finish
+ * connecting it. And it is not phrased as concealment: "has not connected their
+ * account yet" is a neutral, temporary, ordinary state of affairs, which is
+ * what it is.
+ *
+ * No `role="status"`: this is on screen from first paint, describing content
+ * that is already there. A live region announcing a fact nobody just changed is
+ * noise a screen reader user cannot switch off.
+ */
+export function AttributionNote({
+  attribution,
+  route = false,
+  className,
+}: AttributionNoteProps): ReactNode {
+  const resolved = attribution?.resolvedActors ?? 0;
+  const unresolved = attribution?.unresolvedActors ?? 0;
+
+  // Nothing to attribute. Silence, rather than a sentence announcing an absence
+  // — "no connected accounts" is a state the product does not have.
+  if (resolved <= 0 && unresolved <= 0) return null;
+
+  return (
+    <p className={clsx(styles.attribution, className)}>
+      {resolved > 0 &&
+        (resolved === 1
+          ? "Attributed through a connected account."
+          : `Attributed through ${inWords(resolved)} connected accounts.`)}
+      {resolved > 0 && unresolved > 0 && " "}
+      {unresolved > 0 &&
+        (unresolved === 1
+          ? "One contributor here has not connected their account to CAIRN yet, so CAIRN cannot name them."
+          : `${sentenceCase(inWords(unresolved))} contributors here have not connected their accounts to CAIRN yet, so CAIRN cannot name them.`)}
+      {route && unresolved > 0 && (
+        <>
+          {" "}
+          <Link className={utility.actionLink} href="/settings">
+            Connect your own accounts
+          </Link>
+        </>
+      )}
+    </p>
+  );
+}
+
 export interface ClaimListProps {
-  claims: Claim[];
+  claims: ClaimEntry[];
   label: string;
 }
 
@@ -110,6 +214,10 @@ export function ClaimList({ claims, label }: ClaimListProps): ReactNode {
             )}
             <Citations claim={claim} />
           </div>
+          {/* Outside the footer, on its own line: it is a sentence, and a
+            sentence wrapping between a badge and a disclosure control reads as
+            a caption for whichever of them it landed next to. */}
+          <AttributionNote attribution={claim.attribution} />
         </li>
       ))}
     </ul>

@@ -41,6 +41,7 @@ import {
   SLACK_SCOPES,
   type OAuthReturn,
 } from "../components/ConnectionCard.js";
+import { AttributionHealthSummary } from "../components/ConnectedIdentities.js";
 import { formatDayAndTime } from "../components/dates.js";
 import { InlineProblem } from "../components/InlineProblem.js";
 import { PageHeader } from "../components/PageHeader.js";
@@ -114,6 +115,14 @@ export function AdminPage(): ReactNode {
 
       <Members workspaceId={activeWorkspace.id} role={activeRole} />
       <Integrations workspaceId={activeWorkspace.id} role={activeRole} />
+      {/*
+        Counts, and only for the roles that configure the workspace. What
+        protects members is not this gate but the shape of the response: it
+        carries no name, no per-person row and no measure of anybody's activity,
+        so an Admin reading it learns one thing a member could not — a number.
+        There is deliberately no control here to reassign anybody's account.
+      */}
+      {administers(activeRole) && <AttributionHealthSummary workspaceId={activeWorkspace.id} />}
       <PrivacySection workspaceId={activeWorkspace.id} role={activeRole} />
       {administers(activeRole) && <NotificationSection workspaceId={activeWorkspace.id} />}
     </>

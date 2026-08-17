@@ -299,6 +299,27 @@ class FactResponse(ApiModel):
     sources: list[FactSourceResponse] = Field(default_factory=list)
     people: list[FactPersonResponse] = Field(default_factory=list)
 
+    #: How many provider accounts produced this and are **not** linked to a
+    #: person — the "unresolved source identity" state, as a count.
+    #:
+    #: A count, deliberately. The rows behind it carry Slack `U…` and Chat
+    #: `users/…` ids, which are private provider identifiers and are filtered out
+    #: of `people` entirely; publishing one as a credit would identify a
+    #: colleague by an id they never chose to share. But dropping them without
+    #: trace leaves a screen unable to tell "nobody was involved" from "somebody
+    #: was, and CAIRN cannot yet say who" — and those are different things to a
+    #: reader deciding whether their own record is complete.
+    #:
+    #: The honest middle is the number and not the identifiers: enough to say
+    #: "one contributor here has not connected their account", never enough to
+    #: say who. Zero is the ordinary case.
+    unresolved_actors: int = 0
+
+    #: How many provider accounts produced this and **are** linked to a person.
+    #: Lets a screen say "attributed through a connected identity" without
+    #: naming the account that carried it.
+    resolved_actors: int = 0
+
 
 class WorkRoleUpdate(ApiModel):
     """What the reader says they do.
@@ -1170,6 +1191,13 @@ class BriefClaimResponse(ApiModel):
 
     #: People the underlying facts concern.
     credits: list[str] = Field(default_factory=list)
+
+    #: Provider accounts behind this sentence, linked and not, as counts. Lets a
+    #: brief say "one contributor here has not connected their account" without
+    #: naming an account — the ids themselves are private provider identifiers
+    #: and never leave the database.
+    resolved_actors: int = 0
+    unresolved_actors: int = 0
 
     #: Whether synthesis had to add the hedge the model omitted. Surfaced
     #: because a model that never hedges unprompted is a prompt problem, and a

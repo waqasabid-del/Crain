@@ -1,4 +1,5 @@
 import type {
+  AttributionHealth,
   GoogleChatDisconnect,
   GoogleChatInstall,
   GoogleChatSpaceList,
@@ -114,6 +115,24 @@ const NOTIFICATIONS: Notifications = {
   sources: ["github", "chat", "meeting", "document"],
 };
 
+/**
+ * Attribution, in counts and nothing else.
+ *
+ * Every field the response has is here, which is the point worth stating: there
+ * is no field on it that could carry a name, an id, an address or a measure of
+ * anybody's activity, so the screen below has nothing per-person to withhold.
+ */
+const HEALTH: AttributionHealth = {
+  resolvedByProvider: { github: 7, slack: 4 },
+  unresolvedByProvider: { github: 2, google_chat: 5 },
+  disputed: 1,
+  revoked: 3,
+  notice:
+    "Counts only. CAIRN cannot show you which people are unresolved, how much " +
+    "any person did, or any per-person breakdown. Attribution health is a " +
+    "question about connections, not about colleagues.",
+};
+
 function client(overrides = {}): ReturnType<typeof createStubClient> {
   return createStubClient({
     getSession: vi.fn(() => Promise.resolve(SESSION)),
@@ -121,6 +140,7 @@ function client(overrides = {}): ReturnType<typeof createStubClient> {
     listIntegrations: vi.fn(() => Promise.resolve(INTEGRATIONS)),
     getPrivacy: vi.fn(() => Promise.resolve(PRIVACY)),
     getNotifications: vi.fn(() => Promise.resolve(NOTIFICATIONS)),
+    getAttributionHealth: vi.fn(() => Promise.resolve(HEALTH)),
     ...overrides,
   });
 }
@@ -2153,5 +2173,73 @@ describe("connecting Google Chat", () => {
         await screen.findByText(/could not read which google chat spaces are selected just now/i),
       ).toBeVisible();
     });
+  });
+});
+
+/**
+ * Attribution health: the aggregate, and the list that must never appear
+ * beside it.
+ *
+ * This is the screen where "which people are unresolved?" first seems
+ * reasonable — it is a real question an Owner has, and every other admin area
+ * would answer it. md/05 §B.3.3 makes a per-person attribution breakdown a
+ * product-reclassifying feature, and md/15 §2.3 forbids an administrator seeing
+ * more about a member than the member sees about themselves. So the assertions
+ * here are as much about absence as about counts, because the failure is
+ * additive: nobody deletes the counts, somebody adds names next to them.
+ */
+describe("attribution health", () => {
+  it("states the counts by source", async () => {
+    renderAdmin();
+
+    // Awaited on the counts rather than on the heading: the section paints its
+    // own title before the read resolves, so a query made at the heading is a
+    // query made against the skeleton.
+    const list = await screen.findByRole("list", { name: /accounts by source/i });
+    expect(within(list).getByText(/7 claimed · 2 unclaimed/)).toBeVisible();
+    expect(within(list).getByText(/4 claimed · 0 unclaimed/)).toBeVisible();
+    expect(within(list).getByText(/0 claimed · 5 unclaimed/)).toBeVisible();
+  });
+
+  it("carries no per-person data of any kind", async () => {
+    renderAdmin();
+    await screen.findByRole("list", { name: /accounts by source/i });
+    const heading = screen.getByRole("heading", { name: /attribution health/i });
+    const section = heading.closest("section");
+    if (section === null) throw new Error("Attribution health is not inside a section");
+
+    // Both members of the fixture workspace, by name and by address. Neither is
+    // in the response; this asserts nothing on the client puts them back.
+    for (const member of MEMBERS) {
+      expect(section.textContent).not.toContain(member.email);
+      if (member.displayName != null) {
+        expect(section.textContent).not.toContain(member.displayName);
+      }
+    }
+    // And no control that would reassign somebody's account, which is the other
+    // half of the same rule: a member's record is theirs to correct.
+    expect(within(section).queryByRole("button", { name: /reassign/i })).toBeNull();
+    expect(within(section).queryByRole("combobox")).toBeNull();
+  });
+
+  it("says what it cannot answer, in the server's own words", async () => {
+    renderAdmin();
+
+    expect(await screen.findByText(HEALTH.notice)).toBeVisible();
+    expect(screen.getByText(/ask the team to confirm their own accounts/i)).toBeVisible();
+  });
+
+  it("reports a failure without breaking the rest of the screen", async () => {
+    renderAdmin(client({ getAttributionHealth: vi.fn(() => Promise.reject(apiError(500))) }));
+
+    expect(await screen.findByText(/attribution health could not be loaded/i)).toBeVisible();
+    expect(screen.getByRole("list", { name: /members/i })).toBeVisible();
+  });
+
+  it("has no axe violations", async () => {
+    const { container } = renderAdmin();
+    await screen.findByRole("list", { name: /accounts by source/i });
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
   });
 });

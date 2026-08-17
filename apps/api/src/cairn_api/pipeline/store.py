@@ -547,6 +547,12 @@ def _to_domain(row: FactRow) -> Fact:
         # account id in it would send a private provider identifier into the
         # brief, the feed and every export built from this mapping.
         people=[p.mention for p in row.people if p.mention is not None],
+        resolved_actors=sum(
+            1 for p in row.people if p.provider_account_id is not None and p.person_id is not None
+        ),
+        unresolved_actors=sum(
+            1 for p in row.people if p.provider_account_id is not None and p.person_id is None
+        ),
         occurred_at=row.occurred_at,
     )
 

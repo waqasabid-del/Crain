@@ -231,9 +231,19 @@
             "title": "Hedgedbysystem",
             "type": "boolean"
           },
+          "resolvedActors": {
+            "default": 0,
+            "title": "Resolvedactors",
+            "type": "integer"
+          },
           "text": {
             "title": "Text",
             "type": "string"
+          },
+          "unresolvedActors": {
+            "default": 0,
+            "title": "Unresolvedactors",
+            "type": "integer"
           }
         },
         "required": ["text", "certainty"],
@@ -1017,6 +1027,11 @@
             "title": "People",
             "type": "array"
           },
+          "resolvedActors": {
+            "default": 0,
+            "title": "Resolvedactors",
+            "type": "integer"
+          },
           "sources": {
             "items": {
               "$ref": "#/components/schemas/FactSourceResponse"
@@ -1050,6 +1065,11 @@
               }
             ],
             "title": "Supersessionreason"
+          },
+          "unresolvedActors": {
+            "default": 0,
+            "title": "Unresolvedactors",
+            "type": "integer"
           },
           "validFrom": {
             "format": "date-time",

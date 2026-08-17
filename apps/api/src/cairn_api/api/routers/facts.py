@@ -533,6 +533,24 @@ async def get_brief(
 
     # The live path. Citations come from the facts already in hand rather than
     # from a second query: retrieval loaded them a moment ago.
+    # Counted from the stored rows, which are what carry the actor links —
+    # `facts` above is the domain mapping, and the domain fact deliberately
+    # holds names only.
+    actors_by_fact = {
+        item.fact.id: (
+            sum(
+                1
+                for link in item.fact.people
+                if link.provider_account_id is not None and link.person_id is not None
+            ),
+            sum(
+                1
+                for link in item.fact.people
+                if link.provider_account_id is not None and link.person_id is None
+            ),
+        )
+        for item in retrieval.facts
+    }
     by_fact = {
         fact.id: [
             CitationResponse(
@@ -556,6 +574,16 @@ async def get_brief(
                 fact_ids=list(claim.fact_ids),
                 citations=briefs.citations_for(list(claim.fact_ids), by_fact),
                 credits=list(claim.credits),
+                # Summed across the facts this sentence rests on. A brief claim
+                # can draw on several facts, and a reader deciding whether the
+                # sentence names everyone involved needs the total rather than
+                # one fact's share.
+                resolved_actors=sum(
+                    actors_by_fact.get(fact_id, (0, 0))[0] for fact_id in claim.fact_ids
+                ),
+                unresolved_actors=sum(
+                    actors_by_fact.get(fact_id, (0, 0))[1] for fact_id in claim.fact_ids
+                ),
                 hedged_by_system=claim.hedged_by_system,
             )
             for claim in brief.claims
@@ -784,6 +812,20 @@ def _fact_response(row: FactRow) -> FactResponse:
             for link in row.people
             if link.mention is not None
         ],
+        # Counts, not rows. The actor links are excluded above because they
+        # carry a private provider account id; these two numbers are what a
+        # reader needs to tell "nobody was involved" from "somebody was and
+        # CAIRN cannot yet say who", and they name nobody.
+        unresolved_actors=sum(
+            1
+            for link in row.people
+            if link.provider_account_id is not None and link.person_id is None
+        ),
+        resolved_actors=sum(
+            1
+            for link in row.people
+            if link.provider_account_id is not None and link.person_id is not None
+        ),
     )
 
 

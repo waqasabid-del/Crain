@@ -25,27 +25,36 @@ const AXE_OPTIONS = {
   rules: { "color-contrast": { enabled: false } },
 } as const;
 
-const WEEK: FactPage = {
-  items: [
+type Fact = NonNullable<FactPage["items"]>[number];
+
+const FACT: Fact = {
+  id: "11111111-1111-1111-1111-111111111111",
+  kind: "delivery",
+  statement: "Priya shipped rate limiting to production.",
+  certainty: "observed",
+  origin: "extracted",
+  validFrom: "2026-08-10T09:00:00Z",
+  occurredAt: "2026-08-10T09:00:00Z",
+  people: [{ mention: "Priya Nair" }],
+  // The default is the fourth attribution state: nothing to attribute beyond
+  // the named mention, and therefore nothing for the screen to say.
+  resolvedActors: 0,
+  unresolvedActors: 0,
+  sources: [
     {
-      id: "11111111-1111-1111-1111-111111111111",
-      kind: "delivery",
-      statement: "Priya shipped rate limiting to production.",
-      certainty: "observed",
-      origin: "extracted",
-      validFrom: "2026-08-10T09:00:00Z",
-      occurredAt: "2026-08-10T09:00:00Z",
-      people: [{ mention: "Priya Nair" }],
-      sources: [
-        {
-          evidenceId: "ev-pr-482",
-          source: "github",
-          url: "https://github.com/acme/api/pull/482",
-        },
-      ],
+      evidenceId: "ev-pr-482",
+      source: "github",
+      url: "https://github.com/acme/api/pull/482",
     },
   ],
 };
+
+const WEEK: FactPage = { items: [FACT] };
+
+/** The same fact with different attribution behind it. */
+function weekWith(counts: { resolvedActors: number; unresolvedActors: number }): FactPage {
+  return { items: [{ ...FACT, ...counts }] };
+}
 
 function client(overrides = {}): ReturnType<typeof createStubClient> {
   return createStubClient({
@@ -110,6 +119,158 @@ describe("the reader's own record", () => {
 
     expect(await screen.findByRole("heading", { name: /nothing about you yet/i })).toBeVisible();
     expect(screen.getByText(/address on your commits/i)).toBeVisible();
+  });
+});
+
+/**
+ * Attribution, and the four things a record can honestly say about who is
+ * behind a statement.
+ *
+ * The counts exist because the alternative was silence. The links underneath
+ * carry Slack `U…` and Google Chat `users/…` ids — private provider handles the
+ * API strips out of `people` altogether — and dropping them without trace
+ * leaves this screen unable to tell "nobody else was involved" from "somebody
+ * was, and CAIRN cannot yet say who". To a person checking whether their own
+ * record is complete, those are opposite answers.
+ *
+ * So the tests here are about wording as much as rendering. The unresolved case
+ * is one sentence away from reading as a defect the reader caused, or as a
+ * colleague hiding, and either version teaches people to distrust the record
+ * instead of finishing it.
+ */
+describe("who is behind a statement", () => {
+  it("says nothing when there is nothing to attribute", async () => {
+    // The fourth state. A line reading "no connected accounts" would invent a
+    // status the product does not have, on the screen least able to afford one.
+    render(
+      client({
+        myWeek: vi.fn(() => Promise.resolve(weekWith({ resolvedActors: 0, unresolvedActors: 0 }))),
+      }),
+    );
+    await screen.findAllByText(/shipped rate limiting/i);
+
+    const main = await screen.findByRole("main");
+    expect(main.textContent).not.toMatch(/connected account/i);
+    expect(main.textContent).not.toMatch(/has not connected/i);
+  });
+
+  it("says in words when a connected identity is behind it, and never which", async () => {
+    render(
+      client({
+        myWeek: vi.fn(() => Promise.resolve(weekWith({ resolvedActors: 1, unresolvedActors: 0 }))),
+      }),
+    );
+
+    expect(await screen.findByText(/attributed through a connected account/i)).toBeVisible();
+  });
+
+  it("counts connected accounts in words rather than as a figure", async () => {
+    render(
+      client({
+        myWeek: vi.fn(() => Promise.resolve(weekWith({ resolvedActors: 3, unresolvedActors: 0 }))),
+      }),
+    );
+
+    expect(await screen.findByText(/attributed through three connected accounts/i)).toBeVisible();
+  });
+
+  it("states an unresolved identity as a fact, not as something the reader broke", async () => {
+    render(
+      client({
+        myWeek: vi.fn(() => Promise.resolve(weekWith({ resolvedActors: 0, unresolvedActors: 1 }))),
+      }),
+    );
+
+    const note = await screen.findByText(/one contributor here has not connected their account/i);
+    expect(note).toBeVisible();
+
+    // The wording test that matters. "CAIRN could not identify a contributor"
+    // is the same information and the wrong sentence: it makes an ordinary,
+    // temporary state of the identity graph sound like a failure with a cause,
+    // and the reader — who did nothing — is the one reading it.
+    const text = note.textContent;
+    expect(text).not.toMatch(/error|failed|failure|problem|invalid|unable|broken|denied/i);
+    // Nor may it imply concealment: nobody here is withholding anything.
+    expect(text).not.toMatch(/hidden|hiding|anonymous|withheld|refused|unknown person/i);
+  });
+
+  it("pluralises without turning the sentence into a readout", async () => {
+    render(
+      client({
+        myWeek: vi.fn(() => Promise.resolve(weekWith({ resolvedActors: 0, unresolvedActors: 2 }))),
+      }),
+    );
+
+    expect(
+      await screen.findByText(/two contributors here have not connected their accounts/i),
+    ).toBeVisible();
+  });
+
+  it("offers the reader their own way out, and it is operable from the keyboard", async () => {
+    render(
+      client({
+        myWeek: vi.fn(() => Promise.resolve(weekWith({ resolvedActors: 0, unresolvedActors: 1 }))),
+      }),
+    );
+
+    const link = await screen.findByRole("link", { name: /connect your own accounts/i });
+    expect(link).toHaveAttribute("href", "/settings");
+
+    // Reachable by tab, which is the whole of "operable" for a link. A note
+    // whose only remedy needs a mouse is a note with no remedy.
+    link.focus();
+    expect(link).toHaveFocus();
+    await userEvent.tab();
+    expect(link).not.toHaveFocus();
+  });
+
+  it("renders no provider account id or address anywhere in the markup", async () => {
+    // The hard rule. The API sends counts and nothing else; this fails if a
+    // screen ever starts deriving a handle from something it was given.
+    render(
+      client({
+        myWeek: vi.fn(() => Promise.resolve(weekWith({ resolvedActors: 2, unresolvedActors: 2 }))),
+      }),
+    );
+    await screen.findAllByText(/shipped rate limiting/i);
+
+    // The record itself rather than the whole container: the shell shows the
+    // reader their own signed-in address, which is theirs to see. What must
+    // never appear is somebody else's, or a provider's handle for anybody.
+    const record = screen.getByRole("list", { name: /what cairn believes about you/i });
+    const html = record.innerHTML;
+    // Slack member ids, Google Chat member resources, and anything shaped like
+    // an address.
+    expect(html).not.toMatch(/\bU[A-Z0-9]{6,}\b/);
+    expect(html).not.toMatch(/users\/\d+/);
+    expect(html).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);
+    // And no credential or connection state belonging to somebody else.
+    expect(html).not.toMatch(/oauth|access[_ ]token|refresh[_ ]token|scope[s]?=/i);
+  });
+
+  it("keeps attribution categorical rather than numeric", async () => {
+    // md/05 §A.2.1: certainty and attribution are categories. A percentage is
+    // a confidence claim the pipeline cannot support and a reader cannot check.
+    render(
+      client({
+        myWeek: vi.fn(() => Promise.resolve(weekWith({ resolvedActors: 1, unresolvedActors: 1 }))),
+      }),
+    );
+    await screen.findAllByText(/shipped rate limiting/i);
+
+    const main = await screen.findByRole("main");
+    expect(main.textContent).not.toMatch(/\d+\s?%|\bconfidence\b|\b0\.\d+\b/i);
+  });
+
+  it("passes an axe audit with both attribution states on screen", async () => {
+    const { container } = render(
+      client({
+        myWeek: vi.fn(() => Promise.resolve(weekWith({ resolvedActors: 1, unresolvedActors: 1 }))),
+      }),
+    );
+    await screen.findByText(/has not connected their account/i);
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
   });
 });
 

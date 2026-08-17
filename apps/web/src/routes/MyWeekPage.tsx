@@ -9,6 +9,7 @@ import { useApiClient } from "../api/context.js";
 import { useAuth } from "../auth/context.js";
 import { recordLeadFor } from "../roles.js";
 import type { Fact } from "../brief/types.js";
+import { AttributionNote } from "../components/ClaimList.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { describeError, type DescribedError } from "../errors.js";
@@ -226,6 +227,16 @@ function FactRow({
           </Button>
         )}
       </div>
+
+      {/*
+        Where the reader finds out whether this is the whole story. A record
+        that silently omits a colleague's part looks identical to one where
+        nobody else was involved, and this is the screen where the difference
+        matters most — so the counts are stated, and the accounts behind them
+        never are. `route`: on their own record the next useful thing is their
+        own Preferences, so the link is here rather than once above a list.
+      */}
+      <AttributionNote attribution={fact} route />
 
       {done !== null && (
         <p className={styles.done} role="status">

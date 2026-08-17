@@ -29,6 +29,8 @@ export const SAMPLE_BRIEF: Brief = {
       text: "The invitation acceptance flow was merged into main.",
       certainty: "verified",
       hedgedBySystem: false,
+      resolvedActors: 0,
+      unresolvedActors: 0,
       citations: [
         {
           evidenceId: "pr-482",
@@ -42,6 +44,8 @@ export const SAMPLE_BRIEF: Brief = {
       text: "Work on billing appears to be waiting on sandbox credentials from the provider.",
       certainty: "observed",
       hedgedBySystem: false,
+      resolvedActors: 0,
+      unresolvedActors: 0,
       citations: [
         {
           evidenceId: "msg-91733",
@@ -61,6 +65,8 @@ export const SAMPLE_BRIEF: Brief = {
       text: "It sounded like the team agreed to defer SAML support to next quarter.",
       certainty: "suggested",
       hedgedBySystem: false,
+      resolvedActors: 0,
+      unresolvedActors: 0,
       citations: [
         {
           evidenceId: "meeting-2026-08-12",
@@ -82,6 +88,9 @@ export const SAMPLE_FACTS: Fact[] = [
     statement: "Pull request 482, invitation acceptance, was merged.",
     certainty: "verified",
     people: [{ mention: "Ali Rahman" }],
+    // One account behind it, and CAIRN knows whose.
+    resolvedActors: 1,
+    unresolvedActors: 0,
     occurredAt: "2026-08-12T16:22:00Z",
     validFrom: "2026-08-14T09:00:00Z",
     origin: "extracted",
@@ -95,6 +104,10 @@ export const SAMPLE_FACTS: Fact[] = [
     statement: "Billing work is waiting on sandbox credentials from the payment provider.",
     certainty: "observed",
     people: [{ mention: "Jo Meyer" }],
+    // A second account CAIRN cannot place: the case the screens have to say
+    // out loud without naming anybody.
+    resolvedActors: 1,
+    unresolvedActors: 1,
     occurredAt: "2026-08-12T11:05:00Z",
     validFrom: "2026-08-14T09:00:00Z",
     origin: "extracted",
@@ -113,6 +126,9 @@ export const SAMPLE_FACTS: Fact[] = [
     statement: "It is not clear who is writing up the SAML decision.",
     certainty: "suggested",
     people: [],
+    // Nothing to attribute at all — the state the screens stay silent about.
+    resolvedActors: 0,
+    unresolvedActors: 0,
     occurredAt: "2026-08-12T09:40:00Z",
     validFrom: "2026-08-14T09:00:00Z",
     origin: "extracted",

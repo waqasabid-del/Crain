@@ -59,6 +59,10 @@ const WEEK: FactPage = {
       validFrom: "2026-08-10T09:00:00Z",
       occurredAt: "2026-08-10T09:00:00Z",
       people: [{ mention: "Priya Nair" }],
+      // A named mention and nothing else behind it: the attribution note stays
+      // silent, which is what keeps these role tests about emphasis.
+      resolvedActors: 0,
+      unresolvedActors: 0,
       sources: [{ evidenceId: "msg-14", source: "chat" }],
     },
   ],

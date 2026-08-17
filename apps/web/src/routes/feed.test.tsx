@@ -47,6 +47,10 @@ const SHIPPED = {
   validFrom: "2026-08-10T09:00:00Z",
   occurredAt: "2026-08-10T09:00:00Z",
   people: [{ mention: "Priya Nair" }],
+  // The default is the fourth attribution state — nothing beyond the named
+  // mention, and therefore nothing for the card to say.
+  resolvedActors: 0,
+  unresolvedActors: 0,
   sources: [
     {
       evidenceId: "pr-482",
@@ -160,6 +164,114 @@ describe("the stream", () => {
 
     const sources = await screen.findAllByText(/1 source/i);
     expect(sources.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Attribution on the shared reading surface.
+ *
+ * Same four states as the reader's own record, and the same reason for them:
+ * the identity links behind a fact carry private provider handles, so the Feed
+ * is given counts and only counts. What it must never do is turn those counts
+ * into anything cumulative — a "most unresolved" list, or a figure beside a
+ * name — which md/05 §B.3.3 makes a change of product rather than of style.
+ */
+describe("who is behind a statement", () => {
+  type Fact = NonNullable<FactPage["items"]>[number];
+
+  const withCounts = (fact: Fact, resolved: number, unresolved: number): Fact => ({
+    ...fact,
+    resolvedActors: resolved,
+    unresolvedActors: unresolved,
+  });
+
+  function feedOf(...facts: Fact[]): ReturnType<typeof createStubClient> {
+    return client({ listFacts: vi.fn(() => Promise.resolve({ items: facts })) });
+  }
+
+  it("says nothing when there is nothing to attribute", async () => {
+    renderFeed();
+    await screen.findAllByText(/shipped rate limiting/i);
+
+    const main = await screen.findByRole("main");
+    expect(main.textContent).not.toMatch(/connected account/i);
+    expect(main.textContent).not.toMatch(/has not connected/i);
+  });
+
+  it("names a connected identity as a route, never as an account", async () => {
+    renderFeed(feedOf(withCounts(SHIPPED, 1, 0)));
+
+    expect(await screen.findByText(/attributed through a connected account/i)).toBeVisible();
+  });
+
+  it("states an unresolved identity without blaming the reader or the colleague", async () => {
+    renderFeed(feedOf(withCounts(SHIPPED, 0, 1)));
+
+    const note = await screen.findByText(/one contributor here has not connected their account/i);
+    const text = note.textContent;
+    expect(text).not.toMatch(/error|failed|failure|problem|invalid|unable|broken|denied/i);
+    expect(text).not.toMatch(/hidden|hiding|anonymous|withheld|refused|unknown person/i);
+  });
+
+  it("offers the way out once above the list rather than beside every row", async () => {
+    // Forty rows and forty identical links reads as nagging about something the
+    // reader may not even be able to fix. Said once, it is an offer.
+    renderFeed(feedOf(withCounts(SHIPPED, 0, 1), withCounts(BLOCKED, 0, 2)));
+
+    await screen.findAllByText(/shipped rate limiting/i);
+    const main = await screen.findByRole("main");
+    const links = within(main).getAllByRole("link", { name: /connect your own accounts/i });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute("href", "/settings");
+
+    links[0]?.focus();
+    expect(links[0]).toHaveFocus();
+  });
+
+  it("does not offer it when nothing in view is unresolved", async () => {
+    renderFeed(feedOf(withCounts(SHIPPED, 2, 0)));
+
+    await screen.findAllByText(/shipped rate limiting/i);
+    expect(
+      screen.queryByRole("link", { name: /connect your own accounts/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders no provider account id or address, and no numeric confidence", async () => {
+    renderFeed(feedOf(withCounts(SHIPPED, 3, 2)));
+    await screen.findAllByText(/shipped rate limiting/i);
+
+    // `main` rather than the container: the shell shows the reader their own
+    // signed-in address, which is theirs. Nobody else's may appear.
+    const main = await screen.findByRole("main");
+    const html = main.innerHTML;
+    expect(html).not.toMatch(/\bU[A-Z0-9]{6,}\b/);
+    expect(html).not.toMatch(/users\/\d+/);
+    expect(html).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);
+    expect(html).not.toMatch(/oauth|access[_ ]token|refresh[_ ]token/i);
+    // Attribution is categorical (md/05 §A.2.1), so no percentage anywhere.
+    expect(main.textContent).not.toMatch(/\d+\s?%|\bconfidence\b/i);
+  });
+
+  it("never turns the counts into a ranking of people", async () => {
+    // The failure this exists to catch is a well-meant "3 unresolved — the most
+    // of anyone" appearing above a feed. That is a per-person measure, and it
+    // is a different product.
+    renderFeed(feedOf(withCounts(SHIPPED, 1, 3), withCounts(BLOCKED, 0, 1)));
+    await screen.findAllByText(/shipped rate limiting/i);
+
+    const main = await screen.findByRole("main");
+    const text = main.textContent;
+    expect(text).not.toMatch(/\b(?:most|top|least|rank\w*|score\w*|leaderboard)\b/i);
+    // No count welded to a name, in either order.
+    expect(text).not.toMatch(/\b\d+\s+(?:for|by)\s+[A-Z]/);
+  });
+
+  it("passes an axe audit with both attribution states on screen", async () => {
+    const { container } = renderFeed(feedOf(withCounts(SHIPPED, 1, 1)));
+    await screen.findByText(/has not connected their account/i);
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
   });
 });
 

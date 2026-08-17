@@ -125,6 +125,19 @@
   color: var(--fg-subtle);
 }
 
+/*
+ * Said once, above the list it describes. Undecorated on purpose: a box or a
+ * rule would make an ordinary limit of the identity graph look like a warning
+ * the reader has to clear.
+ */
+.attributionRoute {
+  max-width: var(--prose-max-width);
+  margin: 0 0 var(--space-6);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  color: var(--fg-muted);
+}
+
 .more {
   margin: var(--space-8) 0 0;
   text-align: center;
