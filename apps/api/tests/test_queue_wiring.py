@@ -62,13 +62,48 @@ class TestBrokerSelection:
         with pytest.raises(QueueConfigurationError, match="CAIRN_GCP_PROJECT_ID"):
             build_queue(deployed_settings(queue_backend="pubsub", gcp_project_id=None))
 
-    def test_pubsub_with_a_project_is_constructed(self) -> None:
-        # The positive control. Without it, the two tests above would pass
-        # against a factory that refused every configuration and nothing could
-        # be deployed at all.
-        queue = build_queue(deployed_settings(queue_backend="pubsub", gcp_project_id="cairn-prod"))
+    def test_pubsub_is_refused_in_a_deployed_environment(self) -> None:
+        # Durable, but it cannot enforce per-tenant fairness and emits no retry
+        # or dead-letter metrics — so one workspace's backfill can occupy every
+        # worker, and the DLQ alert has nothing to fire on. Both losses are
+        # silent in a way that surfaces first as a customer complaint.
+        with pytest.raises(QueueConfigurationError, match="per-tenant fairness"):
+            build_queue(deployed_settings(queue_backend="pubsub", gcp_project_id="cairn-prod"))
+
+    def test_pubsub_with_a_project_is_constructed_when_the_trade_is_accepted(self) -> None:
+        # The positive control. Without it, the tests above would pass against a
+        # factory that refused every configuration and nothing could be deployed
+        # at all. `queue_fairness_optional` is what turns the refusal into a
+        # recorded decision rather than a wall.
+        queue = build_queue(
+            deployed_settings(
+                queue_backend="pubsub",
+                gcp_project_id="cairn-prod",
+                queue_fairness_optional=True,
+            )
+        )
 
         assert type(queue).__name__ == "PubSubJobQueue"
+
+    def test_a_deployed_environment_can_use_the_scheduler(self) -> None:
+        """The backend that enforces Step 30's fairness must be selectable.
+
+        It is also the one the in-memory refusal now points operators at, so a
+        runbook that follows that message has to arrive somewhere that works.
+        """
+        queue = build_queue(deployed_settings(queue_backend="postgres"))
+
+        assert type(queue).__name__ == "PostgresJobQueue"
+
+    def test_the_in_memory_refusal_names_the_backend_with_fairness(self) -> None:
+        """It used to say "set pubsub", which is durable and *not* fair.
+
+        An operator following that message deployed a queue where one tenant's
+        backfill can occupy every worker — the exact failure Step 30 exists to
+        prevent, reached by doing what the error told them to do.
+        """
+        with pytest.raises(QueueConfigurationError, match="CAIRN_QUEUE_BACKEND=postgres"):
+            build_queue(deployed_settings(queue_backend="memory"))
 
 
 class _StubQueue:

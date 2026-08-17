@@ -24,7 +24,11 @@ LOCAL_DEV_PASSWORD = "cairn_local_dev"  # noqa: S105
 Environment = Literal["local", "test", "staging", "production"]
 
 #: Which broker backs the job queue.
-QueueBackend = Literal["memory", "pubsub"]
+#:
+#: 'postgres' is the scheduling backend: durable, and the only one that can
+#: enforce priority and per-tenant fairness across every worker, because it is
+#: the only one where all the workers can see the same queue.
+QueueBackend = Literal["memory", "pubsub", "postgres"]
 
 #: How outbound email is delivered.
 #:
@@ -185,6 +189,18 @@ class Settings(BaseSettings):
             "Which broker to use. 'memory' is for local development and tests "
             "only — it holds jobs in RAM and loses them on restart, silently. "
             "A deployed environment refuses to start on it."
+        ),
+    )
+
+    queue_fairness_optional: bool = Field(
+        default=False,
+        description=(
+            "Accept a deployed queue backend that cannot enforce per-tenant "
+            "fairness. Only Pub/Sub is affected: it delivers in arrival order, "
+            "so one workspace's backfill can occupy every worker and delay "
+            "another workspace's live events, and it reports no retry or "
+            "dead-letter metrics. A deployed environment refuses to start on it "
+            "unless this says the trade was chosen deliberately."
         ),
     )
 

@@ -94,7 +94,14 @@ async def two_tenants(platform: AsyncSession) -> AsyncIterator[tuple[Tenant, Ten
 #: policy scoping it to one tenant would make "which workspaces did this person
 #: open" unanswerable, which is the question the log exists to answer. Its
 #: protection is the grant set instead: INSERT and SELECT, no UPDATE, no DELETE.
-NOT_TENANT_SCOPED = frozenset({"internal_audit_log"})
+#:
+#: `scheduled_jobs` is the queue. A worker claims work *before* it can know whose
+#: work it is — the tenant is what the claimed envelope carries — so a policy
+#: keyed on the current tenant would hide the queue from the only process whose
+#: purpose is draining it. Isolation moves to where the job runs: `run_job` opens
+#: a tenant-scoped session from the envelope, and every read the handler performs
+#: is under RLS as normal.
+NOT_TENANT_SCOPED = frozenset({"internal_audit_log", "scheduled_jobs"})
 
 
 class TestRowLevelSecurity:
@@ -414,6 +421,12 @@ class TestRowLevelSecurity:
             # Read-only. Every access event is written platform-side at the
             # moment staff actually open something.
             "support_access_events": {"SELECT"},
+            # The only table here with the full set, and the only one where
+            # DELETE is the correct outcome: a job that succeeded has nothing
+            # left to say. Failure never deletes — a dead-lettered job keeps its
+            # row and its reason, because a job that vanished cannot be
+            # distinguished from one that was never sent.
+            "scheduled_jobs": {"SELECT", "INSERT", "UPDATE", "DELETE"},
         }
 
         assert actual == expected, (

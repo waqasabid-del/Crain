@@ -28,12 +28,20 @@ def build_queue(settings: Settings | None = None) -> JobQueue:
                 "queue_backend is 'memory' but CAIRN_ENVIRONMENT is "
                 f"'{settings.environment}'. The in-memory broker holds jobs in "
                 "RAM and loses every one of them on restart, silently. Set "
-                "CAIRN_QUEUE_BACKEND=pubsub."
+                "CAIRN_QUEUE_BACKEND=postgres."
             )
             raise QueueConfigurationError(msg)
 
         logger.info("queue.using_in_memory_broker", environment=settings.environment)
         return InMemoryJobQueue()
+
+    if settings.queue_backend == "postgres":
+        # No lazy import: PostgreSQL is already a hard dependency of every
+        # process that would construct a queue at all.
+        from cairn_api.jobs.postgres import PostgresJobQueue
+
+        logger.info("queue.using_postgres_scheduler", environment=settings.environment)
+        return PostgresJobQueue()
 
     if not settings.gcp_project_id:
         msg = (
@@ -46,6 +54,38 @@ def build_queue(settings: Settings | None = None) -> JobQueue:
 
     # Imported here so google-cloud-pubsub is only loaded when used.
     from cairn_api.jobs.pubsub import PubSubJobQueue
+
+    if settings.is_deployed and not settings.queue_fairness_optional:
+        # Durable, but not fair, and not observable. Pub/Sub delivers in arrival
+        # order with no notion of one customer's backfill crowding out another's
+        # live push, and it reports no retry or dead-letter metrics — so the
+        # DLQ alert in docs/OPERATIONS.md has nothing to fire on.
+        #
+        # A warning was not enough. An operator following an older runbook would
+        # deploy it, the log line would scroll past, and the first person to
+        # notice would be the customer whose live events were stuck behind
+        # somebody else's import. Refusing is recoverable in a way that is not.
+        msg = (
+            "queue_backend is 'pubsub' but CAIRN_ENVIRONMENT is "
+            f"'{settings.environment}'. Pub/Sub cannot enforce per-tenant "
+            "fairness — one workspace's backfill can occupy every worker and "
+            "delay another workspace's live events — and it emits no retry or "
+            "dead-letter metrics, so the DLQ alert has nothing to fire on. Set "
+            "CAIRN_QUEUE_BACKEND=postgres, or set "
+            "CAIRN_QUEUE_FAIRNESS_OPTIONAL=true to accept both losses."
+        )
+        raise QueueConfigurationError(msg)
+
+    if settings.is_deployed:
+        logger.warning(
+            "queue.fairness_not_enforced",
+            backend="pubsub",
+            detail=(
+                "Running deployed on Pub/Sub by explicit configuration. "
+                "Per-tenant fairness, priority scheduling and queue outcome "
+                "metrics are all unavailable on this backend."
+            ),
+        )
 
     logger.info(
         "queue.using_pubsub",
