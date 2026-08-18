@@ -62,7 +62,7 @@ from typing import Final, Protocol, final
 
 import httpx
 import structlog
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -926,6 +926,51 @@ def _is_live(subscription: GoogleMeetSubscription, *, now: datetime) -> bool:
         and subscription.expire_time is not None
         and subscription.expire_time > now
     )
+
+
+async def subscription_summary(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    connection_id: uuid.UUID,
+) -> tuple[dict[str, int], datetime | None]:
+    """This connection's subscriptions as counts, and the soonest live expiry.
+
+    Counts rather than rows, because the caller is a status screen and a row
+    carries a meeting reference — which for Meet is the joining code. There is
+    deliberately no way to ask this function *which* meetings are subscribed:
+    that question belongs to the consent surface, where the people involved
+    answered it, not to a connector's health line.
+
+    The expiry is read from live subscriptions only. A suspended or expired lease
+    has no countdown worth showing, and including one would make the nearest
+    expiry *improve* at the moment a subscription died.
+    """
+    rows = (
+        await db.execute(
+            select(GoogleMeetSubscription.state, func.count())
+            .where(
+                GoogleMeetSubscription.tenant_id == tenant_id,
+                GoogleMeetSubscription.connection_id == connection_id,
+                GoogleMeetSubscription.state != GoogleMeetSubscriptionState.DELETED,
+            )
+            .group_by(GoogleMeetSubscription.state)
+        )
+    ).all()
+    counts = {
+        (state.value if isinstance(state, GoogleMeetSubscriptionState) else str(state)): count
+        for state, count in rows
+    }
+
+    nearest: datetime | None = await db.scalar(
+        select(func.min(GoogleMeetSubscription.expire_time)).where(
+            GoogleMeetSubscription.tenant_id == tenant_id,
+            GoogleMeetSubscription.connection_id == connection_id,
+            GoogleMeetSubscription.state == GoogleMeetSubscriptionState.ACTIVE,
+            GoogleMeetSubscription.expire_time.is_not(None),
+        )
+    )
+    return counts, nearest
 
 
 async def ensure_subscription(

@@ -1779,6 +1779,39 @@ class GoogleMeetTranscriptStatus(ApiModel):
     withdrawn_at: datetime | None = None
 
 
+class GoogleMeetStatusResponse(ApiModel):
+    """Whether Meet is connected, and what its subscriptions are doing.
+
+    **Counts and states only.** There is no meeting reference here (for Meet that
+    is the joining code, and a joining code is a credential), no meeting title —
+    none is stored — and no participant. A workspace screen answering "is this
+    working?" needs a shape and a date; it does not need to name a conversation.
+
+    Every field is optional-by-absence rather than defaulted: a connector that
+    cannot say something omits it, and the screen renders nothing. A zero here
+    would read as "no subscriptions are expiring", which is a different claim
+    from "CAIRN cannot tell you".
+    """
+
+    connected: bool
+
+    #: Whether the separate transcript permission has been granted. Its own
+    #: consent action on its own OAuth client, so a connected Meet says nothing
+    #: about whether CAIRN may fetch a file.
+    transcript_access_granted: bool = False
+
+    #: Live subscriptions, by state value. Keys are a closed enum's values.
+    subscriptions_by_state: dict[str, int] = Field(default_factory=dict)
+
+    #: When the soonest live subscription lapses. `None` when there is none to
+    #: count down — not a zero, which would read as "expiring now".
+    nearest_expiry: datetime | None = None
+
+    #: The word a screen shows, chosen by the server so two clients cannot
+    #: disagree about what "expiring" means. One of a closed set.
+    status: str
+
+
 class GoogleMeetTranscriptListResponse(ApiModel):
     """This workspace's transcript availability. Status only, by construction."""
 

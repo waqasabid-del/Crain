@@ -1325,6 +1325,39 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/workspaces/{workspace_id}/integrations/google-meet/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Whether Meet is connected, and what its subscriptions are doing
+     * @description The one word a screen shows, decided here rather than in a browser.
+     *
+     *     **200 with `connected: false` rather than a 404.** "Not connected" is the
+     *     ordinary state of this connector in almost every workspace, and a screen that
+     *     has to catch an error to render its most common case will eventually render
+     *     an error instead.
+     *
+     *     The status word is composed server-side on purpose. A client that derived
+     *     "expiring" from a date would be deciding what the renewal window is, and two
+     *     clients would eventually decide differently — the window belongs to the code
+     *     that does the renewing.
+     *
+     *     Carries no meeting reference (for Meet that is the joining code), no title —
+     *     none is stored — and no participant.
+     */
+    get: operations["meet_status_v1_workspaces__workspace_id__integrations_google_meet_status_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/workspaces/{workspace_id}/integrations/google-meet/transcript-access": {
     parameters: {
       query?: never;
@@ -3067,6 +3100,37 @@ export interface components {
       expiresAt: string;
       /** Notice */
       notice: string;
+    };
+    /**
+     * GoogleMeetStatusResponse
+     * @description Whether Meet is connected, and what its subscriptions are doing.
+     *
+     *     **Counts and states only.** There is no meeting reference here (for Meet that
+     *     is the joining code, and a joining code is a credential), no meeting title —
+     *     none is stored — and no participant. A workspace screen answering "is this
+     *     working?" needs a shape and a date; it does not need to name a conversation.
+     *
+     *     Every field is optional-by-absence rather than defaulted: a connector that
+     *     cannot say something omits it, and the screen renders nothing. A zero here
+     *     would read as "no subscriptions are expiring", which is a different claim
+     *     from "CAIRN cannot tell you".
+     */
+    GoogleMeetStatusResponse: {
+      /** Connected */
+      connected: boolean;
+      /** Nearestexpiry */
+      nearestExpiry?: string | null;
+      /** Status */
+      status: string;
+      /** Subscriptionsbystate */
+      subscriptionsByState?: {
+        [key: string]: number;
+      };
+      /**
+       * Transcriptaccessgranted
+       * @default false
+       */
+      transcriptAccessGranted: boolean;
     };
     /**
      * GoogleMeetTranscriptAccessResponse
@@ -6405,6 +6469,46 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  meet_status_v1_workspaces__workspace_id__integrations_google_meet_status_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GoogleMeetStatusResponse"];
+        };
+      };
+      /** @description Requires permission to manage integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
       };
     };
   };

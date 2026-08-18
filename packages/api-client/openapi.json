@@ -1416,6 +1416,47 @@
         "title": "GoogleMeetInstallResponse",
         "type": "object"
       },
+      "GoogleMeetStatusResponse": {
+        "additionalProperties": false,
+        "description": "Whether Meet is connected, and what its subscriptions are doing.\n\n**Counts and states only.** There is no meeting reference here (for Meet that\nis the joining code, and a joining code is a credential), no meeting title \u2014\nnone is stored \u2014 and no participant. A workspace screen answering \"is this\nworking?\" needs a shape and a date; it does not need to name a conversation.\n\nEvery field is optional-by-absence rather than defaulted: a connector that\ncannot say something omits it, and the screen renders nothing. A zero here\nwould read as \"no subscriptions are expiring\", which is a different claim\nfrom \"CAIRN cannot tell you\".",
+        "properties": {
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "nearestExpiry": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nearestexpiry"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subscriptionsByState": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Subscriptionsbystate",
+            "type": "object"
+          },
+          "transcriptAccessGranted": {
+            "default": false,
+            "title": "Transcriptaccessgranted",
+            "type": "boolean"
+          }
+        },
+        "required": ["connected", "status"],
+        "title": "GoogleMeetStatusResponse",
+        "type": "object"
+      },
       "GoogleMeetTranscriptAccessResponse": {
         "additionalProperties": false,
         "description": "Where to send the customer for the **separate** transcript permission.",
@@ -6899,6 +6940,67 @@
           }
         },
         "summary": "Begin connecting a Google Meet account",
+        "tags": ["google-meet"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/google-meet/status": {
+      "get": {
+        "description": "The one word a screen shows, decided here rather than in a browser.\n\n**200 with `connected: false` rather than a 404.** \"Not connected\" is the\nordinary state of this connector in almost every workspace, and a screen that\nhas to catch an error to render its most common case will eventually render\nan error instead.\n\nThe status word is composed server-side on purpose. A client that derived\n\"expiring\" from a date would be deciding what the renewal window is, and two\nclients would eventually decide differently \u2014 the window belongs to the code\nthat does the renewing.\n\nCarries no meeting reference (for Meet that is the joining code), no title \u2014\nnone is stored \u2014 and no participant.",
+        "operationId": "meet_status_v1_workspaces__workspace_id__integrations_google_meet_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleMeetStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to manage integrations."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Whether Meet is connected, and what its subscriptions are doing",
         "tags": ["google-meet"]
       }
     },

@@ -73,6 +73,7 @@ from cairn_api.api.errors import ProblemDetailError
 from cairn_api.api.schemas import (
     GoogleMeetDisconnectResponse,
     GoogleMeetInstallResponse,
+    GoogleMeetStatusResponse,
     GoogleMeetTranscriptAccessResponse,
     GoogleMeetTranscriptAccessStateResponse,
     GoogleMeetTranscriptListResponse,
@@ -82,9 +83,13 @@ from cairn_api.auth.permissions import Permission, has_permission
 from cairn_api.config import Settings
 from cairn_api.connectors.credentials import read_secret
 from cairn_api.db.connector_models import SourceConnection
-from cairn_api.db.gmeet_models import GoogleMeetGrantKind, GoogleMeetTranscriptGrant
+from cairn_api.db.gmeet_models import (
+    GoogleMeetGrantKind,
+    GoogleMeetSubscriptionState,
+    GoogleMeetTranscriptGrant,
+)
 from cairn_api.db.models import Membership
-from cairn_api.gmeet import artifacts, oauth
+from cairn_api.gmeet import artifacts, oauth, subscriptions
 from cairn_api.gmeet import retrieval as transcript_retrieval
 from cairn_api.gmeet import subscriptions as subscription_engine
 from cairn_api.gmeet.artifacts import ArtifactError, ArtifactFailure
@@ -94,6 +99,7 @@ from cairn_api.gmeet.oauth import (
     GoogleMeetInstallFailure,
     HttpGoogleMeetApi,
 )
+from cairn_api.gmeet.subscriptions import RENEWAL_LEAD
 
 logger = structlog.get_logger(__name__)
 
@@ -747,6 +753,77 @@ async def revoke_transcript_access(
         withdrawn_by=str(context.user.id),
     )
     return await _transcript_access_state(db, tenant_id=context.tenant_id, connection=connection)
+
+
+@router.get(
+    "/{workspace_id}/integrations/google-meet/status",
+    response_model=GoogleMeetStatusResponse,
+    summary="Whether Meet is connected, and what its subscriptions are doing",
+    responses={403: {"description": "Requires permission to manage integrations."}},
+)
+async def meet_status(
+    context: Annotated[WorkspaceContext, Depends(requires(Permission.INTEGRATIONS_CONNECT))],
+    db: PlatformDb,
+) -> GoogleMeetStatusResponse:
+    """The one word a screen shows, decided here rather than in a browser.
+
+    **200 with `connected: false` rather than a 404.** "Not connected" is the
+    ordinary state of this connector in almost every workspace, and a screen that
+    has to catch an error to render its most common case will eventually render
+    an error instead.
+
+    The status word is composed server-side on purpose. A client that derived
+    "expiring" from a date would be deciding what the renewal window is, and two
+    clients would eventually decide differently — the window belongs to the code
+    that does the renewing.
+
+    Carries no meeting reference (for Meet that is the joining code), no title —
+    none is stored — and no participant.
+    """
+    connection = await oauth.find_connection(db, tenant_id=context.tenant_id)
+    if connection is None or not connection.is_active:
+        return GoogleMeetStatusResponse(connected=False, status="not_connected")
+
+    granted = (
+        await transcript_retrieval.active_grant(
+            db, tenant_id=context.tenant_id, connection_id=connection.id
+        )
+        is not None
+    )
+    counts, nearest = await subscriptions.subscription_summary(
+        db, tenant_id=context.tenant_id, connection_id=connection.id
+    )
+
+    live = counts.get(GoogleMeetSubscriptionState.ACTIVE.value, 0)
+    failing = sum(
+        counts.get(state.value, 0)
+        for state in (
+            GoogleMeetSubscriptionState.ERROR,
+            GoogleMeetSubscriptionState.SUSPENDED,
+            GoogleMeetSubscriptionState.EXPIRED,
+        )
+    )
+    if failing:
+        word = "failed"
+    elif live and nearest is not None and nearest - datetime.now(UTC) <= RENEWAL_LEAD:
+        word = "subscription_expiring"
+    elif live:
+        word = "subscribed"
+    elif counts.get(GoogleMeetSubscriptionState.PENDING.value, 0):
+        word = "awaiting_consent"
+    else:
+        # Connected, and nothing subscribed. Not an error and not "eligible":
+        # eligibility belongs to a meeting, and this endpoint is about a
+        # connection.
+        word = "connected"
+
+    return GoogleMeetStatusResponse(
+        connected=True,
+        transcript_access_granted=granted,
+        subscriptions_by_state=dict(counts),
+        nearest_expiry=nearest,
+        status=word,
+    )
 
 
 @router.get(
