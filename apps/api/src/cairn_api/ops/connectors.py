@@ -391,6 +391,28 @@ GOOGLE_MEET_SCOPES: tuple[OAuthScope, ...] = (
 )
 
 
+#: The scope Step 36B's **transcript retrieval** needs, and the prediction above
+#: coming true.
+#:
+#: `drive.meet.readonly` is **RESTRICTED**: Google OAuth verification *plus* an
+#: independent third-party CASA security assessment ending in a Letter of
+#: Assessment, re-taken at least every 12 months, forever. It is the narrowest
+#: scope that can read a Meet transcript — `drive.readonly` would work and would
+#: also grant every other file in the account — and there is no lower-tier
+#: alternative, exactly as there is none for Chat's messages.
+#:
+#: **Kept as its own constant rather than appended to `GOOGLE_MEET_SCOPES`.** The
+#: two are separate consent actions on separate OAuth clients, and a deployment
+#: may ship the connection half — announcements only, SENSITIVE, weeks — while the
+#: assessment for this one is still running. Merging the lists would report the
+#: whole connector as blocked and would quietly make the *reverse* mistake
+#: available later: adding a restricted scope to a list somebody reads as "the
+#: Meet scopes" and shipping on the strength of the tier that was there before.
+GOOGLE_MEET_TRANSCRIPT_SCOPES: tuple[OAuthScope, ...] = (
+    OAuthScope(name="drive.meet.readonly", tier=ScopeTier.RESTRICTED),
+)
+
+
 @dataclass(frozen=True, slots=True)
 class SubscriptionLimits:
     """Google Workspace Events subscription leases, as published constants.
@@ -725,10 +747,29 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         env_vars=("CAIRN_GOOGLE_MEET_PROJECT_ID", "CAIRN_GOOGLE_MEET_SERVICE_ACCOUNT"),
         limits=GOOGLE_MEET_LIMITS,
         scopes=GOOGLE_MEET_SCOPES,
-        # No `release_blocker`. Meet's single scope is SENSITIVE rather than
-        # RESTRICTED, so it needs OAuth verification and no CASA assessment —
-        # weeks rather than months. Leaving this empty is a claim, and
-        # `GOOGLE_MEET_SCOPES` is where it is checked.
+        # **The connection half has no blocker; transcript retrieval does.**
+        #
+        # Meet's connection scope is SENSITIVE rather than RESTRICTED, so
+        # announcing that a transcript exists needs OAuth verification and no CASA
+        # assessment — weeks rather than months, and that half can ship. Step 36B
+        # added `drive.meet.readonly`, which is RESTRICTED, so *retrieving* the
+        # transcript carries Chat's blocker in full. The sentence below says which
+        # half is blocked, because a blocker on the whole connector would be read
+        # as "Meet cannot ship" and one on neither would be read as "all of Meet
+        # can".
+        release_blocker=(
+            "Google Meet TRANSCRIPT RETRIEVAL cannot go live until the "
+            "restricted-scope security assessment is finished: drive.meet.readonly "
+            "is a RESTRICTED scope, so Google requires OAuth verification plus an "
+            "independent third-party CASA security assessment ending in a Letter of "
+            "Assessment, and re-assessment at least every 12 months. Assessments "
+            "take weeks to months and no amount of finished code shortens one. Do "
+            "not describe transcript retrieval as live before the Letter of "
+            "Assessment exists. The Meet connection itself is not blocked by this "
+            "— meetings.space.readonly is SENSITIVE — so a deployment may ship "
+            "transcript *announcements* while this assessment is outstanding, with "
+            "retrieval left unconfigured."
+        ),
         manual_verification=(
             "Google Meet: connecting proves nothing on its own, because "
             "connecting grants no collection — so the check is the whole consent "
@@ -1477,6 +1518,7 @@ __all__ = [
     "GOOGLE_CHAT_SUBSCRIPTION",
     "GOOGLE_MEET_LIMITS",
     "GOOGLE_MEET_SCOPES",
+    "GOOGLE_MEET_TRANSCRIPT_SCOPES",
     "LIVE_STATES",
     "NO_DELIVERY_RECORD",
     "NO_SUBSCRIPTION_RECORD",

@@ -19,12 +19,20 @@ runs **inside the recording transaction**, and a refusal writes nothing at all.
 An announcement for a meeting somebody withdrew from therefore leaves no row, no
 log line naming it, and no trace.
 
-**Nothing is fetched, and nothing is enqueued.** The endpoint records that Google
-said a transcript file exists — the meeting it belongs to, the subscription that
-delivered it, a digest of the artifact's name, and the time. It does not read the
-transcript, does not publish a job that could, and does not store the identifier
-that would be needed to. Retrieval is a later step with its own consent
-conversation, and Step 36A deliberately does not leave the pointer lying around.
+**Nothing is fetched here.** The endpoint records that Google said a transcript
+file exists — the meeting it belongs to, the subscription that delivered it, a
+digest of the artifact's name, and the time — and, for a workspace that has taken
+Step 36B's *separate* transcript-access consent action, that the artifact is
+available to retrieve. It does not read the transcript: this handler answers
+Pub/Sub inside an acknowledgement deadline, and a download in that path would
+either blow the deadline or be abandoned halfway. The retrieval pass does the
+work, and re-runs the entire consent gate when it does, because minutes will have
+passed.
+
+For a workspace that has **not** granted transcript access — the normal state —
+`retrieval.record_availability` writes nothing at all, not even an encrypted
+reference, so Step 36A's promise that the pointer is not lying around holds
+unchanged for everybody who has not asked for it to be.
 
 **Only 102, 200, 201, 202 and 204 acknowledge.** Everything else is a NACK and
 Pub/Sub redelivers with a backoff until the message expires or dead-letters. A
@@ -56,6 +64,7 @@ from cairn_api.db.gmeet_models import (
     GoogleMeetArtifactSignal,
     GoogleMeetSubscription,
 )
+from cairn_api.gmeet import retrieval
 from cairn_api.gmeet.pubsub import (
     CE_TYPE_ATTRIBUTE,
     MAX_PAYLOAD_BYTES,
@@ -258,7 +267,9 @@ async def _record(
     # current, unexpired agreement, and logs its reason as a bounded category
     # with no meeting in it.
     try:
-        await permit_collection(db, tenant_id=stored.tenant_id, meeting_id=stored.meeting_id)
+        permit = await permit_collection(
+            db, tenant_id=stored.tenant_id, meeting_id=stored.meeting_id
+        )
     except CollectionRefusedError:
         # Acknowledged, because it is permanent: consent does not un-withdraw, and
         # a non-2xx would bring the same announcement back every minute for a
@@ -277,13 +288,14 @@ async def _record(
         await logger.ainfo("gmeet.event_ignored", provider=PROVIDER, reason="no_artifact")
         return _acknowledged(response, "ignored")
 
-    if not await _record_signal(
+    signal = await _record_signal(
         db,
         tenant_id=stored.tenant_id,
         subscription_id=stored.subscription_id,
         meeting_id=stored.meeting_id,
         digest=artifact_digest(name),
-    ):
+    )
+    if signal is None:
         # The unique constraint rejected it: a redelivery, or a *re-publish* of
         # the same announcement under a different `messageId`.
         await logger.ainfo(
@@ -293,6 +305,26 @@ async def _record(
         )
         request.app.state.gmeet_recent_messages.remember(_message_id(event))
         return _acknowledged(response, "duplicate")
+
+    # --- Step 36B: availability, on the far side of the same gate ------------
+    #
+    # Passed the permit obtained above rather than re-deriving one, so the record
+    # is provably the same consent decision this transaction already checked.
+    # Writes nothing at all on a workspace that has not taken the separate
+    # transcript-access consent action, which is the normal state — so Step 36A's
+    # promise holds unchanged for everybody who has not granted it.
+    #
+    # **Nothing is downloaded here.** This endpoint answers Pub/Sub inside an
+    # acknowledgement deadline, and a download in that path would either blow the
+    # deadline or be abandoned halfway. The retrieval pass picks the row up, and
+    # re-runs the entire gate when it does, because minutes will have passed.
+    await retrieval.record_availability(
+        db,
+        permit=permit,
+        signal=signal,
+        connection_id=stored.connection_id,
+        artifact_reference=name,
+    )
 
     await _touch_subscription(db, subscription_id=stored.subscription_id)
 
@@ -331,8 +363,8 @@ async def _record_signal(
     subscription_id: uuid.UUID,
     meeting_id: uuid.UUID,
     digest: str,
-) -> bool:
-    """Write the announcement. False if it already existed.
+) -> GoogleMeetArtifactSignal | None:
+    """Write the announcement. ``None`` if it already existed.
 
     `ON CONFLICT DO NOTHING`, not select-then-insert: Pub/Sub's backoff starts at
     100ms, so a redelivery can arrive while the first is still in flight, and two
@@ -341,10 +373,11 @@ async def _record_signal(
 
     **`webhook_deliveries` is deliberately not reused here**, unlike the Chat and
     Slack receivers. That table has a `payload` column, and it exists to hold the
-    inbound body so a worker can process it later. There is no worker here and
-    there must be no stored body: the whole shape of Step 36A is that the
-    announcement is recorded and the artifact is not. A table with nowhere to put
-    the payload is what makes that true of the data rather than of the code.
+    inbound body so a worker can process it later. There must be no stored body:
+    the announcement is recorded and the push payload is not, and a table with
+    nowhere to put it is what makes that true of the data rather than of the code.
+    Step 36B's retrieval reads the artifact from Google under its own consent,
+    never a payload replayed out of a receipt row.
     """
     statement = (
         insert(GoogleMeetArtifactSignal)
@@ -359,7 +392,17 @@ async def _record_signal(
         .on_conflict_do_nothing(constraint="uq_google_meet_artifact_signals_digest")
         .returning(GoogleMeetArtifactSignal.id)
     )
-    return await db.scalar(statement) is not None
+    signal_id = await db.scalar(statement)
+    if signal_id is None:
+        return None
+    # Re-read rather than constructed from the values above: the row is what the
+    # retrieval record is built against, and a hand-built copy that drifted from
+    # it would be a provenance chain that agrees with itself and not with the
+    # database.
+    signal: GoogleMeetArtifactSignal | None = await db.scalar(
+        select(GoogleMeetArtifactSignal).where(GoogleMeetArtifactSignal.id == signal_id)
+    )
+    return signal
 
 
 async def _touch_subscription(db: AsyncSession, *, subscription_id: uuid.UUID) -> None:

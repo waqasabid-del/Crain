@@ -1689,6 +1689,109 @@ class GoogleMeetDisconnectResponse(ApiModel):
 
 
 # ---------------------------------------------------------------------------
+# Google Meet transcript retrieval (Step 36B)
+# ---------------------------------------------------------------------------
+#
+# **Availability and status. Never content.** There is no field in this section
+# that carries a line of transcript, a speaker, a resource name, a Drive id, a
+# checksum or a URL — and the omissions are not oversights. A checksum of a
+# known-format document is a value somebody can confirm a guess against, and a
+# resource name embeds the conference record id, which is a durable handle to one
+# specific meeting.
+#
+# A customer can see that a transcript exists, whether CAIRN holds it, and when
+# it will be deleted. Reading one is a later step with its own consent
+# conversation, and an endpoint that returned the text would have made that
+# decision on everybody's behalf.
+
+
+class GoogleMeetTranscriptAccessResponse(ApiModel):
+    """Where to send the customer for the **separate** transcript permission."""
+
+    #: The Google authorise URL for the transcript OAuth client, requesting one
+    #: restricted scope. A different client from the Meet connection's, because
+    #: sharing one would make each grant's scopes appear in the other's token
+    #: response — and both are verified by equality.
+    authorize_url: str
+
+    expires_at: datetime
+
+    #: What granting this actually permits, stated before the customer reaches
+    #: Google's consent screen rather than after they wonder what they agreed to.
+    notice: str
+
+
+class GoogleMeetTranscriptAccessStateResponse(ApiModel):
+    """Whether this workspace has granted transcript access, and what that means."""
+
+    granted: bool
+
+    #: When it was granted, or when it was withdrawn. Null when it was never
+    #: granted at all, which is the normal state.
+    granted_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+    #: What withdrawing does and does not do, in the response rather than in a
+    #: help page: it stops future retrieval and does not delete what was already
+    #: collected, because the retention policy governs that and a silent erasure
+    #: would destroy the evidence that the withdrawal was honoured.
+    notice: str
+
+
+class GoogleMeetTranscriptStatus(ApiModel):
+    """One announced transcript, as far as a customer may see it."""
+
+    artifact_id: uuid.UUID
+    meeting_id: uuid.UUID
+
+    state: str
+
+    #: Why nothing was collected, from a closed vocabulary CAIRN wrote. Never
+    #: Google's words, and never a reason that names a person: "somebody
+    #: withdrew" is what a workspace is entitled to know, and who withdrew is not.
+    refusal_reason: str | None = None
+
+    #: The bounded connector-error category, so a client can distinguish "wait"
+    #: from "ask an admin" without parsing prose.
+    error_category: str | None = None
+
+    #: When Google said the transcript existed.
+    announced_at: datetime
+
+    #: When the platform produced it, where Google said. Provenance, alongside
+    #: `retrievedAt`: an artifact generated on Tuesday and retrieved on Friday is
+    #: a different fact from one retrieved as it appeared.
+    generated_at: datetime | None = None
+    retrieved_at: datetime | None = None
+
+    #: How large it was. A size, not a shape: it says a download happened and
+    #: says nothing about what was said.
+    content_bytes: int | None = None
+
+    #: Whether CAIRN still holds it. False after retention deletion, which is a
+    #: different fact from never having collected it — and the distinction is the
+    #: whole reason the raw store is a separate table.
+    content_held: bool
+
+    retention_expires_at: datetime | None = None
+
+    #: When consent stopped, if it stopped after this transcript was retrieved.
+    withdrawn_at: datetime | None = None
+
+
+class GoogleMeetTranscriptListResponse(ApiModel):
+    """This workspace's transcript availability. Status only, by construction."""
+
+    transcript_access_granted: bool
+    transcripts: tuple[GoogleMeetTranscriptStatus, ...]
+
+    #: Stated on every read, because it is the thing a reader will otherwise
+    #: assume: this endpoint reports availability, and there is no endpoint that
+    #: returns the transcript itself.
+    notice: str
+
+
+# ---------------------------------------------------------------------------
 # Meeting capture consent
 # ---------------------------------------------------------------------------
 #

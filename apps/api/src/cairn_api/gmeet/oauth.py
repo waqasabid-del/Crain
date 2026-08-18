@@ -75,7 +75,7 @@ from cairn_api.db.connector_models import (
     ConnectorProvider,
     SourceConnection,
 )
-from cairn_api.db.gmeet_models import GoogleMeetOAuthState
+from cairn_api.db.gmeet_models import GoogleMeetGrantKind, GoogleMeetOAuthState
 
 logger = structlog.get_logger(__name__)
 
@@ -757,6 +757,7 @@ async def issue_state(
     *,
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
+    grant: GoogleMeetGrantKind = GoogleMeetGrantKind.CONNECTION,
     now: datetime | None = None,
 ) -> tuple[str, str, datetime]:
     """Start an install. Returns the nonce, the PKCE verifier and the expiry.
@@ -769,6 +770,13 @@ async def issue_state(
     The verifier is issued and stored in the same row, because it belongs to the
     same in-flight install and keeping it anywhere else — a cookie, a cache —
     would let the two halves get out of step.
+
+    ``grant`` says which of the two consent actions this is: connecting the Meet
+    account, or Step 36B's separate, restricted-scope transcript access. It is
+    written **here**, when the person presses the button, rather than inferred on
+    the way back from the ``scope`` parameter Google returns — deciding what
+    somebody consented to by reading what was granted is exactly backwards, and
+    the default is the narrow one.
     """
     moment = now or datetime.now(UTC)
 
@@ -792,6 +800,7 @@ async def issue_state(
             state_hash=hash_token(nonce),
             code_verifier=verifier,
             expires_at=expires_at,
+            requested_grant=grant,
         )
     )
     await db.flush()
@@ -803,6 +812,7 @@ async def consume_state(
     *,
     state: str,
     user_id: uuid.UUID,
+    grant: GoogleMeetGrantKind = GoogleMeetGrantKind.CONNECTION,
     now: datetime | None = None,
 ) -> GoogleMeetOAuthState:
     """Claim a state exactly once, or refuse.
@@ -817,10 +827,17 @@ async def consume_state(
     person who started it, or a state leaked through a shared screen or a proxy
     log is redeemable by whoever picked it up.
 
+    ``grant`` is part of the same predicate too, and it is what keeps the two
+    consent actions apart on a single callback path: a state issued for
+    "connect Google Meet" cannot be redeemed at the transcript callback, and a
+    state issued for transcript access cannot be redeemed as a connection. Two
+    flows sharing a state table without this check is one flow with two names.
+
     Raises:
-        GoogleMeetInstallError: Unknown, expired, already used, or someone
-            else's. One failure code for all four, so the response does not tell
-            an attacker which half of the check to work on.
+        GoogleMeetInstallError: Unknown, expired, already used, for the other
+            grant, or someone else's. One failure code for all five, so the
+            response does not tell an attacker which half of the check to work
+            on.
     """
     moment = now or datetime.now(UTC)
 
@@ -831,6 +848,7 @@ async def consume_state(
             GoogleMeetOAuthState.consumed_at.is_(None),
             GoogleMeetOAuthState.expires_at > moment,
             GoogleMeetOAuthState.initiated_by_user_id == user_id,
+            GoogleMeetOAuthState.requested_grant == grant,
         )
         .values(consumed_at=moment)
         .returning(GoogleMeetOAuthState)

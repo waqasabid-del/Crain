@@ -4,6 +4,8 @@ import type {
   GoogleChatInstall,
   GoogleChatSpaceList,
   GoogleChatSpaceSelection,
+  GoogleMeetDisconnect,
+  GoogleMeetInstall,
   Integration,
   Notifications,
   Privacy,
@@ -2241,5 +2243,585 @@ describe("attribution health", () => {
     await screen.findByRole("list", { name: /accounts by source/i });
 
     await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+  });
+});
+
+/**
+ * Google Meet, wired into the same screen.
+ *
+ * Step 36A adds no new integration system: the card, the connect control, the
+ * three OAuth outcomes and the confirmation are the ones Slack and Chat already
+ * use. What is genuinely different about Meet is what the reader believes before
+ * they arrive.
+ *
+ * - **CAIRN does not join calls or start recordings.** Everybody who hears
+ *   "CAIRN does meetings" pictures a bot in the corner of the call. Agreement
+ *   obtained without correcting that is agreement to something the person
+ *   thought was happening anyway.
+ * - **There is no picker, and there must never be one.** A meeting is not chosen
+ *   by an administrator; every person expected in it answers for themselves,
+ *   from their own session (md/03 §3.1). A space-picker-shaped control here
+ *   would be an employer's answer standing in for an employee's.
+ * - **The status word comes from the API or is not shown.** "Eligible" and
+ *   "subscribed" are different facts, and an absent field is not "fine".
+ * - **Meet is not live**, and its blocker is not Chat's: `meetings.space.
+ *   readonly` is sensitive rather than restricted, so it needs Google's OAuth
+ *   verification and not a CASA assessment. Copying Chat's sentence would
+ *   overstate it on the one screen that cannot be wrong about a scope.
+ */
+describe("connecting Google Meet", () => {
+  const GOOGLE_MEET: Integration = {
+    source: "google_meet",
+    account: "northwind.example",
+    installationId: 12,
+    connectedAt: "2026-07-20T09:00:00Z",
+    disconnectedAt: null,
+    suspended: false,
+  };
+
+  const MEET_INSTALL: GoogleMeetInstall = {
+    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=meet-nonce",
+    expiresAt: "2026-08-17T10:15:00Z",
+    // The server's own sentence, which the card renders rather than paraphrases.
+    notice:
+      "Connecting Google Meet does not let CAIRN collect anything on its own. " +
+      "CAIRN watches a meeting only after every person invited to it has agreed.",
+  };
+
+  const MEET_DISCONNECTED: GoogleMeetDisconnect = {
+    state: "disconnected",
+    disconnectedAt: "2026-08-17T10:20:00Z",
+    subscriptionsRemoved: 2,
+    credentialCleared: true,
+    retentionNotice: "What CAIRN already recorded is not deleted by disconnecting.",
+  };
+
+  /** A payload carrying a subscription state — a field `Integration` does not
+   * publish yet, which the card reads defensively for exactly that reason. */
+  function withState(subscriptionState: string): Integration {
+    return { ...GOOGLE_MEET, subscriptionState } as Integration;
+  }
+
+  /** A workspace with Google Meet connected, and both endpoints stubbed. */
+  function meetClient(overrides = {}): ReturnType<typeof createStubClient> {
+    return client({
+      listIntegrations: vi.fn(() => Promise.resolve([GOOGLE_MEET])),
+      startGoogleMeetInstall: vi.fn(() => Promise.resolve(MEET_INSTALL)),
+      disconnectGoogleMeet: vi.fn(() => Promise.resolve(MEET_DISCONNECTED)),
+      ...overrides,
+    });
+  }
+
+  /** Google Meet not yet connected — the card is listed all the same. */
+  function unconnectedMeetClient(overrides = {}): ReturnType<typeof createStubClient> {
+    return meetClient({
+      listIntegrations: vi.fn(() => Promise.resolve(INTEGRATIONS)),
+      ...overrides,
+    });
+  }
+
+  /** See `captureNavigation` above: jsdom neither performs nor records it. */
+  function captureMeetNavigation(): ReturnType<typeof vi.fn> {
+    const assign = vi.fn();
+    const { href, origin, pathname, search } = window.location;
+    vi.stubGlobal("location", { href, origin, pathname, search, assign });
+    return assign;
+  }
+
+  describe("what the reader is told before they authorise anything", () => {
+    it("lists Google Meet even though nobody has connected it", async () => {
+      renderAdmin(unconnectedMeetClient());
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+      expect(
+        within(card(/^google meet$/i)).getByText(/receiving nothing from google meet/i),
+      ).toBeVisible();
+    });
+
+    it("says CAIRN does not join calls or start recordings", async () => {
+      // **The sentence the whole connector sits behind**, on the screen where
+      // somebody is about to press Connect.
+      renderAdmin(unconnectedMeetClient());
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+
+      expect(
+        within(card(/^google meet$/i)).getByText(
+          /CAIRN does not join calls or start recordings\. It can only receive a transcript the meeting platform itself created, and only after every participant in that meeting has agreed\./,
+        ),
+      ).toBeVisible();
+    });
+
+    it("names the scope exactly, and what it does and does not permit", async () => {
+      renderAdmin(unconnectedMeetClient());
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+      const meet = within(card(/^google meet$/i));
+
+      expect(meet.getByText("meetings.space.readonly")).toBeVisible();
+      expect(meet.getByText(/lets Google tell CAIRN that a transcript exists/i)).toBeVisible();
+      expect(meet.getAllByText(/^meetings\./)).toHaveLength(1);
+    });
+
+    it("says a transcript needs a further permission CAIRN does not hold", async () => {
+      renderAdmin(unconnectedMeetClient());
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+
+      expect(
+        within(card(/^google meet$/i)).getByText(/a further, separate permission/i),
+      ).toBeVisible();
+    });
+
+    it("says plainly that Google Meet cannot be connected yet, and why", async () => {
+      // **Meet is not live.** The Connect button is real, so without this
+      // sentence its only possible outcome is an opaque Google error the reader
+      // cannot tell from a broken product.
+      //
+      // And the blocker named is Meet's own. `meetings.space.readonly` is
+      // SENSITIVE, so it needs Google's OAuth verification — not the CASA
+      // assessment Chat's RESTRICTED scope needs. Overstating it would be just
+      // as wrong as understating it, on a screen whose claim is checkability.
+      renderAdmin(unconnectedMeetClient());
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+      const meet = within(card(/^google meet$/i));
+
+      expect(meet.getByText(/cannot be connected yet/i)).toBeVisible();
+      expect(meet.getByText(/OAuth app verification/i)).toBeVisible();
+      expect(meet.queryByText(/\blive\b/i)).toBeNull();
+    });
+
+    it("renders no meeting reference, joining code, title or attendee anywhere on the card", async () => {
+      // A joining code is a credential — Step 35 removed it from every response
+      // for that reason — and an attendee list is the analytic md/03 §5.4
+      // forbids. Asserted against the markup, because the way one arrives is
+      // somebody threading a field through later.
+      renderAdmin(meetClient());
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      const html = card(/^google meet/i).innerHTML;
+
+      expect(html).not.toMatch(/meet\.google\.com/i);
+      expect(html).not.toMatch(/\b[a-z]{3}-[a-z]{4}-[a-z]{3}\b/);
+      expect(html).not.toMatch(/spaces\/[A-Za-z0-9_-]+|conferenceRecords|meetingCode|meetingUri/);
+      expect(html).not.toMatch(/joining code|meeting code|meeting link|meeting reference/i);
+      // A person: no address, no display name, no list of who was there.
+      expect(html).not.toMatch(/[\w.+-]+@[\w.-]+\.\w+/);
+      expect(html).not.toMatch(/attendees?[:—-]|attendee list|attendance report:/i);
+    });
+
+    it("offers no way for an administrator to answer for a participant", async () => {
+      // md/03 §3.1: a consent an employer could write is worth nothing. There is
+      // deliberately no picker and no approval control on this card.
+      renderAdmin(meetClient());
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      const meet = within(card(/^google meet/i));
+
+      expect(meet.queryByRole("checkbox")).toBeNull();
+      expect(meet.queryByRole("button", { name: /choose|approve|allow|consent/i })).toBeNull();
+    });
+  });
+
+  describe("the status word", () => {
+    it.each([
+      ["pending", /Connected but awaiting consent\./],
+      ["eligible", /Eligible\./],
+      ["active", /Subscribed\./],
+      ["renewal_warning", /Subscription expiring\./],
+      ["error", /Failed\./],
+    ])("shows the word the API's %s means, and no other", async (sent, pattern) => {
+      renderAdmin(
+        meetClient({ listIntegrations: vi.fn(() => Promise.resolve([withState(sent)])) }),
+      );
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      expect(within(card(/^google meet/i)).getByText(pattern)).toBeVisible();
+    });
+
+    it("shows no status line at all when the connection carried no state", async () => {
+      // **Nothing is invented.** An absent field is "CAIRN has not recorded
+      // this", and a status drawn anyway would read as "fine".
+      renderAdmin(meetClient());
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      const meet = within(card(/^google meet/i));
+
+      expect(meet.queryByText(/Subscribed\.|Eligible\.|awaiting consent\./)).toBeNull();
+    });
+
+    it("says 'Disconnected' from the payload rather than dropping the card", async () => {
+      renderAdmin(
+        meetClient({
+          listIntegrations: vi.fn(() =>
+            Promise.resolve([{ ...GOOGLE_MEET, disconnectedAt: "2026-08-01T09:00:00Z" }]),
+          ),
+        }),
+      );
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      expect(within(card(/^google meet/i)).getByText(/^Disconnected\./)).toBeVisible();
+    });
+  });
+
+  describe("starting the grant", () => {
+    it("asks the API where to send the customer, then sends them", async () => {
+      const assign = captureMeetNavigation();
+      const startGoogleMeetInstall = vi.fn(() => Promise.resolve(MEET_INSTALL));
+      renderAdmin(unconnectedMeetClient({ startGoogleMeetInstall }));
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+      await userEvent.click(screen.getByRole("button", { name: /connect google meet/i }));
+
+      expect(startGoogleMeetInstall).toHaveBeenCalledWith(WORKSPACE);
+      expect(assign).toHaveBeenCalledWith(MEET_INSTALL.authorizeUrl);
+    });
+
+    it("shows the server's own notice and when the link lapses", async () => {
+      captureMeetNavigation();
+      renderAdmin(unconnectedMeetClient());
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+      await userEvent.click(screen.getByRole("button", { name: /connect google meet/i }));
+
+      const meet = within(card(/^google meet$/i));
+      expect(
+        await meet.findByText(/does not let CAIRN collect anything on its own/i),
+      ).toBeVisible();
+      expect(meet.getByText(/this link stops working at/i)).toBeVisible();
+    });
+
+    it("says which source failed to start, next to that card", async () => {
+      renderAdmin(
+        unconnectedMeetClient({
+          startGoogleMeetInstall: vi.fn(() => Promise.reject(apiError(503))),
+        }),
+      );
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+      await userEvent.click(screen.getByRole("button", { name: /connect google meet/i }));
+
+      expect(await within(card(/^google meet$/i)).findByRole("alert")).toBeVisible();
+    });
+
+    it("reads the Meet outcome from the Meet parameter and no other", async () => {
+      // A third provider sharing one `?oauth=` would put a Meet denial on the
+      // Chat card, which is a false statement about which grant was refused.
+      renderAdmin(unconnectedMeetClient(), "googleMeet=denied");
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+      const meet = within(card(/^google meet$/i));
+
+      expect(meet.getByText(/nothing was connected/i)).toBeVisible();
+      expect(within(card(/^google chat$/i)).queryByText(/nothing was connected/i)).toBeNull();
+    });
+
+    it("treats a denial as an answer rather than as a failure", async () => {
+      renderAdmin(unconnectedMeetClient(), "googleMeet=denied");
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+      const meet = within(card(/^google meet$/i));
+
+      expect(meet.getByText(/google meet shared nothing with it/i)).toBeVisible();
+      expect(meet.queryByRole("alert")).toBeNull();
+    });
+
+    it("alerts on a failed round trip and says nothing was connected", async () => {
+      renderAdmin(unconnectedMeetClient(), "googleMeet=error");
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+
+      expect(await within(card(/^google meet$/i)).findByRole("alert")).toHaveTextContent(
+        /nothing was connected and nothing is being read/i,
+      );
+    });
+
+    it("does not promise reading after a successful grant", async () => {
+      // The card's default says "CAIRN is not reading anything **yet** — it
+      // reads only what is chosen below". Both halves are wrong for Meet: there
+      // is nothing to choose, and there is no later reading.
+      renderAdmin(meetClient(), "googleMeet=connected");
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      const meet = within(card(/^google meet/i));
+
+      expect(meet.getByText(/connecting on its own watches nothing/i)).toBeVisible();
+      expect(meet.queryByText(/reads only what is chosen below/i)).toBeNull();
+    });
+
+    it("ignores an outcome it does not recognise", async () => {
+      // The value is attacker-controllable, and rendering an arbitrary one would
+      // put a stranger's words on this screen.
+      renderAdmin(unconnectedMeetClient(), "googleMeet=%3Cscript%3E");
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+      const meet = within(card(/^google meet$/i));
+
+      expect(meet.queryByText(/nothing was connected/i)).toBeNull();
+      expect(meet.queryByRole("alert")).toBeNull();
+    });
+  });
+
+  describe("disconnecting", () => {
+    it("states all of what it does before it happens", async () => {
+      renderAdmin(meetClient());
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      await userEvent.click(
+        within(card(/^google meet/i)).getByRole("button", { name: /^disconnect$/i }),
+      );
+
+      const confirmation = screen.getByRole("group", { name: /disconnect google meet/i });
+      expect(confirmation).toHaveTextContent(/tears down the event subscriptions/i);
+      expect(confirmation).toHaveTextContent(/destroys the refresh token/i);
+      expect(confirmation).toHaveTextContent(/does not delete what has already been recorded/i);
+    });
+
+    it("disconnects only after the reader has confirmed", async () => {
+      const disconnectGoogleMeet = vi.fn(() => Promise.resolve(MEET_DISCONNECTED));
+      renderAdmin(meetClient({ disconnectGoogleMeet }));
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      await userEvent.click(
+        within(card(/^google meet/i)).getByRole("button", { name: /^disconnect$/i }),
+      );
+      expect(disconnectGoogleMeet).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByRole("button", { name: /disconnect google meet/i }));
+      expect(disconnectGoogleMeet).toHaveBeenCalledWith(WORKSPACE);
+    });
+
+    it("says which card failed when the disconnect is refused", async () => {
+      renderAdmin(meetClient({ disconnectGoogleMeet: vi.fn(() => Promise.reject(apiError(403))) }));
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      const meet = within(card(/^google meet/i));
+      await userEvent.click(meet.getByRole("button", { name: /^disconnect$/i }));
+      await userEvent.click(screen.getByRole("button", { name: /disconnect google meet/i }));
+
+      expect(await meet.findByRole("alert")).toHaveTextContent(/does not have access to that/i);
+    });
+  });
+
+  describe("who may change it", () => {
+    /** The same screen, read by somebody who does not administer it. */
+    function renderAsMember(stub: ReturnType<typeof createStubClient>): void {
+      const asMember = {
+        ...SESSION,
+        workspaces: [{ ...SESSION.workspaces[0]!, role: "member" as const }],
+      };
+      renderRoute(
+        <AppLayout>
+          <AdminPage />
+        </AppLayout>,
+        {
+          client: meetClient({
+            ...stub,
+            getSession: vi.fn(() => Promise.resolve(asMember)),
+          }),
+          route: "/admin",
+        },
+      );
+    }
+
+    it("gives a Member the whole record and none of the controls", async () => {
+      renderAsMember(meetClient());
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      const meet = within(card(/^google meet/i));
+
+      // Every word of the record, including the boundary and the scope.
+      expect(meet.getByText(/CAIRN does not join calls or start recordings/)).toBeVisible();
+      expect(meet.getByText("meetings.space.readonly")).toBeVisible();
+      // And an explanation of whose job the controls are, rather than silence.
+      expect(
+        meet.getByText(/an owner or an admin of this workspace connects and disconnects sources/i),
+      ).toBeVisible();
+      expect(meet.queryByRole("button", { name: /connect google meet/i })).toBeNull();
+      expect(meet.queryByRole("button", { name: /^disconnect$/i })).toBeNull();
+    });
+  });
+
+  describe("the states around the card", () => {
+    it("announces the connected sources while they load", async () => {
+      renderAdmin(meetClient({ listIntegrations: vi.fn(() => new Promise(() => undefined)) }));
+
+      // The skeleton says nothing on its own, so the announcement is the whole
+      // of what a screen reader gets while the list is in flight.
+      expect(await screen.findByText(/loading the connected sources/i)).toBeInTheDocument();
+    });
+
+    it("lists Meet anyway when nothing at all is connected", async () => {
+      renderAdmin(meetClient({ listIntegrations: vi.fn(() => Promise.resolve([])) }));
+
+      await screen.findByRole("heading", { name: /^google meet$/i });
+      expect(screen.getByText(/cairn captures nothing until a source is connected/i)).toBeVisible();
+    });
+
+    it("offers a retry when the sources could not be loaded", async () => {
+      const listIntegrations = vi
+        .fn()
+        .mockRejectedValueOnce(apiError(500))
+        .mockResolvedValue([GOOGLE_MEET]);
+      renderAdmin(meetClient({ listIntegrations }));
+
+      const retries = await screen.findAllByRole("button", { name: /try again/i });
+      await userEvent.click(retries[0]!);
+
+      expect(await screen.findByRole("heading", { name: /^google meet/i })).toBeVisible();
+    });
+
+    it("answers a permission refusal rather than reporting a generic failure", async () => {
+      renderAdmin(meetClient({ listIntegrations: vi.fn(() => Promise.reject(apiError(403))) }));
+
+      expect(await screen.findByText(/does not have access to that/i)).toBeVisible();
+    });
+
+    it("passes an axe audit with the Meet card and its confirmation open", async () => {
+      renderAdmin(
+        meetClient({ listIntegrations: vi.fn(() => Promise.resolve([withState("active")])) }),
+      );
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      const meet = card(/^google meet/i);
+      await userEvent.click(within(meet).getByRole("button", { name: /^disconnect$/i }));
+
+      // Audited on the card rather than on the whole screen. The page-level
+      // audit is `the trust and privacy centre`'s and `connected sources`'; what
+      // is new here is this card and its confirmation, and auditing the whole
+      // admin screen a fourth time costs a minute to re-prove somebody else's
+      // assertions.
+      await expect(axe(meet, AXE_OPTIONS)).resolves.toHaveNoViolations();
+    });
+  });
+
+  describe("the Trust page's record of it", () => {
+    /** Enough of the Trust payload for the page to render around the record. */
+    const MEET_TRUST: Trust = {
+      sources: [
+        {
+          source: "google_meet",
+          label: "Google Meet",
+          reads: "That a transcript exists, for a meeting everybody in it agreed to.",
+          connected: false,
+        },
+      ],
+      refusals: ["CAIRN never scores or ranks people."],
+      commitments: [
+        { title: "Everyone sees the same thing", detail: "Roles decide what you can configure." },
+      ],
+      retentionDays: 90,
+      region: "us-central1",
+      awaitingNotification: 0,
+      subprocessors: [{ title: "Google Cloud (Vertex AI)", detail: "Runs the models." }],
+    };
+
+    function renderMeetTrust(overrides = {}): ReturnType<typeof renderRoute> {
+      return renderRoute(
+        <AppLayout>
+          <TrustPage />
+        </AppLayout>,
+        {
+          client: meetClient({ getTrust: vi.fn(() => Promise.resolve(MEET_TRUST)), ...overrides }),
+          route: "/trust",
+        },
+      );
+    }
+
+    it("says CAIRN never joins as a bot or a participant", async () => {
+      // Stated on the page for the reader who has *not* been asked about a
+      // meeting: somebody who heard "CAIRN does meetings" and wants to know
+      // whether it has been sitting in their calls.
+      renderMeetTrust();
+
+      // Awaited on the sentence rather than on a role query: a `findByRole` scan
+      // of this whole page is re-run every 50ms until it resolves, and the
+      // sentence is what the test is actually about.
+      const boundary = await screen.findAllByText(
+        /CAIRN does not join calls or start recordings\. It can only receive a transcript the meeting platform itself created, and only after every participant in that meeting has agreed\./,
+      );
+
+      // Said in the Meetings section, where a reader who has not been asked
+      // about any meeting will look — not only on the connection card.
+      const inMeetings = boundary.some((node) =>
+        (node.closest("section")?.textContent ?? "").startsWith("Meetings"),
+      );
+      expect(inMeetings).toBe(true);
+    });
+
+    it("says Google Meet is not live, with its own blocker rather than Chat's", async () => {
+      // Chat is blocked by a RESTRICTED scope needing a CASA assessment. Meet's
+      // is SENSITIVE and needs Google's OAuth verification alone. Both are said
+      // where each is true, and neither weakens the other.
+      renderMeetTrust();
+
+      const notLive = await screen.findAllByText(/google meet cannot be connected yet/i);
+      const meetings = notLive
+        .map((node) => node.closest("section"))
+        .find((section) => (section?.textContent ?? "").startsWith("Meetings"));
+
+      expect(meetings?.textContent).toMatch(/OAuth app verification/i);
+      expect(meetings?.textContent).toMatch(/nothing is being received from google meet/i);
+      // Chat's blocker is not borrowed for Meet. The CASA assessment is named
+      // here only as the thing that would apply if CAIRN asked for the Drive
+      // permission, which it does not.
+      expect(meetings?.textContent).toMatch(
+        /does not need an independent CASA security assessment/i,
+      );
+    });
+
+    it("keeps the Google Chat wording exactly as it was", async () => {
+      // Meet's paragraph must not weaken or contradict Chat's. Chat's card still
+      // names the restricted scope and the CASA assessment.
+      renderMeetTrust({ listIntegrations: vi.fn(() => Promise.resolve([])) });
+
+      await screen.findByRole("heading", { name: /^google chat$/i });
+      const chat = within(card(/^google chat$/i));
+
+      expect(chat.getByText(/casa security assessment/i)).toBeVisible();
+      expect(chat.getByText(/cannot be connected yet/i)).toBeVisible();
+    });
+
+    it("records Meet read-only, with no control on it for anybody", async () => {
+      renderMeetTrust();
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      const meet = within(card(/^google meet/i));
+
+      expect(meet.getByText("meetings.space.readonly")).toBeVisible();
+      expect(meet.queryByRole("button", { name: /connect|disconnect/i })).toBeNull();
+      expect(
+        meet.getByText(/read-only here because this page is the record, not the control/i),
+      ).toBeVisible();
+    });
+
+    it("invents no status for a connection that carried none", async () => {
+      // The page's whole claim is that its facts are read from the workspace.
+      renderMeetTrust();
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      const meet = within(card(/^google meet/i));
+
+      expect(meet.queryByText(/Subscribed\.|Eligible\.|awaiting consent\./)).toBeNull();
+      expect(meet.queryByText(/last successful sync/i)).toBeNull();
+    });
+
+    it("shows the status the connection did carry", async () => {
+      renderMeetTrust({ listIntegrations: vi.fn(() => Promise.resolve([withState("eligible")])) });
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+      expect(within(card(/^google meet/i)).getByText(/^Eligible\./)).toBeVisible();
+    });
+
+    it("passes an axe audit with the Meet record on the page", async () => {
+      const { container } = renderMeetTrust({
+        listIntegrations: vi.fn(() => Promise.resolve([withState("active")])),
+      });
+
+      await screen.findByRole("heading", { name: /^google meet/i });
+
+      await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+    });
   });
 });

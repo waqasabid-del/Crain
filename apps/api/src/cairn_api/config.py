@@ -455,6 +455,55 @@ class Settings(BaseSettings):
         ),
     )
 
+    # -- Google Meet transcript retrieval (Step 36B) -----------------------
+    #
+    # **A third OAuth client, and the reason is the same equality check that
+    # forces Meet and Chat apart.** Transcript retrieval needs
+    # `drive.meet.readonly`, which is a RESTRICTED scope and a separate consent
+    # action. Requesting it on the *Meet* client would expand that client's grant
+    # for the account, so every later refresh of the connection's own token would
+    # return the union of both scopes — and `oauth.verify_granted_scopes` compares
+    # by equality, so the Meet connection would start failing with
+    # `scopes_unexpected` days after somebody granted transcript access, with
+    # nothing in the log naming the cause.
+    #
+    # A separate client keeps the two grants genuinely separate at Google as well
+    # as in CAIRN's database: revoking one leaves the other working, and a
+    # workspace that connected Meet has provably not granted transcript access.
+
+    google_meet_transcript_client_id: str = Field(
+        default="",
+        description=(
+            "Google OAuth client ID for Google Meet **transcript retrieval**. "
+            "Must be a different OAuth client from both "
+            "CAIRN_GOOGLE_MEET_CLIENT_ID and CAIRN_GOOGLE_CHAT_CLIENT_ID: the "
+            "transcript scope is restricted and separately consented, and "
+            "sharing a client makes each grant's scope set contaminate the "
+            "other's — which every connector here verifies by equality. Empty "
+            "means transcript retrieval is not configured, and the endpoint "
+            "refuses rather than sending somebody to a consent screen."
+        ),
+    )
+
+    google_meet_transcript_client_secret: str = Field(
+        default="",
+        description=(
+            "Google OAuth client secret for the transcript-retrieval client, "
+            "used only to exchange an authorisation code for tokens."
+        ),
+    )
+
+    google_meet_transcript_redirect_uri: str = Field(
+        default="http://localhost:8000/v1/integrations/google-meet/transcript-callback",
+        description=(
+            "Where Google returns the customer after they consent to transcript "
+            "access. A different path from the Meet connector's callback, "
+            "registered on the transcript OAuth client, because Google matches "
+            "the redirect URI exactly and the two flows must not be able to "
+            "redeem each other's authorisation codes."
+        ),
+    )
+
     google_meet_project_id: str = Field(
         default="",
         description=(
@@ -654,6 +703,25 @@ class Settings(BaseSettings):
         connector as well, so a shared client id also makes one workspace's two
         connections produce the same installation identity.
         """
+        transcript_id = self.google_meet_transcript_client_id
+        if transcript_id and transcript_id in {
+            self.google_meet_client_id,
+            self.google_chat_client_id,
+        }:
+            # The Step 36B case, and the one that fails latest. Transcript access
+            # is a restricted scope granted by its own consent action; sharing a
+            # client with the Meet connector expands that connector's grant at
+            # Google, so the *connection's* next refresh returns both scopes and
+            # is rejected by an equality check that is doing exactly its job.
+            msg = (
+                "CAIRN_GOOGLE_MEET_TRANSCRIPT_CLIENT_ID names the same OAuth client as "
+                "the Meet or Chat connector. Transcript access is a separate, "
+                "restricted-scope consent action and must use its own client: sharing "
+                "one makes each grant's scopes appear in the other's token response, "
+                "and every connector here verifies the granted set by equality."
+            )
+            raise ValueError(msg)
+
         if self.google_meet_client_id and self.google_meet_client_id == self.google_chat_client_id:
             msg = (
                 "CAIRN_GOOGLE_MEET_CLIENT_ID and CAIRN_GOOGLE_CHAT_CLIENT_ID name one "
@@ -774,6 +842,21 @@ class Settings(BaseSettings):
                 f"CAIRN_ENVIRONMENT is '{self.environment}'. The Google authorisation "
                 "code arrives on this URL and is exchangeable for a refresh token; it "
                 "must be an https URI registered on the OAuth client."
+            )
+            raise ValueError(msg)
+
+        if self.google_meet_transcript_client_id and not (
+            self.google_meet_transcript_redirect_uri.startswith("https://")
+        ):
+            # The same rule again, for the third client. Restated rather than
+            # looped, because each message names the variable an operator has to
+            # go and fix.
+            msg = (
+                f"CAIRN_GOOGLE_MEET_TRANSCRIPT_REDIRECT_URI is "
+                f"{self.google_meet_transcript_redirect_uri!r} while CAIRN_ENVIRONMENT is "
+                f"'{self.environment}'. The Google authorisation code arrives on this URL "
+                "and is exchangeable for a refresh token; it must be an https URI "
+                "registered on the OAuth client."
             )
             raise ValueError(msg)
 

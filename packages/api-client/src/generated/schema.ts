@@ -310,6 +310,39 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/integrations/google-meet/transcript-callback": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Finish granting access to Google Meet transcripts
+     * @description Where Google sends the customer back from the transcript consent screen.
+     *
+     *     **A separate path on a separate OAuth client**, so the two flows cannot
+     *     redeem each other's authorisation codes — Google matches the redirect URI
+     *     exactly, and a shared one would make the distinction depend on a branch rather
+     *     than on the registration.
+     *
+     *     The same order as the connection callback, for the same reasons: any ``error``
+     *     parameter is a refusal, the state is claimed atomically and single-use before
+     *     anything is exchanged, the workspace comes off the stored row and never from
+     *     the request, and the caller is proved to *still* be a member with permission
+     *     before the code is sent to Google. `consume_state` is passed the transcript
+     *     grant kind, so a state issued for "connect Google Meet" cannot be redeemed
+     *     here.
+     */
+    get: operations["finish_transcript_access_v1_integrations_google_meet_transcript_callback_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/integrations/slack/callback": {
     parameters: {
       query?: never;
@@ -1286,6 +1319,94 @@ export interface paths {
      *     table is platform-side and the grant set says so.
      */
     post: operations["begin_install_v1_workspaces__workspace_id__integrations_google_meet_install_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/integrations/google-meet/transcript-access": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Begin granting CAIRN access to Google Meet transcripts
+     * @description Issue a state for the **transcript** grant, and return its authorise URL.
+     *
+     *     A separate route rather than a parameter on the install route, and that is the
+     *     design rather than an accident of layout. ``drive.meet.readonly`` is a
+     *     restricted scope that lets CAIRN read the file the platform produced; folding
+     *     it into "connect Google Meet" would mean a workspace acquiring artifact access
+     *     by pressing a button labelled something else. Connecting and granting
+     *     transcript access are two decisions, so they are two clicks, two OAuth
+     *     clients, two consent screens and two rows.
+     *
+     *     Requires an existing, live Meet connection: transcript access with nothing to
+     *     apply it to is a restricted-scope grant held for no reason.
+     */
+    post: operations["begin_transcript_access_v1_workspaces__workspace_id__integrations_google_meet_transcript_access_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/integrations/google-meet/transcript-access/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Withdraw CAIRN's access to Google Meet transcripts
+     * @description Stop retrieving transcripts, and destroy the credential that could.
+     *
+     *     **Narrower than disconnecting, deliberately.** The Meet connection keeps
+     *     working, the subscriptions keep running, and CAIRN goes back to recording only
+     *     that a transcript exists. Somebody who decides transcript retrieval was a step
+     *     too far should not have to tear down the whole connector to undo it.
+     *
+     *     Idempotent: revoking access nobody granted answers the same way, because from
+     *     the caller's side "we do not have it" is one fact.
+     */
+    post: operations["revoke_transcript_access_v1_workspaces__workspace_id__integrations_google_meet_transcript_access_revoke_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/integrations/google-meet/transcripts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Which meetings produced a transcript, and what happened to it
+     * @description Availability and status. **There is no route that returns a transcript.**
+     *
+     *     What a workspace can see here: that a meeting they all consented to produced a
+     *     transcript, whether CAIRN retrieved it, how large it was, when it will be
+     *     deleted, and — when it was refused — a reason from a vocabulary CAIRN wrote
+     *     that names nobody.
+     *
+     *     What it cannot see: a line of it. Making transcripts readable is a product
+     *     decision with its own consent conversation, and shipping it as a side effect
+     *     of shipping retrieval would be making that decision on everybody's behalf.
+     */
+    get: operations["list_transcripts_v1_workspaces__workspace_id__integrations_google_meet_transcripts_get"];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -2946,6 +3067,86 @@ export interface components {
       expiresAt: string;
       /** Notice */
       notice: string;
+    };
+    /**
+     * GoogleMeetTranscriptAccessResponse
+     * @description Where to send the customer for the **separate** transcript permission.
+     */
+    GoogleMeetTranscriptAccessResponse: {
+      /** Authorizeurl */
+      authorizeUrl: string;
+      /**
+       * Expiresat
+       * Format: date-time
+       */
+      expiresAt: string;
+      /** Notice */
+      notice: string;
+    };
+    /**
+     * GoogleMeetTranscriptAccessStateResponse
+     * @description Whether this workspace has granted transcript access, and what that means.
+     */
+    GoogleMeetTranscriptAccessStateResponse: {
+      /** Granted */
+      granted: boolean;
+      /** Grantedat */
+      grantedAt?: string | null;
+      /** Notice */
+      notice: string;
+      /** Revokedat */
+      revokedAt?: string | null;
+    };
+    /**
+     * GoogleMeetTranscriptListResponse
+     * @description This workspace's transcript availability. Status only, by construction.
+     */
+    GoogleMeetTranscriptListResponse: {
+      /** Notice */
+      notice: string;
+      /** Transcriptaccessgranted */
+      transcriptAccessGranted: boolean;
+      /** Transcripts */
+      transcripts: components["schemas"]["GoogleMeetTranscriptStatus"][];
+    };
+    /**
+     * GoogleMeetTranscriptStatus
+     * @description One announced transcript, as far as a customer may see it.
+     */
+    GoogleMeetTranscriptStatus: {
+      /**
+       * Announcedat
+       * Format: date-time
+       */
+      announcedAt: string;
+      /**
+       * Artifactid
+       * Format: uuid
+       */
+      artifactId: string;
+      /** Contentbytes */
+      contentBytes?: number | null;
+      /** Contentheld */
+      contentHeld: boolean;
+      /** Errorcategory */
+      errorCategory?: string | null;
+      /** Generatedat */
+      generatedAt?: string | null;
+      /**
+       * Meetingid
+       * Format: uuid
+       */
+      meetingId: string;
+      /** Refusalreason */
+      refusalReason?: string | null;
+      /** Retentionexpiresat */
+      retentionExpiresAt?: string | null;
+      /** Retrievedat */
+      retrievedAt?: string | null;
+      /** State */
+      state: string;
+      /** Withdrawnat */
+      withdrawnAt?: string | null;
     };
     /** HTTPValidationError */
     HTTPValidationError: {
@@ -4641,6 +4842,46 @@ export interface operations {
       };
     };
   };
+  finish_transcript_access_v1_integrations_google_meet_transcript_callback_get: {
+    parameters: {
+      query?: {
+        code?: string | null;
+        state?: string | null;
+        error?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Back to the workspace's admin screen. */
+      303: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Successful Response */
+      307: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   finish_install_v1_integrations_slack_callback_get: {
     parameters: {
       query?: {
@@ -6164,6 +6405,154 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  begin_transcript_access_v1_workspaces__workspace_id__integrations_google_meet_transcript_access_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GoogleMeetTranscriptAccessResponse"];
+        };
+      };
+      /** @description Requires permission to connect integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No Google Meet account is connected. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+      /** @description Transcript retrieval is not configured on this deployment. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  revoke_transcript_access_v1_workspaces__workspace_id__integrations_google_meet_transcript_access_revoke_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GoogleMeetTranscriptAccessStateResponse"];
+        };
+      };
+      /** @description Requires permission to disconnect integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No Google Meet account is connected. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  list_transcripts_v1_workspaces__workspace_id__integrations_google_meet_transcripts_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GoogleMeetTranscriptListResponse"];
+        };
+      };
+      /** @description Requires permission to manage integrations. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No Google Meet account is connected. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
       };
     };
   };

@@ -448,6 +448,37 @@ class TestRowLevelSecurity:
             # to one usefully.
             "google_meet_subscriptions": {"SELECT"},
             "google_meet_artifact_signals": {"SELECT"},
+            # -- Google Meet transcript retrieval (Step 36B) ----------------
+            #
+            # SELECT only on both, and **no entry at all** for
+            # `google_meet_transcript_raw` — see the test below, which asserts
+            # that absence rather than leaving it as something a reader has to
+            # notice is missing.
+            #
+            # `google_meet_transcript_grants` is a workspace's separate,
+            # explicit consent to the restricted `drive.meet.readonly` scope,
+            # and it holds that grant's own encrypted refresh token. It is
+            # written by the OAuth callback, which runs platform-side because
+            # the redirect URI names no workspace, so INSERT would be an unused
+            # privilege — and the one it would enable is a scoped session
+            # granting itself restricted-scope artifact access. UPDATE is worse:
+            # it would let one clear `revoked_at` and undo a withdrawal, which
+            # is the same shape as the `google_chat_subscriptions` UPDATE
+            # refused above and for the same reason.
+            #
+            # `google_meet_transcript_artifacts` is provenance: which meeting,
+            # which announcement, when the platform produced it, when CAIRN
+            # retrieved it, the checksum, the consent-policy version. Every
+            # write happens in the retrieval worker, which resolves a
+            # subscription to a workspace before any tenant context exists.
+            # INSERT would let a scoped session fabricate the record that a
+            # meeting produced a transcript — a claim about a meeting nobody in
+            # it agreed to — and UPDATE would let it clear `withdrawn_at` or
+            # `refusal_reason` and walk back a refusal. DELETE would erase the
+            # evidence that a retention deletion happened, which is the one
+            # thing that makes "we deleted it" checkable rather than a promise.
+            "google_meet_transcript_grants": {"SELECT"},
+            "google_meet_transcript_artifacts": {"SELECT"},
             #
             # `google_chat_oauth_states` is deliberately **absent** from this
             # list, exactly as `slack_oauth_states` is below and for the same
@@ -625,6 +656,43 @@ class TestRowLevelSecurity:
                     "VALUES (:t, :u, 'chosen-hash', now() + interval '10 minutes')"
                 ),
                 {"t": str(acme.id), "u": str(uuid.uuid4())},
+            )
+
+    async def test_stored_transcripts_are_unreachable_from_the_application_role(
+        self, session: AsyncSession, two_tenants: tuple[Tenant, Tenant]
+    ) -> None:
+        """A verbatim record of what people said in a meeting, and no grant at all.
+
+        Stated as its own test because "no grant" is invisible in the allow-list
+        above — a table with no privileges simply does not appear, which is
+        indistinguishable from one somebody forgot to add.
+
+        Why it must stay platform-only: the retrieval worker resolves a Google
+        Meet subscription to a workspace before any tenant context could exist,
+        so every write is platform-side, and there is no product surface that
+        reads a transcript — at this step customers see availability and status
+        and never content. That leaves no legitimate scoped statement against
+        this table at all, and an unused privilege is the one an injection gets
+        to use first. Row-level security is enabled and forced on it as well:
+        the grant is the outer door, the policy is the inner one.
+        """
+        acme, _ = two_tenants
+        await set_tenant_context(session, acme.id)
+
+        with pytest.raises(DBAPIError, match="permission denied"):
+            await session.execute(text("SELECT count(*) FROM google_meet_transcript_raw"))
+        await session.rollback()
+
+        await set_tenant_context(session, acme.id)
+        with pytest.raises(DBAPIError, match="permission denied"):
+            await session.execute(
+                text(
+                    "INSERT INTO google_meet_transcript_raw "
+                    "(tenant_id, artifact_id, content_ciphertext, content_checksum, "
+                    "content_bytes, stored_at) "
+                    "VALUES (:t, :a, 'ciphertext', repeat('a', 64), 1, now())"
+                ),
+                {"t": str(acme.id), "a": str(uuid.uuid4())},
             )
 
     async def test_cannot_plant_a_channel_selection_into_another_tenant(

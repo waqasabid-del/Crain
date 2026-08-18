@@ -3,6 +3,7 @@
 import type {
   GoogleChatInstall,
   GoogleChatSpaceList,
+  GoogleMeetInstall,
   Integration,
   Member,
   Notifications,
@@ -34,6 +35,16 @@ import {
   GOOGLE_CHAT_REFUSALS,
   GOOGLE_CHAT_SCOPES,
   GOOGLE_CHAT_WORKSPACE_ACCOUNT,
+  googleMeetExpiry,
+  googleMeetStatus,
+  GoogleMeetStatusNote,
+  GOOGLE_MEET_BOUNDARY,
+  GOOGLE_MEET_CONNECTED_DETAIL,
+  GOOGLE_MEET_DISCONNECT_EFFECT,
+  GOOGLE_MEET_NOT_LIVE,
+  GOOGLE_MEET_REFUSALS,
+  GOOGLE_MEET_SCOPES,
+  GOOGLE_MEET_TRANSCRIPT_PERMISSION,
   SLACK_CONNECTED_DETAIL,
   SLACK_DISCONNECT_EFFECT,
   SLACK_INVITE_RULE,
@@ -126,8 +137,10 @@ export function AdminPage(): ReactNode {
       {administers(activeRole) && <AttributionHealthSummary workspaceId={activeWorkspace.id} />}
       {/*
         Asking whether CAIRN may ever receive a meeting's transcript. **Nothing
-        here starts a recording** — CAIRN never joins a meeting and no provider
-        connector exists — and the section says so before it says anything else.
+        here starts a recording** — CAIRN never joins a meeting, and the one
+        connector that exists (Google Meet, in Connected sources above) can only
+        be told that the platform itself produced a transcript, for a meeting
+        everybody in it agreed to. The section says so before anything else.
 
         Gated like the aggregate above, and for the same reason: what it holds is
         counts and states. There is deliberately no control on it that answers
@@ -403,9 +416,14 @@ function Integrations({
   const search = useSearchParams();
   const slackReturn = readOAuthReturn(search.get("slack"));
   const googleChatReturn = readOAuthReturn(search.get("googleChat"));
+  // `googleMeet` is the parameter the Meet callback's 303 actually carries —
+  // see the connector's `_back`. A third provider on a shared parameter would
+  // put a Meet denial on the Chat card.
+  const googleMeetReturn = readOAuthReturn(search.get("googleMeet"));
   const [connecting, setConnecting] = useState<string | null>(null);
   const [install, setInstall] = useState<SlackInstall | null>(null);
   const [googleChatInstall, setGoogleChatInstall] = useState<GoogleChatInstall | null>(null);
+  const [googleMeetInstall, setGoogleMeetInstall] = useState<GoogleMeetInstall | null>(null);
 
   const canManage = administers(role);
 
@@ -475,6 +493,34 @@ function Integrations({
       setProblem({ id, error: describeError(error, "start connecting Google Chat") });
     } finally {
       setConnecting(null);
+    }
+  }
+
+  /** The same two steps again, against Google's consent screen for Meet. */
+  async function connectGoogleMeet(id: string): Promise<void> {
+    setConnecting(id);
+    setProblem(null);
+    try {
+      const started = await client.startGoogleMeetInstall(workspaceId);
+      setGoogleMeetInstall(started);
+      window.location.assign(started.authorizeUrl);
+    } catch (error: unknown) {
+      setProblem({ id, error: describeError(error, "start connecting Google Meet") });
+    } finally {
+      setConnecting(null);
+    }
+  }
+
+  async function disconnectGoogleMeet(id: string): Promise<void> {
+    setBusyId(id);
+    setProblem(null);
+    try {
+      await client.disconnectGoogleMeet(workspaceId);
+      reload();
+    } catch (error: unknown) {
+      setProblem({ id, error: describeError(error, "disconnect that source") });
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -574,13 +620,27 @@ function Integrations({
                               void disconnectGoogleChat(connection.id);
                             },
                           })
-                        : integration === null
-                          ? {}
-                          : {
-                              onDisconnect: (): void => {
-                                void disconnect(connection.id, integration.installationId);
+                        : row.source === "google_meet"
+                          ? googleMeetCardProps({
+                              integration,
+                              connected,
+                              oauthReturn: googleMeetReturn,
+                              connecting: connecting === connection.id,
+                              install: googleMeetInstall,
+                              onConnect: () => {
+                                void connectGoogleMeet(connection.id);
                               },
-                            })}
+                              onDisconnect: () => {
+                                void disconnectGoogleMeet(connection.id);
+                              },
+                            })
+                          : integration === null
+                            ? {}
+                            : {
+                                onDisconnect: (): void => {
+                                  void disconnect(connection.id, integration.installationId);
+                                },
+                              })}
                   />
                 </li>
               );
@@ -765,6 +825,113 @@ function googleChatNotice(install: GoogleChatInstall | null, connected: boolean)
       {GOOGLE_CHAT_WORKSPACE_ACCOUNT} {install.notice} Sending you to Google now. This link stops
       working at <time dateTime={install.expiresAt}>{formatDayAndTime(install.expiresAt)}</time> —
       if nothing happens, or you come back to this later, start again.
+    </>
+  );
+}
+
+/**
+ * Everything the Google Meet card needs, decided in one place.
+ *
+ * The card is the same one Slack and Chat use. What is different about Meet is
+ * what the reader already believes: that connecting a meeting platform puts a
+ * bot in the call. So the boundary sentence sits at the top of the notice —
+ * above the connect control, above the scope, above everything — and the single
+ * scope is followed immediately by the permission CAIRN does *not* hold.
+ *
+ * **No picker.** There is deliberately nothing to choose here: a meeting is not
+ * selected by an administrator, it is agreed to by every person expected in it,
+ * from their own session. A space-picker-shaped control on this card would be
+ * the exact affordance md/03 §3.1 refuses — an employer's answer standing in for
+ * an employee's. What sits in `children` instead is a status word, read-only.
+ */
+function googleMeetCardProps({
+  integration,
+  connected,
+  oauthReturn,
+  connecting,
+  install,
+  onConnect,
+  onDisconnect,
+}: {
+  integration: Integration | null;
+  connected: boolean;
+  oauthReturn: OAuthReturn | undefined;
+  connecting: boolean;
+  install: GoogleMeetInstall | null;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}): {
+  requestedScopes: typeof GOOGLE_MEET_SCOPES;
+  refusals: string[];
+  disconnectEffect: string;
+  connectedSummary: string;
+  notice: ReactNode;
+  onConnect: () => void;
+  connecting: boolean;
+  onDisconnect: () => void;
+  oauthReturn?: OAuthReturn;
+  children?: ReactNode;
+} {
+  // Only for a connection that exists. `googleMeetStatus(null)` is "not
+  // connected", which the card's own state row and `stateDetail` already say —
+  // and two state words on one card is a card the reader has to reconcile.
+  const status = integration === null ? null : googleMeetStatus(integration);
+  const expiresAt = googleMeetExpiry(integration);
+
+  return {
+    requestedScopes: GOOGLE_MEET_SCOPES,
+    refusals: GOOGLE_MEET_REFUSALS,
+    disconnectEffect: GOOGLE_MEET_DISCONNECT_EFFECT,
+    // Replaces the card's default, which promises reading this connector never
+    // does — see `ConnectionCardProps.connectedSummary`.
+    connectedSummary: GOOGLE_MEET_CONNECTED_DETAIL,
+    notice: googleMeetNotice(install, connected),
+    onConnect,
+    connecting,
+    onDisconnect,
+    ...(oauthReturn === undefined ? {} : { oauthReturn }),
+    // Omitted entirely when the server sent no state to read. An absent status
+    // is "CAIRN cannot say", and the card refuses to draw a placeholder that
+    // would read as "fine".
+    ...(status === null
+      ? {}
+      : {
+          children: (
+            <GoogleMeetStatusNote
+              status={status}
+              {...(expiresAt === undefined ? {} : { expiresAt })}
+            />
+          ),
+        }),
+  };
+}
+
+/**
+ * What to read before authorising Google Meet.
+ *
+ * **The boundary sentence is first, always.** Not the unavailability, not the
+ * link expiry, not the server's own notice: the thing a reader has to have read
+ * before they press anything is that CAIRN does not join calls and does not
+ * start recordings. Everything else on this card is a detail of a system whose
+ * shape they will otherwise have got wrong.
+ *
+ * The unavailability follows, and only while Meet is not connected — a card
+ * describing a live connection must not also carry a sentence saying that
+ * connection is impossible.
+ */
+function googleMeetNotice(install: GoogleMeetInstall | null, connected: boolean): ReactNode {
+  return (
+    <>
+      <strong>{GOOGLE_MEET_BOUNDARY}</strong> {GOOGLE_MEET_TRANSCRIPT_PERMISSION}
+      {connected ? null : <> {GOOGLE_MEET_NOT_LIVE}</>}
+      {install === null ? null : (
+        <>
+          {" "}
+          {install.notice} Sending you to Google now. This link stops working at{" "}
+          <time dateTime={install.expiresAt}>{formatDayAndTime(install.expiresAt)}</time> — if
+          nothing happens, or you come back to this later, start again.
+        </>
+      )}
     </>
   );
 }

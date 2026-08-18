@@ -186,6 +186,16 @@ export interface ConnectionCardProps {
    * neither and is told.
    */
   connectedDetail?: string;
+  /**
+   * Replaces the default "CAIRN is not reading anything yet — it reads only what
+   * is chosen below" on a successful grant.
+   *
+   * Exists for Google Meet, where the default is wrong twice over: nothing is
+   * chosen below, and "not reading anything **yet**" promises reading that this
+   * connector never does. Slack and Chat leave it alone, because for them the
+   * default is exactly true.
+   */
+  connectedSummary?: string;
   /** Provider-specific detail that belongs inside the record — the Slack
    * channel picker sits here. */
   children?: ReactNode;
@@ -207,6 +217,7 @@ export function ConnectionCard({
   notice,
   disconnectEffect,
   connectedDetail,
+  connectedSummary,
   children,
 }: ConnectionCardProps): ReactNode {
   const headingId = useId();
@@ -292,6 +303,7 @@ export function ConnectionCard({
             outcome={oauthReturn}
             provider={connection.provider}
             {...(connectedDetail === undefined ? {} : { connectedDetail })}
+            {...(connectedSummary === undefined ? {} : { connectedSummary })}
           />
         </div>
       )}
@@ -462,10 +474,12 @@ function OAuthReturnMessage({
   outcome,
   provider,
   connectedDetail,
+  connectedSummary,
 }: {
   outcome: OAuthReturn;
   provider: string;
   connectedDetail?: string;
+  connectedSummary?: string;
 }): ReactNode {
   if (outcome === "error") {
     return (
@@ -480,7 +494,7 @@ function OAuthReturnMessage({
   return (
     <StatusNote>
       {outcome === "connected"
-        ? `${provider} is connected. CAIRN is not reading anything yet — it reads only what is chosen below.${connectedDetail === undefined ? "" : ` ${connectedDetail}`}`
+        ? `${provider} is connected. ${connectedSummary ?? "CAIRN is not reading anything yet — it reads only what is chosen below."}${connectedDetail === undefined ? "" : ` ${connectedDetail}`}`
         : `Nothing was connected. You did not give CAIRN permission, so ${provider} shared nothing with it and there is nothing to undo. You can start again whenever you want to.`}
     </StatusNote>
   );
@@ -712,6 +726,300 @@ export function googleChatNotConnected(): Connection {
   };
 }
 
+// --------------------------------------------------------------------------
+// Google Meet
+// --------------------------------------------------------------------------
+
+/**
+ * **The sentence that must be read before anything else on the Meet card.**
+ *
+ * Everybody who hears "CAIRN does meetings" assumes the same thing — a bot in
+ * the corner of the call, recording. That assumption is wrong in every part, and
+ * a card that leaves it standing has obtained consent to something the reader
+ * believed was happening anyway.
+ *
+ * Three claims, all checkable. CAIRN requests no scope that can create or
+ * configure a meeting space, so it cannot cause a recording; it requests no
+ * Drive scope, so it cannot fetch the transcript file; and the eligibility gate
+ * refuses a meeting unless every expected participant holds a live acceptance.
+ * The connector was built in that order deliberately — the permission exists
+ * before the capability does.
+ */
+export const GOOGLE_MEET_BOUNDARY =
+  "CAIRN does not join calls or start recordings. It can only receive a transcript the meeting platform itself created, and only after every participant in that meeting has agreed.";
+
+/**
+ * The scope CAIRN requests from Google Meet. Exactly one, and no others.
+ *
+ * `meetings.space.readonly` reads a meeting space's configuration, which is what
+ * authorises a Workspace Events subscription on that space. It is the permission
+ * to be *told* something happened. It is not the permission to read what
+ * happened, and the plain-words half says so rather than describing what CAIRN
+ * wants the notification for.
+ */
+export const GOOGLE_MEET_SCOPES: ScopeGrant[] = [
+  {
+    scope: "meetings.space.readonly",
+    means:
+      "Read a meeting space's settings, which is what lets Google tell CAIRN that a transcript exists for a meeting. It does not let CAIRN read one, and it does not let CAIRN change how a meeting is set up.",
+  },
+];
+
+/**
+ * **Reading a transcript is a different permission, and it has not been
+ * granted.**
+ *
+ * A Meet transcript is a file in Google Drive, so retrieving one needs a Drive
+ * scope. CAIRN requests none — `drive`, `drive.readonly`, `drive.file` and
+ * `drive.appdata` are all on the connector's forbidden list — which means Google
+ * refuses the attempt rather than CAIRN declining to make it.
+ *
+ * Said separately from the scope table because a reader who has just been told
+ * CAIRN can be *notified* about a transcript will otherwise assume the reading
+ * is the part that was left unsaid.
+ */
+export const GOOGLE_MEET_TRANSCRIPT_PERMISSION =
+  "Fetching the transcript itself would need a further, separate permission — a Google Drive scope, because a Meet transcript is a Drive file. CAIRN does not request one and has not been granted one, so Google refuses to hand it the file. Today CAIRN can only be told that a transcript exists.";
+
+/**
+ * What CAIRN cannot do in Google Meet, stated rather than left to be inferred.
+ *
+ * Every line is a permission the connector refuses to request, so Google itself
+ * enforces it. Attendance is the one worth reading twice: Meet attendance lives
+ * behind `admin.reports.audit.readonly`, and md/03 §5.4 forbids the analytic
+ * outright, so the scope is on the connector's forbidden list rather than merely
+ * unused.
+ */
+export const GOOGLE_MEET_REFUSALS: string[] = [
+  "Join a meeting, appear in one, or be seen by anybody in it. There is no CAIRN bot and no CAIRN participant — nothing to admit to the call and nothing to remove from it.",
+  "Start, stop, or ask for a recording or a transcript. CAIRN asks for no permission to create or reconfigure a meeting space, so it cannot cause the artifact it is waiting to hear about.",
+  "Read a transcript or a recording. Those are Google Drive files and CAIRN requests no Drive permission of any kind.",
+  "See who attended, for how long, or whether somebody joined at all. Attendance reports need an admin scope CAIRN refuses to request.",
+  "Read your calendar. CAIRN asks for no calendar permission, so it cannot see what meetings you have.",
+  "Watch a meeting nobody agreed to. A meeting is watched only once every expected participant has accepted, and one withdrawal stops it.",
+];
+
+/**
+ * **Google Meet is not live, and this card must never suggest otherwise.**
+ *
+ * The connect flow is wired end to end and stops at Google's own approval.
+ * `meetings.space.readonly` is a *sensitive* scope, so publishing the connector
+ * needs Google's OAuth app verification — which is not finished, so no
+ * authorisation can succeed today.
+ *
+ * **It is deliberately not the same blocker as Google Chat's.** Chat's
+ * `chat.messages.readonly` is a *restricted* scope and additionally requires an
+ * independent CASA security assessment; Meet's does not, today. Writing Chat's
+ * sentence here would overstate the blocker, and a governance reader who looked
+ * up the scope classification would find the page wrong — on the one screen
+ * whose whole claim is that what it says can be checked. The CASA assessment
+ * becomes Meet's problem the moment a Drive scope is added for transcript
+ * retrieval, which is a launch decision rather than a code change, and that is
+ * said too.
+ */
+export const GOOGLE_MEET_NOT_LIVE =
+  "Google Meet cannot be connected yet, and pressing Connect will not work. meetings.space.readonly is a scope Google classes as sensitive, so publishing this connector needs Google's OAuth app verification, and until that is finished Google refuses the authorisation. Unlike Google Chat, this scope does not need an independent CASA security assessment as things stand — that becomes true only if CAIRN ever asks for the Drive permission a transcript would need, and it does not ask for one today. Nothing is being received from Google Meet, and nothing can be until the verification is done.";
+
+/**
+ * What is true the instant Google Meet is authorised.
+ *
+ * A connection on its own watches nothing at all. Every meeting is asked about
+ * separately and every participant answers for themselves, so the honest thing
+ * to say on the OAuth return is that connecting has not started anything.
+ */
+export const GOOGLE_MEET_CONNECTED_DETAIL =
+  "Connecting on its own watches nothing. Each meeting is asked about separately, everybody invited to it answers for themselves, and CAIRN is told a transcript exists only for a meeting where every one of them agreed.";
+
+/**
+ * What disconnecting Google Meet does, precisely.
+ *
+ * Four facts, because the endpoint reports four: watching stops, the event
+ * subscriptions are torn down, the refresh token is destroyed, and what was
+ * already recorded is not deleted. The consent decisions are kept as well —
+ * which is a fact in CAIRN's favour and against it at once, so it is stated.
+ */
+export const GOOGLE_MEET_DISCONNECT_EFFECT =
+  "Disconnecting stops Google Meet being watched immediately, tears down the event subscriptions Google would announce a transcript through, and destroys the refresh token CAIRN stored, so it cannot be told anything more without being authorised again. It does not delete what has already been recorded: that stays, and is removed on this workspace's retention schedule. The answers people gave about individual meetings are kept too — reconnecting does not re-start anything on its own.";
+
+/**
+ * Google Meet before anybody has connected it.
+ *
+ * Listed rather than omitted, so the boundary sentence, the single scope and the
+ * six refusals are readable while the answer is still "no". This is the surface
+ * that matters most for Meet: what a reader believes CAIRN does in a meeting is
+ * formed long before anybody presses Connect.
+ */
+export function googleMeetNotConnected(): Connection {
+  return {
+    id: "google_meet",
+    provider: "Google Meet",
+    state: "disconnected",
+    stateDetail: "Not connected, so CAIRN is receiving nothing from Google Meet.",
+    reads: PROVIDERS.google_meet.reads,
+  };
+}
+
+/**
+ * Where a workspace's Google Meet stands, in one word.
+ *
+ * **Seven words, and not one of them is inferred.** Every one comes from
+ * something the API said: no connection row at all, a `disconnectedAt`, a
+ * `suspended` flag, or a subscription state the server sent. A connection that
+ * exists with no subscription state on it gets *no line at all* — see
+ * `googleMeetStatus`.
+ *
+ * The vocabulary is deliberately narrow and deliberately unflattering. "Eligible"
+ * and "subscribed" are different facts: eligible means everybody agreed,
+ * subscribed means Google has an active lease and would actually announce a
+ * transcript. A screen that collapsed them would tell somebody their meeting is
+ * being watched when the lease had lapsed, or that it is not when it is.
+ */
+export type GoogleMeetStatus =
+  | "not connected"
+  | "connected but awaiting consent"
+  | "eligible"
+  | "subscribed"
+  | "subscription expiring"
+  | "disconnected"
+  | "failed";
+
+/** The word as it is shown. Sentence case, because it is read as a word and not
+ * as a badge. */
+const MEET_STATUS_LABEL: Record<GoogleMeetStatus, string> = {
+  "not connected": "Not connected",
+  "connected but awaiting consent": "Connected but awaiting consent",
+  eligible: "Eligible",
+  subscribed: "Subscribed",
+  "subscription expiring": "Subscription expiring",
+  disconnected: "Disconnected",
+  failed: "Failed",
+};
+
+/** What each word means, in a sentence somebody can act on. A bare status word
+ * is an unanswerable sentence — the same rule `Connection.stateDetail` follows. */
+const MEET_STATUS_DETAIL: Record<GoogleMeetStatus, string> = {
+  "not connected":
+    "Google Meet has not been connected, so CAIRN is not told anything about any meeting.",
+  "connected but awaiting consent":
+    "Google Meet is connected, and nothing is being watched. CAIRN watches a meeting only once every person expected in it has agreed, and somebody has not answered yet.",
+  eligible:
+    "Everybody expected in the meeting agreed, so CAIRN is allowed to be told a transcript was produced for it. Allowed is not the same as watching: watching needs a live subscription at Google, and this connection has not reported one.",
+  subscribed:
+    "Google holds a live subscription, so it would tell CAIRN if the meeting platform produced a transcript. CAIRN is still not in the call, and still cannot open the transcript.",
+  "subscription expiring":
+    "Google's subscription is close to lapsing and CAIRN is renewing it. If the renewal fails, Google stops announcing anything and CAIRN is told nothing more about this meeting.",
+  disconnected:
+    "Google Meet was disconnected, the subscriptions were torn down and the credential was destroyed. Nothing more is announced to CAIRN.",
+  failed:
+    "Google has stopped accepting CAIRN's requests, so nothing is being announced to it. If the authorisation lapsed or was withdrawn, reconnecting is what restores it.",
+};
+
+/**
+ * The status word for a workspace's Google Meet, or nothing.
+ *
+ * **Nothing is the important return value.** A connected Meet with no
+ * subscription state on the payload is a connection CAIRN cannot yet say
+ * anything about, and the card omits the line rather than rounding it up to
+ * "subscribed" — which would tell somebody a meeting is being watched on the
+ * strength of a field that was never sent.
+ *
+ * The subscription fields are read through `read` for the same reason the card's
+ * other optional details are: they are being added to `IntegrationResponse`
+ * concurrently, and reading them defensively means the day the server starts
+ * sending one the card shows it, and until then it shows none.
+ */
+export function googleMeetStatus(integration: Integration | null): GoogleMeetStatus | null {
+  if (integration === null) return "not connected";
+  if (integration.disconnectedAt != null) return "disconnected";
+  if (integration.suspended) return "failed";
+
+  return normaliseMeetStatus(asText(read(integration, "subscriptionState")));
+}
+
+/**
+ * When Google's subscription lapses, if the connection says so.
+ *
+ * Read through the same defensive lookup as the status, and for the same reason:
+ * a date CAIRN was not given is a date no screen prints. There is no fallback
+ * and no "unknown" — an absent expiry means the line is left out.
+ */
+export function googleMeetExpiry(integration: Integration | null): string | undefined {
+  if (integration === null) return undefined;
+  return asText(read(integration, "subscriptionExpiresAt"));
+}
+
+/**
+ * A server word, mapped to one this card has wording for.
+ *
+ * An unrecognised value returns nothing rather than being printed raw or rounded
+ * up: `SUBSCRIPTION_STATE_UNSPECIFIED` beside a meeting is a string nobody can
+ * act on, and guessing which way it leans is the failure this whole component
+ * exists to prevent.
+ *
+ * **"Subscription expiring" comes from the server or not at all.** It is not
+ * computed by comparing an expiry date against the clock: how close is too close
+ * is the renewal window, the server owns it, and a client that picked its own
+ * threshold would raise an alarm about a subscription that is renewing normally.
+ */
+function normaliseMeetStatus(value: string | undefined): GoogleMeetStatus | null {
+  if (value === undefined) return null;
+  return MEET_STATUS_WORDS[value.trim().toLowerCase()] ?? null;
+}
+
+const MEET_STATUS_WORDS: Record<string, GoogleMeetStatus> = {
+  // The consent gate's vocabulary.
+  pending: "connected but awaiting consent",
+  awaiting_consent: "connected but awaiting consent",
+  eligible: "eligible",
+  // The subscription lifecycle's.
+  active: "subscribed",
+  subscribed: "subscribed",
+  renewal_warning: "subscription expiring",
+  expiring: "subscription expiring",
+  // Every way it can be not working. They are one word here because the answer
+  // to all of them is the same, and the card's own state row already separates
+  // "disconnected" from "not working".
+  suspended: "failed",
+  expired: "failed",
+  deleted: "failed",
+  error: "failed",
+  failed: "failed",
+};
+
+export interface GoogleMeetStatusNoteProps {
+  status: GoogleMeetStatus;
+  /** When Google's lease lapses, if the server said. Rendered only for the two
+   * states where a date changes what the reader should do. */
+  expiresAt?: string;
+}
+
+/**
+ * The status word and the sentence that answers it.
+ *
+ * A word, never a colour and never an icon: the palette is monochrome by design
+ * and a state carried by a shade is one a reader with low vision has to guess
+ * (WCAG 1.4.1).
+ *
+ * Not a live region. It is part of the record the card draws on load, and an
+ * announcement fires on every re-render for a fact nobody just changed.
+ */
+export function GoogleMeetStatusNote({ status, expiresAt }: GoogleMeetStatusNoteProps): ReactNode {
+  const dated = status === "subscribed" || status === "subscription expiring";
+
+  return (
+    <p className={styles.detail}>
+      <strong>{MEET_STATUS_LABEL[status]}.</strong> {MEET_STATUS_DETAIL[status]}
+      {dated && expiresAt !== undefined && (
+        <>
+          {" "}
+          Google&rsquo;s subscription lapses on{" "}
+          <time dateTime={expiresAt}>{formatDay(expiresAt)}</time> unless it is renewed.
+        </>
+      )}
+    </p>
+  );
+}
+
 /** One row of a connections list: the card's view of a source, and the payload
  * it came from. `integration` is null for a source nobody has connected. */
 export interface ConnectionRow {
@@ -746,6 +1054,14 @@ export function connectionRows(integrations: Integration[]): ConnectionRow[] {
 
   if (!integrations.some((integration) => integration.source === "google_chat")) {
     rows.push({ source: "google_chat", connection: googleChatNotConnected(), integration: null });
+  }
+
+  // Meet is listed for the strongest version of this reason. What somebody
+  // believes CAIRN does inside a meeting is formed long before anybody presses
+  // Connect, and the belief is wrong in the invasive direction — so the card
+  // that corrects it has to be on the screen while the answer is still "no".
+  if (!integrations.some((integration) => integration.source === "google_meet")) {
+    rows.push({ source: "google_meet", connection: googleMeetNotConnected(), integration: null });
   }
 
   return rows;
@@ -865,6 +1181,15 @@ const PROVIDERS = {
     reads:
       "Reading messages in the spaces you choose, through one Google Workspace account. Never direct messages, never reactions, never who has read what.",
   },
+  // Not "reading" anything, and the sentence says so in the same slot every
+  // other provider uses to say what it reads. Meet is the one source where the
+  // reader's prior assumption is *more* invasive than the truth, so the
+  // difference has to be stated where the eye is already looking.
+  google_meet: {
+    label: "Google Meet",
+    reads:
+      "Being told that the meeting platform produced a transcript, for a meeting everybody in it agreed to. CAIRN never joins a call, never starts a recording, never opens a transcript and never sees who attended.",
+  },
 } satisfies Record<string, { label: string; reads: string }>;
 
 /** A lookup that admits it may miss. `PROVIDERS` has known keys; the source
@@ -952,6 +1277,17 @@ function describeState(
         integration.source === "github"
           ? "Suspended on GitHub. Nothing is being read while it stays that way. An owner of the GitHub organisation lifts a suspension in GitHub's own settings — CAIRN cannot do it from here."
           : `${label} has stopped accepting CAIRN's requests. Nothing is being read while it stays that way. If the authorisation lapsed or was withdrawn, reconnecting is what restores it; if not, the answer is at ${label} rather than here.`,
+    };
+  }
+  // "Reading now" is false of Google Meet in the direction that matters. A live
+  // Meet connection reads nothing: it is only able to be told that a transcript
+  // exists, for a meeting everybody in it agreed to. The generic sentence would
+  // confirm the exact belief `GOOGLE_MEET_BOUNDARY` exists to correct.
+  if (integration.source === "google_meet") {
+    return {
+      state: "connected",
+      stateDetail:
+        "Connected, and reading nothing. CAIRN is not in any call — a connection only lets Google tell it that a transcript exists, for a meeting everybody in it has agreed to.",
     };
   }
   return {

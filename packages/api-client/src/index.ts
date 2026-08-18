@@ -107,6 +107,50 @@ export type GoogleChatDisconnect =
 
 /*
  * ---------------------------------------------------------------------------
+ * Google Meet
+ * ---------------------------------------------------------------------------
+ *
+ * Two methods, and deliberately only two.
+ *
+ * The API publishes three Google Meet routes. `/v1/integrations/google-meet/
+ * callback` is the third, and it is not here: Google's consent screen sends the
+ * *browser* there and it answers with a 303 back to the workspace screen, so a
+ * `fetch` wrapper around it would follow the redirect inside the XHR and the
+ * customer would never arrive. The outcome reaches the interface as the
+ * `?googleMeet=` parameter that redirect carries, which `AdminPage` reads.
+ *
+ * The push receiver (`webhooks/google-meet`) is not here either, and is excluded
+ * on purpose rather than overlooked: it is unauthenticated, it is called by
+ * Google Pub/Sub and never by a signed-in person, and a browser-side method for
+ * it would be a method whose only possible use is forging a delivery.
+ *
+ * Both types are indexed out of `paths[...]`, like Slack's and Chat's above. The
+ * Chat block records what a hand-written shape costs; nothing here repeats it.
+ */
+
+/** Where to send a customer to authorise Google Meet, and when the link lapses.
+ *
+ * `notice` is the server's own sentence about what connecting does and does not
+ * do — the interface renders it rather than paraphrasing it, because the claim
+ * is about what the backend does and a copy in a React component is a claim
+ * nothing keeps true.
+ */
+export type GoogleMeetInstall =
+  paths["/v1/workspaces/{workspace_id}/integrations/google-meet/install"]["post"]["responses"][200]["content"]["application/json"];
+
+/**
+ * What disconnecting Google Meet actually did.
+ *
+ * Carries `subscriptionsRemoved` as well as `credentialCleared`, which Chat's
+ * does not: stopping the event subscriptions and destroying the refresh token
+ * are two different things, and a disconnect that did only one of them is a
+ * disconnect the reader is entitled to be told about.
+ */
+export type GoogleMeetDisconnect =
+  paths["/v1/workspaces/{workspace_id}/integrations/google-meet/disconnect"]["post"]["responses"][200]["content"]["application/json"];
+
+/*
+ * ---------------------------------------------------------------------------
  * Connected identities
  * ---------------------------------------------------------------------------
  *
@@ -495,6 +539,27 @@ export interface CairnClient {
     workspaceId: string,
     options?: RequestOptions,
   ): Promise<GoogleChatDisconnect>;
+
+  /** Begin connecting Google Meet. Returns where to send the customer.
+   *
+   * Same shape as Chat's and for the same reason: the API answers with the
+   * authorise URL rather than a 302, so the caller moves the window itself.
+   *
+   * There is no corresponding `finishGoogleMeetInstall`. The callback is a
+   * browser navigation that ends in a 303 back to the workspace screen; calling
+   * it with `fetch` would consume the single-use `state` and land the customer
+   * nowhere.
+   */
+  startGoogleMeetInstall(workspaceId: string, options?: RequestOptions): Promise<GoogleMeetInstall>;
+
+  /** Stop watching, tear down the event subscriptions, and clear the stored
+   * credential — all three, because a disconnect that leaves the credential
+   * behind keeps CAIRN holding a standing grant after somebody asked it to
+   * stop. The response says which of the three happened. */
+  disconnectGoogleMeet(
+    workspaceId: string,
+    options?: RequestOptions,
+  ): Promise<GoogleMeetDisconnect>;
 
   /**
    * The provider accounts CAIRN believes are the caller's, and how it knows.
@@ -924,6 +989,22 @@ export function createClient(options: ClientOptions): CairnClient {
       request<GoogleChatDisconnect>(
         "POST",
         `/v1/workspaces/${workspaceId}/integrations/google-chat/disconnect`,
+        undefined,
+        options,
+      ),
+
+    startGoogleMeetInstall: (workspaceId: string, options?: RequestOptions) =>
+      request<GoogleMeetInstall>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/integrations/google-meet/install`,
+        undefined,
+        options,
+      ),
+
+    disconnectGoogleMeet: (workspaceId: string, options?: RequestOptions) =>
+      request<GoogleMeetDisconnect>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/integrations/google-meet/disconnect`,
         undefined,
         options,
       ),

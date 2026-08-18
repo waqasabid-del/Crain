@@ -87,6 +87,13 @@ export function createStubClient(overrides: Partial<CairnClient> = {}): CairnCli
     listGoogleChatSpaces: vi.fn(unexpected("listGoogleChatSpaces")),
     setGoogleChatSpaces: vi.fn(unexpected("setGoogleChatSpaces")),
     disconnectGoogleChat: vi.fn(unexpected("disconnectGoogleChat")),
+    // Not benign defaults: both are destructive or navigational, and a test that
+    // reaches one without saying so should fail loudly. The Meet *card* renders
+    // on every workspace and Trust screen, but it renders from the integration
+    // list alone — there is no Meet status endpoint to stub, which is why no
+    // default is needed here for unrelated tests to pass.
+    startGoogleMeetInstall: vi.fn(unexpected("startGoogleMeetInstall")),
+    disconnectGoogleMeet: vi.fn(unexpected("disconnectGoogleMeet")),
     // Benign defaults, like `listSupportSessions` above: the identities block
     // renders on screens whose tests are about something else entirely, and
     // failing those on an unstubbed call would move the cost of this feature

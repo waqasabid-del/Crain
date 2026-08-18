@@ -1,6 +1,7 @@
 import type { Integration } from "@cairn/api-client";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { axe } from "vitest-axe";
 
@@ -16,6 +17,17 @@ import {
   GOOGLE_CHAT_REFUSALS,
   GOOGLE_CHAT_SCOPES,
   GOOGLE_CHAT_WORKSPACE_ACCOUNT,
+  googleMeetExpiry,
+  googleMeetNotConnected,
+  googleMeetStatus,
+  GoogleMeetStatusNote,
+  GOOGLE_MEET_BOUNDARY,
+  GOOGLE_MEET_CONNECTED_DETAIL,
+  GOOGLE_MEET_DISCONNECT_EFFECT,
+  GOOGLE_MEET_NOT_LIVE,
+  GOOGLE_MEET_REFUSALS,
+  GOOGLE_MEET_SCOPES,
+  GOOGLE_MEET_TRANSCRIPT_PERMISSION,
   slackNotConnected,
   SLACK_DISCONNECT_EFFECT,
   SLACK_INVITE_RULE,
@@ -904,5 +916,360 @@ describe("Google Chat on the connection card", () => {
     expect(row?.connection.stateDetail).toMatch(/reading nothing from google chat/i);
     // Nothing invented to fill the account slot for a source nobody connected.
     expect(row?.connection.account).toBeUndefined();
+  });
+});
+
+/**
+ * Google Meet, on the same card.
+ *
+ * **The failure mode here is not a missing feature; it is a reader who already
+ * believes something worse than the truth.** Everybody who hears "CAIRN does
+ * meetings" pictures a bot in the call, recording. A card that does not correct
+ * that has obtained agreement to something the person thought was happening
+ * anyway — which is not agreement at all. So the first assertion in this block
+ * is about one sentence, and it is the sentence the whole connector sits behind.
+ *
+ * The rest is about a narrower thing than usual: **the vocabulary**. Seven words
+ * describe where a workspace's Meet stands, every one of them comes from
+ * something the API actually said, and the eighth case is "say nothing". A
+ * screen that rounded an absent subscription state up to "subscribed" would tell
+ * somebody their meeting is being watched on the strength of a field nobody
+ * sent.
+ */
+describe("Google Meet on the connection card", () => {
+  /** Everything the workspace screen hands the card while Meet is off. */
+  function meetProps(): {
+    requestedScopes: typeof GOOGLE_MEET_SCOPES;
+    refusals: string[];
+    notice: ReactNode;
+    disconnectEffect: string;
+  } {
+    return {
+      requestedScopes: GOOGLE_MEET_SCOPES,
+      refusals: GOOGLE_MEET_REFUSALS,
+      notice: (
+        <>
+          <strong>{GOOGLE_MEET_BOUNDARY}</strong> {GOOGLE_MEET_TRANSCRIPT_PERMISSION}{" "}
+          {GOOGLE_MEET_NOT_LIVE}
+        </>
+      ),
+      disconnectEffect: GOOGLE_MEET_DISCONNECT_EFFECT,
+    };
+  }
+
+  /** A live Google Meet connection, as `connectionFromIntegration` builds one. */
+  function meetIntegration(overrides: Partial<Integration> = {}): Integration {
+    return {
+      source: "google_meet",
+      account: "northwind.example",
+      installationId: 12,
+      connectedAt: "2026-07-20T09:00:00Z",
+      disconnectedAt: null,
+      suspended: false,
+      ...overrides,
+    };
+  }
+
+  /** A payload carrying a field the published `Integration` does not have yet.
+   * The card reads those defensively; a test that could not supply one could
+   * not exercise the rule. */
+  function withState(subscriptionState: string, subscriptionExpiresAt?: string): Integration {
+    return {
+      ...meetIntegration(),
+      subscriptionState,
+      ...(subscriptionExpiresAt === undefined ? {} : { subscriptionExpiresAt }),
+    } as Integration;
+  }
+
+  it("says CAIRN does not join calls or start recordings, before anything else", () => {
+    // **The sentence this card exists for.** Every clause is checkable: no scope
+    // that can create or reconfigure a meeting space, so no recording can be
+    // caused; no Drive scope, so no transcript can be opened; and the
+    // eligibility gate refuses a meeting unless everybody expected in it has
+    // accepted.
+    render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+
+    expect(
+      screen.getByText(
+        /CAIRN does not join calls or start recordings\. It can only receive a transcript the meeting platform itself created, and only after every participant in that meeting has agreed\./,
+      ),
+    ).toBeVisible();
+  });
+
+  it("names the one scope literally and says what it does and does not permit", () => {
+    render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+
+    expect(screen.getByText("meetings.space.readonly")).toBeVisible();
+    expect(
+      screen.getByText(
+        /lets Google tell CAIRN that a transcript exists.*does not let CAIRN read/is,
+      ),
+    ).toBeVisible();
+  });
+
+  it("says reading a transcript needs a further permission that was never granted", () => {
+    // A reader who has just been told CAIRN can be *notified* about a transcript
+    // will assume the reading was the part left unsaid. It is not left unsaid.
+    render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+
+    const notice = screen.getByText(/a further, separate permission/i);
+    expect(notice).toBeVisible();
+    expect(notice.textContent).toMatch(/does not request one and has not been granted one/i);
+  });
+
+  it("asks for no second scope", () => {
+    // Locked deliberately, exactly as Chat's is. The day somebody adds a scope
+    // this fails, and whoever added it has to write the sentence that explains
+    // it to a customer — a Drive scope in particular changes what this
+    // connector is.
+    render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+
+    expect(screen.getAllByText(/^meetings\./)).toHaveLength(1);
+    expect(screen.queryByText(/^drive/)).toBeNull();
+  });
+
+  it("states what the grant makes impossible rather than leaving it inferred", () => {
+    render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+
+    expect(screen.getByText(/there is no CAIRN bot and no CAIRN participant/i)).toBeVisible();
+    expect(
+      screen.getByText(/cannot cause the artifact it is waiting to hear about/i),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/attendance reports need an admin scope CAIRN refuses to request/i),
+    ).toBeVisible();
+  });
+
+  it("renders no meeting title, joining code, reference or attendee", () => {
+    // **None of these exist to render, and that is the point.** A joining code
+    // is a credential — Step 35 removed it from every response for exactly that
+    // reason — and an attendee list is the analytic md/03 §5.4 forbids. This
+    // asserts the markup rather than the copy, because the way one arrives is
+    // somebody helpfully threading a field through later.
+    const { container } = render(
+      <ConnectionCard
+        connection={connectionFromIntegration(meetIntegration())}
+        canManage
+        {...meetProps()}
+      >
+        <GoogleMeetStatusNote status="subscribed" expiresAt="2026-09-01T09:00:00Z" />
+      </ConnectionCard>,
+    );
+
+    const html = container.innerHTML;
+    expect(html).not.toMatch(/meet\.google\.com/i);
+    // A Meet joining code, in the shape Google issues them: abc-defg-hij.
+    expect(html).not.toMatch(/\b[a-z]{3}-[a-z]{4}-[a-z]{3}\b/);
+    // Google's own identifiers for a meeting and its recording of one.
+    expect(html).not.toMatch(/spaces\/[A-Za-z0-9_-]+|conferenceRecords|meetingCode|meetingUri/);
+    // A label that would introduce any of the above.
+    expect(html).not.toMatch(/joining code|meeting code|meeting link|meeting reference/i);
+    // A person. The card names the authorising domain and nothing else — no
+    // address, no display name, no list of who was there.
+    expect(html).not.toMatch(/[\w.+-]+@[\w.-]+\.\w+/);
+    expect(html).not.toMatch(/attendees?[:—-]|attendee list|attendance report:/i);
+  });
+
+  it("never describes Google Meet as live", () => {
+    render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+
+    expect(screen.getByText(/cannot be connected yet/i)).toBeVisible();
+    expect(screen.getByText(/OAuth app verification/i)).toBeVisible();
+    expect(screen.queryByText(/\blive\b/i)).toBeNull();
+  });
+
+  describe("the status vocabulary", () => {
+    it("says 'not connected' when there is no connection", () => {
+      expect(googleMeetStatus(null)).toBe("not connected");
+    });
+
+    it("says 'disconnected' from the payload's own disconnectedAt", () => {
+      expect(googleMeetStatus(meetIntegration({ disconnectedAt: "2026-08-01T09:00:00Z" }))).toBe(
+        "disconnected",
+      );
+    });
+
+    it("says 'failed' when the provider stopped accepting CAIRN's requests", () => {
+      expect(googleMeetStatus(meetIntegration({ suspended: true }))).toBe("failed");
+    });
+
+    it.each([
+      ["pending", "connected but awaiting consent"],
+      ["awaiting_consent", "connected but awaiting consent"],
+      ["eligible", "eligible"],
+      ["active", "subscribed"],
+      ["renewal_warning", "subscription expiring"],
+      ["expired", "failed"],
+      ["error", "failed"],
+    ])("maps the server's %s to %s", (sent, expected) => {
+      expect(googleMeetStatus(withState(sent))).toBe(expected);
+    });
+
+    it("says nothing at all when the connection carried no subscription state", () => {
+      // **The rule this component exists for.** A connected Meet with no state
+      // on it is one CAIRN cannot yet describe, and rounding that up to
+      // "subscribed" would tell somebody a meeting is being watched on the
+      // strength of a field nobody sent.
+      expect(googleMeetStatus(meetIntegration())).toBeNull();
+    });
+
+    it("invents nothing from a word it has no wording for", () => {
+      expect(googleMeetStatus(withState("SUBSCRIPTION_STATE_UNSPECIFIED"))).toBeNull();
+    });
+
+    it("does not decide on its own that a subscription is expiring", () => {
+      // How close to expiry is too close is the renewal window, and the server
+      // owns it. A client that picked its own threshold would raise an alarm
+      // about a subscription renewing perfectly normally.
+      const integration = withState("active", "2026-08-18T09:00:00Z");
+
+      expect(googleMeetStatus(integration)).toBe("subscribed");
+      expect(googleMeetExpiry(integration)).toBe("2026-08-18T09:00:00Z");
+    });
+
+    it("reads no expiry the connection did not carry", () => {
+      expect(googleMeetExpiry(meetIntegration())).toBeUndefined();
+      expect(googleMeetExpiry(null)).toBeUndefined();
+    });
+
+    it.each([
+      ["not connected", /^Not connected\./],
+      ["connected but awaiting consent", /^Connected but awaiting consent\./],
+      ["eligible", /^Eligible\./],
+      ["subscribed", /^Subscribed\./],
+      ["subscription expiring", /^Subscription expiring\./],
+      ["disconnected", /^Disconnected\./],
+      ["failed", /^Failed\./],
+    ] as const)("renders the word %s with a sentence that answers it", (status, pattern) => {
+      const { container } = render(<GoogleMeetStatusNote status={status} />);
+
+      expect(screen.getByText(pattern)).toBeVisible();
+      // The word carries the state. No colour, no icon, no badge — the palette
+      // is monochrome and a state carried by a shade is one a reader with low
+      // vision has to guess (WCAG 1.4.1).
+      expect(container.querySelector("svg")).toBeNull();
+      // And never a bare word: a status with no sentence after it is an
+      // unanswerable line.
+      expect(container.textContent.length).toBeGreaterThan(60);
+    });
+
+    it("shows the lapse date only when the server sent one", () => {
+      const { rerender } = render(
+        <GoogleMeetStatusNote status="subscribed" expiresAt="2026-09-01T09:00:00Z" />,
+      );
+      expect(screen.getByText(/lapses on/i)).toBeVisible();
+
+      rerender(<GoogleMeetStatusNote status="subscribed" />);
+      expect(screen.queryByText(/lapses on/i)).toBeNull();
+    });
+
+    it("never claims a call is being watched now", () => {
+      const { container } = render(<GoogleMeetStatusNote status="subscribed" />);
+
+      expect(container.textContent).toMatch(/still not in the call/i);
+      expect(container.textContent).not.toMatch(/\blistening\b|recording now|\bjoined\b/i);
+    });
+  });
+
+  it("does not say 'reading now' about a live Meet connection", () => {
+    // "Reading now" is true of Slack and false of Meet in the direction that
+    // matters: a live Meet connection reads nothing at all.
+    const connection = connectionFromIntegration(meetIntegration());
+
+    expect(connection.stateDetail).toMatch(/connected, and reading nothing/i);
+    expect(connection.stateDetail).not.toMatch(/reading now/i);
+  });
+
+  it("lists Google Meet whether or not anybody has connected it", () => {
+    const row = connectionRows([]).find((entry) => entry.source === "google_meet");
+
+    expect(row?.connection.state).toBe("disconnected");
+    expect(row?.connection.stateDetail).toMatch(/receiving nothing from google meet/i);
+    expect(row?.connection.account).toBeUndefined();
+  });
+
+  it("confirms a disconnect by restating all four things it does", async () => {
+    render(
+      <ConnectionCard
+        connection={connectionFromIntegration(meetIntegration())}
+        canManage
+        onDisconnect={vi.fn()}
+        {...meetProps()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /^disconnect$/i }));
+
+    const confirmation = screen.getByRole("group", { name: /disconnect google meet/i });
+    expect(confirmation).toHaveTextContent(/tears down the event subscriptions/i);
+    expect(confirmation).toHaveTextContent(/destroys the refresh token/i);
+    expect(confirmation).toHaveTextContent(/does not delete what has already been recorded/i);
+    expect(confirmation).toHaveTextContent(
+      /answers people gave about individual meetings are kept/i,
+    );
+  });
+
+  it("can be driven to the confirmation and back from the keyboard alone", async () => {
+    render(
+      <ConnectionCard
+        connection={connectionFromIntegration(meetIntegration())}
+        canManage
+        onDisconnect={vi.fn()}
+        {...meetProps()}
+      />,
+    );
+
+    await userEvent.tab();
+    await userEvent.keyboard("{Enter}");
+
+    const confirmation = await screen.findByRole("group", { name: /disconnect google meet/i });
+    expect(confirmation).toHaveFocus();
+
+    // Tab to "Keep it connected" — the second control in the group — and take
+    // it. Focus returns to the trigger rather than to the top of the document.
+    await userEvent.tab();
+    await userEvent.tab();
+    await userEvent.keyboard("{Enter}");
+
+    expect(screen.queryByRole("group", { name: /disconnect google meet/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^disconnect$/i })).toHaveFocus();
+  });
+
+  it("shows a Viewer the record and none of the controls", () => {
+    render(
+      <ConnectionCard
+        connection={connectionFromIntegration(meetIntegration())}
+        canManage={false}
+        {...meetProps()}
+      >
+        <GoogleMeetStatusNote status="eligible" />
+      </ConnectionCard>,
+    );
+
+    expect(
+      screen.getByText(/an owner or an admin of this workspace connects and disconnects sources/i),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: /disconnect/i })).toBeNull();
+    // And every word of the record is still readable to them.
+    expect(screen.getByText("meetings.space.readonly")).toBeVisible();
+    expect(screen.getByText(/^Eligible\./)).toBeVisible();
+  });
+
+  it("passes an axe audit with everything a Google Meet card carries", async () => {
+    const { container } = render(
+      <ConnectionCard
+        connection={connectionFromIntegration(meetIntegration())}
+        canManage
+        onConnect={vi.fn()}
+        onDisconnect={vi.fn()}
+        oauthReturn="connected"
+        connectedSummary={GOOGLE_MEET_CONNECTED_DETAIL}
+        {...meetProps()}
+      >
+        <GoogleMeetStatusNote status="subscription expiring" expiresAt="2026-09-01T09:00:00Z" />
+      </ConnectionCard>,
+    );
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
   });
 });

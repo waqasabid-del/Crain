@@ -30,6 +30,13 @@ import {
   GOOGLE_CHAT_REFUSALS,
   GOOGLE_CHAT_SCOPES,
   GOOGLE_CHAT_WORKSPACE_ACCOUNT,
+  googleMeetStatus,
+  GoogleMeetStatusNote,
+  GOOGLE_MEET_BOUNDARY,
+  GOOGLE_MEET_NOT_LIVE,
+  GOOGLE_MEET_REFUSALS,
+  GOOGLE_MEET_SCOPES,
+  GOOGLE_MEET_TRANSCRIPT_PERMISSION,
   SLACK_INVITE_RULE,
   SLACK_REFUSALS,
   SLACK_SCOPES,
@@ -163,8 +170,11 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
         who needs it is the one who has *not* been asked about a meeting: a
         person who has heard "CAIRN can do meetings" and wants to know whether
         something has been sitting in their calls. The answer is no, and it is a
-        product boundary rather than a setting — CAIRN has no meeting connector
-        at all, and the permission below exists so that one cannot be built
+        product boundary rather than a setting: CAIRN joins nothing and records
+        nothing. Step 36A added the one connector there is — Google Meet — and
+        what it can do is be *told* that the meeting platform itself produced a
+        transcript, for a meeting every participant agreed to. The permission
+        below was built before the connector was, so that it could not be built
         without it.
 
         **Agreeing is not what makes CAIRN lawful, and this section must never
@@ -182,13 +192,41 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
       */}
       <TrustSection
         title="Meetings"
-        description="CAIRN records no meeting, and no meeting platform connector exists in it. If one is ever built, this is the permission it will have to hold first."
+        description="CAIRN records no meeting and joins none. One meeting platform can now be connected — Google Meet — and this is the permission it has to hold before anything about a meeting reaches CAIRN at all."
       >
         <ul className={styles.refusals}>
           {MEETING_BOUNDARY.map((line) => (
             <li key={line}>{line}</li>
           ))}
         </ul>
+
+        {/*
+          Google Meet, in the shape the Google Chat wording already uses on this
+          page: what it can do, what it cannot, and the plain statement that it
+          is not live.
+
+          **The boundary sentence comes first and is not softened.** Everybody
+          who hears "CAIRN does meetings" pictures a bot in the call. It is not
+          one, and every part of that is checkable: the connector requests no
+          scope that can create or reconfigure a meeting space, so it cannot
+          cause a recording; it requests no Drive scope, so it cannot open the
+          transcript file; and the eligibility gate refuses a meeting unless
+          every expected participant holds a live acceptance.
+
+          **The unavailability is stated with its actual blocker, not Chat's.**
+          Chat is blocked by a restricted scope needing a CASA assessment; Meet's
+          `meetings.space.readonly` is sensitive rather than restricted and needs
+          Google's OAuth app verification alone. Copying Chat's sentence here
+          would overstate it, and a governance reader who checked the scope
+          classification would find this page wrong — which is the one thing it
+          cannot be. The CASA assessment does become Meet's blocker the moment a
+          Drive scope is requested for transcript retrieval, and that is said
+          rather than left as a surprise.
+        */}
+        <p className={styles.lead}>
+          <strong>{GOOGLE_MEET_BOUNDARY}</strong> {GOOGLE_MEET_TRANSCRIPT_PERMISSION}
+        </p>
+        <p className={styles.aside}>{GOOGLE_MEET_NOT_LIVE}</p>
 
         <p className={styles.aside}>
           Being asked, and being able to refuse, is a safeguard CAIRN applies on top of its lawful
@@ -350,8 +388,15 @@ function WorkspaceConnections({ workspaceId }: { workspaceId: string }): ReactNo
 
           <ul className={styles.connections} aria-label="Connections">
             {connectionRows(state.data).map((row) => {
-              const { connection } = row;
+              const { connection, integration } = row;
               const connected = connection.state === "connected";
+              // Only for a Meet connection that exists: `googleMeetStatus(null)`
+              // is "not connected", which the card's own state row already says,
+              // and two state words on one card is a card to be reconciled.
+              const meetStatus =
+                row.source === "google_meet" && integration !== null
+                  ? googleMeetStatus(integration)
+                  : null;
 
               return (
                 <li key={connection.id}>
@@ -390,7 +435,32 @@ function WorkspaceConnections({ workspaceId }: { workspaceId: string }): ReactNo
                               ? { children: <GoogleChatSpaceRecord workspaceId={workspaceId} /> }
                               : {}),
                           }
-                        : {})}
+                        : row.source === "google_meet"
+                          ? {
+                              requestedScopes: GOOGLE_MEET_SCOPES,
+                              refusals: GOOGLE_MEET_REFUSALS,
+                              // The boundary first, on the page where somebody
+                              // is checking whether CAIRN has been sitting in
+                              // their calls. The unavailability is added only
+                              // while Meet is not connected, so the record can
+                              // never carry both that sentence and a live
+                              // connection.
+                              notice: (
+                                <>
+                                  <strong>{GOOGLE_MEET_BOUNDARY}</strong>{" "}
+                                  {GOOGLE_MEET_TRANSCRIPT_PERMISSION}
+                                  {connected ? null : <> {GOOGLE_MEET_NOT_LIVE}</>}
+                                </>
+                              ),
+                              // A status word only when the connection carried
+                              // one. Nothing is invented on the page whose whole
+                              // claim is that its facts are read from the
+                              // workspace.
+                              ...(meetStatus === null
+                                ? {}
+                                : { children: <GoogleMeetStatusNote status={meetStatus} /> }),
+                            }
+                          : {})}
                   />
                 </li>
               );

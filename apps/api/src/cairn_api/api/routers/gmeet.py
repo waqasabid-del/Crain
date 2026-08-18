@@ -21,6 +21,15 @@ So connecting does exactly two things: it stores a refresh token, and it makes i
 some meeting's every participant has agreed, a connected Google Meet account
 causes precisely zero collection, and the install response says so.
 
+**Transcript access is a second, separate button, and the transcript surface is
+status only.** Step 36B adds three routes: one that begins the restricted-scope
+consent action, one that withdraws it, and one that reports which meetings
+produced a transcript and what happened to it. There is deliberately **no route
+that returns a transcript**. A customer sees availability, state, size and the
+retention date; reading the text is a later step with its own consent
+conversation, and an endpoint that returned it would have made that decision on
+everybody's behalf.
+
 **The Pub/Sub receiver is not in this file and is not in the client.** It lives in
 ``api/routers/gmeet_push.py``, is unauthenticated by necessity, and is verified by
 a Google-signed token rather than by a session.
@@ -42,6 +51,7 @@ not have.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 from urllib.parse import urlencode
@@ -60,14 +70,24 @@ from cairn_api.api.dependencies import (
     requires,
 )
 from cairn_api.api.errors import ProblemDetailError
-from cairn_api.api.schemas import GoogleMeetDisconnectResponse, GoogleMeetInstallResponse
+from cairn_api.api.schemas import (
+    GoogleMeetDisconnectResponse,
+    GoogleMeetInstallResponse,
+    GoogleMeetTranscriptAccessResponse,
+    GoogleMeetTranscriptAccessStateResponse,
+    GoogleMeetTranscriptListResponse,
+    GoogleMeetTranscriptStatus,
+)
 from cairn_api.auth.permissions import Permission, has_permission
 from cairn_api.config import Settings
 from cairn_api.connectors.credentials import read_secret
 from cairn_api.db.connector_models import SourceConnection
+from cairn_api.db.gmeet_models import GoogleMeetGrantKind, GoogleMeetTranscriptGrant
 from cairn_api.db.models import Membership
-from cairn_api.gmeet import oauth
+from cairn_api.gmeet import artifacts, oauth
+from cairn_api.gmeet import retrieval as transcript_retrieval
 from cairn_api.gmeet import subscriptions as subscription_engine
+from cairn_api.gmeet.artifacts import ArtifactError, ArtifactFailure
 from cairn_api.gmeet.oauth import (
     GoogleMeetApi,
     GoogleMeetInstallError,
@@ -106,6 +126,26 @@ CONNECT_NOTICE = (
     "one meeting at a time, and even then it only records that the meeting "
     "platform produced a transcript — it does not join meetings, retrieve "
     "transcripts, or track who attended."
+)
+
+#: Stated on every transcript status read, because it is the thing a reader will
+#: otherwise assume the endpoint is for.
+TRANSCRIPT_STATUS_NOTICE = (
+    "This shows which consented meetings produced a transcript and what CAIRN did "
+    "with it. It does not show the transcript, and there is no way to read one "
+    "through CAIRN at this stage."
+)
+
+#: What withdrawing transcript access does and does not do. The less flattering
+#: half is the half that belongs in the response.
+TRANSCRIPT_WITHDRAWAL_NOTICE = (
+    "Transcript access is separate from the Google Meet connection: withdrawing it "
+    "stops CAIRN retrieving any further transcripts and destroys the stored "
+    "authorisation, while the connection and the per-meeting consent decisions "
+    "carry on unchanged. Transcripts already retrieved are not deleted by "
+    "withdrawing — they are deleted at the end of your workspace's retention "
+    "period, and the record that they were collected is kept so that the "
+    "withdrawal itself remains demonstrable."
 )
 
 #: The failures that mean "a human said no" rather than "something broke". Kept as
@@ -149,7 +189,31 @@ def subscription_client(settings: SettingsDep) -> subscription_engine.Subscripti
     return subscription_engine.build_client(settings)
 
 
+def transcript_api(settings: SettingsDep) -> GoogleMeetApi:
+    """The OAuth client for **transcript access**, which is a different client.
+
+    Not `google_meet_api`. The two consent actions are authorised on separate
+    OAuth clients for the reason `config.Settings` refuses to let them be the
+    same one: a shared client would expand the Meet connection's grant at Google,
+    and that connection's next refresh would return both scope sets and be
+    rejected by an equality check doing its job — days later, with nothing in the
+    log naming the cause.
+
+    Raises:
+        ProblemDetailError: 503 when transcript retrieval is not configured on
+            this deployment.
+    """
+    try:
+        return HttpGoogleMeetApi(
+            client_id=settings.google_meet_transcript_client_id,
+            client_secret=settings.google_meet_transcript_client_secret,
+        )
+    except GoogleMeetInstallError as error:
+        raise _problem(error, status.HTTP_503_SERVICE_UNAVAILABLE) from error
+
+
 GoogleMeetApiDep = Annotated[GoogleMeetApi, Depends(google_meet_api)]
+TranscriptApiDep = Annotated[GoogleMeetApi, Depends(transcript_api)]
 SubscriptionClientDep = Annotated[
     subscription_engine.SubscriptionClient | None, Depends(subscription_client)
 ]
@@ -421,6 +485,370 @@ async def disconnect_google_meet(
     )
 
 
+# ---------------------------------------------------------------------------
+# Transcript access: a separate consent action, and a status view
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{workspace_id}/integrations/google-meet/transcript-access",
+    response_model=GoogleMeetTranscriptAccessResponse,
+    summary="Begin granting CAIRN access to Google Meet transcripts",
+    responses={
+        403: {"description": "Requires permission to connect integrations."},
+        404: {"description": "No Google Meet account is connected."},
+        503: {"description": "Transcript retrieval is not configured on this deployment."},
+    },
+)
+async def begin_transcript_access(
+    context: Annotated[WorkspaceContext, Depends(requires(Permission.INTEGRATIONS_CONNECT))],
+    db: PlatformDb,
+    settings: SettingsDep,
+) -> GoogleMeetTranscriptAccessResponse:
+    """Issue a state for the **transcript** grant, and return its authorise URL.
+
+    A separate route rather than a parameter on the install route, and that is the
+    design rather than an accident of layout. ``drive.meet.readonly`` is a
+    restricted scope that lets CAIRN read the file the platform produced; folding
+    it into "connect Google Meet" would mean a workspace acquiring artifact access
+    by pressing a button labelled something else. Connecting and granting
+    transcript access are two decisions, so they are two clicks, two OAuth
+    clients, two consent screens and two rows.
+
+    Requires an existing, live Meet connection: transcript access with nothing to
+    apply it to is a restricted-scope grant held for no reason.
+    """
+    await _connected_or_404(db, context)
+
+    if not settings.google_meet_transcript_client_id:
+        # Checked before the state is written. Issuing a nonce and then failing to
+        # build a URL would leave a live state behind for a grant that could never
+        # be completed.
+        raise _transcript_problem(
+            ArtifactError(ArtifactFailure.NOT_CONFIGURED),
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    nonce, verifier, expires_at = await oauth.issue_state(
+        db,
+        tenant_id=context.tenant_id,
+        user_id=context.user.id,
+        grant=GoogleMeetGrantKind.TRANSCRIPT,
+    )
+    await db.commit()
+
+    await logger.ainfo(
+        "gmeet.transcript_access_started",
+        tenant_id=str(context.tenant_id),
+        started_by=str(context.user.id),
+        # Neither the nonce nor the verifier, for the reason `begin_install` says:
+        # a log line carrying them is a log line from which somebody can complete
+        # a restricted-scope grant an admin started.
+    )
+
+    return GoogleMeetTranscriptAccessResponse(
+        authorize_url=artifacts.build_transcript_authorize_url(
+            settings, state=nonce, code_verifier=verifier
+        ),
+        expires_at=expires_at,
+        notice=artifacts.TRANSCRIPT_CONSENT_NOTICE,
+    )
+
+
+@callback_router.get(
+    "/transcript-callback",
+    summary="Finish granting access to Google Meet transcripts",
+    response_class=RedirectResponse,
+    responses={303: {"description": "Back to the workspace's admin screen."}},
+)
+async def finish_transcript_access(
+    caller: CurrentUser,
+    db: PlatformDb,
+    settings: SettingsDep,
+    api: TranscriptApiDep,
+    code: Annotated[str | None, Query()] = None,
+    state: Annotated[str | None, Query()] = None,
+    error: Annotated[str | None, Query()] = None,
+) -> RedirectResponse:
+    """Where Google sends the customer back from the transcript consent screen.
+
+    **A separate path on a separate OAuth client**, so the two flows cannot
+    redeem each other's authorisation codes — Google matches the redirect URI
+    exactly, and a shared one would make the distinction depend on a branch rather
+    than on the registration.
+
+    The same order as the connection callback, for the same reasons: any ``error``
+    parameter is a refusal, the state is claimed atomically and single-use before
+    anything is exchanged, the workspace comes off the stored row and never from
+    the request, and the caller is proved to *still* be a member with permission
+    before the code is sent to Google. `consume_state` is passed the transcript
+    grant kind, so a state issued for "connect Google Meet" cannot be redeemed
+    here.
+    """
+    if error is not None:
+        return _back(settings, failure=oauth.failure_for_google_error(error))
+    if state is None or code is None:
+        return _back(settings, failure=GoogleMeetInstallFailure.STATE_REJECTED)
+
+    try:
+        claimed = await oauth.consume_state(
+            db, state=state, user_id=caller.user.id, grant=GoogleMeetGrantKind.TRANSCRIPT
+        )
+        # Committed immediately: "retry the callback until it works" is
+        # indistinguishable from a replay, and single-use is what separates them.
+        await db.commit()
+    except GoogleMeetInstallError as failure_error:
+        return _back(settings, failure=failure_error.failure)
+
+    # Read off the row while it is still loaded — a `rollback()` below expires
+    # every instance in the session, and touching these afterwards issues a lazy
+    # SELECT from a synchronous attribute hook, which under asyncpg raises
+    # `MissingGreenlet` from inside an exception handler.
+    tenant_id = claimed.tenant_id
+    code_verifier = claimed.code_verifier
+
+    membership = await db.scalar(
+        select(Membership).where(
+            Membership.tenant_id == tenant_id, Membership.user_id == caller.user.id
+        )
+    )
+    if membership is None or not has_permission(membership.role, Permission.INTEGRATIONS_CONNECT):
+        await logger.awarning(
+            "gmeet.transcript_access_rejected",
+            tenant_id=str(tenant_id),
+            reason=GoogleMeetInstallFailure.STATE_REJECTED.value,
+        )
+        return _back(settings, failure=GoogleMeetInstallFailure.STATE_REJECTED)
+
+    connection = await oauth.find_connection(db, tenant_id=tenant_id)
+    if connection is None or not connection.is_active:
+        return _back(settings, failure=GoogleMeetInstallFailure.STATE_REJECTED)
+
+    try:
+        grant = await api.exchange_code(
+            code=code,
+            redirect_uri=settings.google_meet_transcript_redirect_uri,
+            code_verifier=code_verifier,
+        )
+        # **Equality, and the transcript allowlist rather than the connection's.**
+        # A response carrying both scope sets means the two consent actions have
+        # been merged onto one OAuth client, which is refused rather than accepted
+        # as "at least what we needed".
+        artifacts.verify_granted_transcript_scopes(grant.granted_scopes)
+        await _record_transcript_grant(
+            db,
+            tenant_id=tenant_id,
+            connection_id=connection.id,
+            user_id=caller.user.id,
+            grant=grant,
+        )
+    except (GoogleMeetInstallError, ArtifactError) as failure_error:
+        # Rolled back explicitly: a half-written grant would be a workspace that
+        # reads as authorised with no usable credential.
+        await db.rollback()
+        await logger.awarning(
+            "gmeet.transcript_access_failed",
+            tenant_id=str(tenant_id),
+            reason=failure_error.failure.value,
+            category=failure_error.category.value,
+        )
+        return _back(settings, failure=GoogleMeetInstallFailure.SCOPES_UNEXPECTED)
+
+    await db.commit()
+    return _back(settings, failure=None)
+
+
+async def _record_transcript_grant(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    connection_id: uuid.UUID,
+    user_id: uuid.UUID,
+    grant: oauth.GoogleTokenGrant,
+) -> GoogleMeetTranscriptGrant:
+    """Create or revive this connection's transcript grant, and store its token.
+
+    One row per connection, so re-granting after a withdrawal revives the existing
+    row rather than leaving two with different answers. The refresh token is the
+    **grant's own** — a different credential from the connection's, on a different
+    client, with a different scope set — which is what makes revoking transcript
+    access revoke something rather than clear a flag beside a token that still
+    works.
+    """
+    moment = datetime.now(UTC)
+    existing = await db.scalar(
+        select(GoogleMeetTranscriptGrant).where(
+            GoogleMeetTranscriptGrant.tenant_id == tenant_id,
+            GoogleMeetTranscriptGrant.connection_id == connection_id,
+        )
+    )
+    record = existing
+    if record is None:
+        record = GoogleMeetTranscriptGrant(
+            tenant_id=tenant_id, connection_id=connection_id, granted_by_user_id=user_id
+        )
+        db.add(record)
+
+    record.granted_by_user_id = user_id
+    # Sorted, so two identical grants produce identical rows.
+    record.granted_scopes = sorted(grant.granted_scopes)
+    record.granted_at = moment
+    record.revoked_at = None
+    record.policy_version = artifacts.TRANSCRIPT_CONSENT_POLICY_VERSION
+    record._secret_ciphertext = artifacts.seal_refresh_token(grant.refresh_token)
+    # A revival must not inherit the previous grant's cached access token.
+    await db.flush()
+    transcript_retrieval.forget_transcript_token(record.id)
+
+    await logger.ainfo(
+        "gmeet.transcript_access_granted",
+        tenant_id=str(tenant_id),
+        granted_by=str(user_id),
+        # Scope *names* are ours, not the customer's, so they are safe — and they
+        # are the field that makes "what did this workspace actually authorise"
+        # answerable without opening a token.
+        granted_scopes=sorted(grant.granted_scopes),
+    )
+    return record
+
+
+@router.post(
+    "/{workspace_id}/integrations/google-meet/transcript-access/revoke",
+    response_model=GoogleMeetTranscriptAccessStateResponse,
+    summary="Withdraw CAIRN's access to Google Meet transcripts",
+    responses={
+        403: {"description": "Requires permission to disconnect integrations."},
+        404: {"description": "No Google Meet account is connected."},
+    },
+)
+async def revoke_transcript_access(
+    context: Annotated[WorkspaceContext, Depends(requires(Permission.INTEGRATIONS_DISCONNECT))],
+    db: PlatformDb,
+) -> GoogleMeetTranscriptAccessStateResponse:
+    """Stop retrieving transcripts, and destroy the credential that could.
+
+    **Narrower than disconnecting, deliberately.** The Meet connection keeps
+    working, the subscriptions keep running, and CAIRN goes back to recording only
+    that a transcript exists. Somebody who decides transcript retrieval was a step
+    too far should not have to tear down the whole connector to undo it.
+
+    Idempotent: revoking access nobody granted answers the same way, because from
+    the caller's side "we do not have it" is one fact.
+    """
+    connection = await _connected_or_404(db, context)
+    await transcript_retrieval.revoke_grant(
+        db, tenant_id=context.tenant_id, connection_id=connection.id
+    )
+    await db.commit()
+
+    await logger.ainfo(
+        "gmeet.transcript_access_withdrawn",
+        tenant_id=str(context.tenant_id),
+        withdrawn_by=str(context.user.id),
+    )
+    return await _transcript_access_state(db, tenant_id=context.tenant_id, connection=connection)
+
+
+@router.get(
+    "/{workspace_id}/integrations/google-meet/transcripts",
+    response_model=GoogleMeetTranscriptListResponse,
+    summary="Which meetings produced a transcript, and what happened to it",
+    responses={
+        403: {"description": "Requires permission to manage integrations."},
+        404: {"description": "No Google Meet account is connected."},
+    },
+)
+async def list_transcripts(
+    # The read side of an integration, gated on the same permission that lets
+    # somebody connect one. There is no narrower "view integrations" permission,
+    # and inventing one here would put a permission model decision inside a
+    # connector — see `auth/permissions.py`, which owns that vocabulary.
+    context: Annotated[WorkspaceContext, Depends(requires(Permission.INTEGRATIONS_CONNECT))],
+    db: PlatformDb,
+) -> GoogleMeetTranscriptListResponse:
+    """Availability and status. **There is no route that returns a transcript.**
+
+    What a workspace can see here: that a meeting they all consented to produced a
+    transcript, whether CAIRN retrieved it, how large it was, when it will be
+    deleted, and — when it was refused — a reason from a vocabulary CAIRN wrote
+    that names nobody.
+
+    What it cannot see: a line of it. Making transcripts readable is a product
+    decision with its own consent conversation, and shipping it as a side effect
+    of shipping retrieval would be making that decision on everybody's behalf.
+    """
+    await _connected_or_404(db, context)
+    statuses = await transcript_retrieval.transcript_statuses(db, tenant_id=context.tenant_id)
+    connection = await oauth.find_connection(db, tenant_id=context.tenant_id)
+    granted = connection is not None and (
+        await transcript_retrieval.active_grant(
+            db, tenant_id=context.tenant_id, connection_id=connection.id
+        )
+        is not None
+    )
+
+    return GoogleMeetTranscriptListResponse(
+        transcript_access_granted=granted,
+        transcripts=tuple(
+            GoogleMeetTranscriptStatus(
+                artifact_id=item.artifact_id,
+                meeting_id=item.meeting_id,
+                state=item.state.value,
+                refusal_reason=item.refusal_reason.value if item.refusal_reason else None,
+                error_category=item.error_category.value if item.error_category else None,
+                announced_at=item.announced_at,
+                generated_at=item.generated_at,
+                retrieved_at=item.retrieved_at,
+                content_bytes=item.content_bytes,
+                content_held=item.content_held,
+                retention_expires_at=item.retention_expires_at,
+                withdrawn_at=item.withdrawn_at,
+            )
+            for item in statuses
+        ),
+        notice=TRANSCRIPT_STATUS_NOTICE,
+    )
+
+
+async def _transcript_access_state(
+    db: AsyncSession, *, tenant_id: uuid.UUID, connection: SourceConnection
+) -> GoogleMeetTranscriptAccessStateResponse:
+    """The current transcript-access answer, read back rather than assumed."""
+    record = await db.scalar(
+        select(GoogleMeetTranscriptGrant).where(
+            GoogleMeetTranscriptGrant.tenant_id == tenant_id,
+            GoogleMeetTranscriptGrant.connection_id == connection.id,
+        )
+    )
+    return GoogleMeetTranscriptAccessStateResponse(
+        granted=record is not None and record.is_granted,
+        granted_at=record.granted_at if record is not None else None,
+        revoked_at=record.revoked_at if record is not None else None,
+        notice=TRANSCRIPT_WITHDRAWAL_NOTICE,
+    )
+
+
+def _transcript_problem(error: ArtifactError, status_code: int) -> ProblemDetailError:
+    """Render a transcript-access failure as a problem document.
+
+    Carries our bounded failure and category and never Google's words, exactly as
+    `_problem` does for the connection flow. A separate function because the two
+    error types are separate vocabularies, and one that accepted either would be
+    one a caller could hand the wrong one.
+    """
+    return ProblemDetailError(
+        status_code=status_code,
+        title="Google Meet transcript access is unavailable",
+        detail=(
+            "Transcript retrieval is not configured on this deployment."
+            if error.failure is ArtifactFailure.NOT_CONFIGURED
+            else "Google Meet transcript access could not be changed."
+        ),
+        problem_type=f"google-meet-transcript-{error.failure.value.replace('_', '-')}",
+        category=error.category.value,
+    )
+
+
 async def _connected_or_404(db: AsyncSession, context: WorkspaceContext) -> SourceConnection:
     """This workspace's live Google Meet connection, or a 404.
 
@@ -443,4 +871,10 @@ def _not_connected() -> ProblemDetailError:
     )
 
 
-__all__ = ["callback_router", "google_meet_api", "router", "subscription_client"]
+__all__ = [
+    "callback_router",
+    "google_meet_api",
+    "router",
+    "subscription_client",
+    "transcript_api",
+]

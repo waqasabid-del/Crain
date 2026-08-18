@@ -1416,6 +1416,206 @@
         "title": "GoogleMeetInstallResponse",
         "type": "object"
       },
+      "GoogleMeetTranscriptAccessResponse": {
+        "additionalProperties": false,
+        "description": "Where to send the customer for the **separate** transcript permission.",
+        "properties": {
+          "authorizeUrl": {
+            "title": "Authorizeurl",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          }
+        },
+        "required": ["authorizeUrl", "expiresAt", "notice"],
+        "title": "GoogleMeetTranscriptAccessResponse",
+        "type": "object"
+      },
+      "GoogleMeetTranscriptAccessStateResponse": {
+        "additionalProperties": false,
+        "description": "Whether this workspace has granted transcript access, and what that means.",
+        "properties": {
+          "granted": {
+            "title": "Granted",
+            "type": "boolean"
+          },
+          "grantedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grantedat"
+          },
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revokedat"
+          }
+        },
+        "required": ["granted", "notice"],
+        "title": "GoogleMeetTranscriptAccessStateResponse",
+        "type": "object"
+      },
+      "GoogleMeetTranscriptListResponse": {
+        "additionalProperties": false,
+        "description": "This workspace's transcript availability. Status only, by construction.",
+        "properties": {
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          },
+          "transcriptAccessGranted": {
+            "title": "Transcriptaccessgranted",
+            "type": "boolean"
+          },
+          "transcripts": {
+            "items": {
+              "$ref": "#/components/schemas/GoogleMeetTranscriptStatus"
+            },
+            "title": "Transcripts",
+            "type": "array"
+          }
+        },
+        "required": ["transcriptAccessGranted", "transcripts", "notice"],
+        "title": "GoogleMeetTranscriptListResponse",
+        "type": "object"
+      },
+      "GoogleMeetTranscriptStatus": {
+        "additionalProperties": false,
+        "description": "One announced transcript, as far as a customer may see it.",
+        "properties": {
+          "announcedAt": {
+            "format": "date-time",
+            "title": "Announcedat",
+            "type": "string"
+          },
+          "artifactId": {
+            "format": "uuid",
+            "title": "Artifactid",
+            "type": "string"
+          },
+          "contentBytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contentbytes"
+          },
+          "contentHeld": {
+            "title": "Contentheld",
+            "type": "boolean"
+          },
+          "errorCategory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errorcategory"
+          },
+          "generatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generatedat"
+          },
+          "meetingId": {
+            "format": "uuid",
+            "title": "Meetingid",
+            "type": "string"
+          },
+          "refusalReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusalreason"
+          },
+          "retentionExpiresAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retentionexpiresat"
+          },
+          "retrievedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrievedat"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "withdrawnAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawnat"
+          }
+        },
+        "required": ["artifactId", "meetingId", "state", "announcedAt", "contentHeld"],
+        "title": "GoogleMeetTranscriptStatus",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -4141,6 +4341,98 @@
         "tags": ["google-meet"]
       }
     },
+    "/v1/integrations/google-meet/transcript-callback": {
+      "get": {
+        "description": "Where Google sends the customer back from the transcript consent screen.\n\n**A separate path on a separate OAuth client**, so the two flows cannot\nredeem each other's authorisation codes \u2014 Google matches the redirect URI\nexactly, and a shared one would make the distinction depend on a branch rather\nthan on the registration.\n\nThe same order as the connection callback, for the same reasons: any ``error``\nparameter is a refusal, the state is claimed atomically and single-use before\nanything is exchanged, the workspace comes off the stored row and never from\nthe request, and the caller is proved to *still* be a member with permission\nbefore the code is sent to Google. `consume_state` is passed the transcript\ngrant kind, so a state issued for \"connect Google Meet\" cannot be redeemed\nhere.",
+        "operationId": "finish_transcript_access_v1_integrations_google_meet_transcript_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Back to the workspace's admin screen."
+          },
+          "307": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish granting access to Google Meet transcripts",
+        "tags": ["google-meet"]
+      }
+    },
     "/v1/integrations/slack/callback": {
       "get": {
         "description": "Where Slack sends the customer back.\n\n**Any ``error`` parameter is a failed install.** Slack's documentation does\nnot state verbatim which value comes back when somebody presses Cancel, so\nthis does not compare against the literal ``access_denied`` \u2014 an equality\ncheck that missed would fall through to \"exchange the code\" with no code, and\nthe customer would see a parse failure instead of \"you declined\". Presence is\nthe condition; the value is read for categorisation and then discarded.\n\nThe order of the checks is the security property. The state is claimed \u2014\natomically, single-use \u2014 *before* anything is exchanged, so a replayed\ncallback fails on the second attempt whether or not the first one worked.\nThen the caller is proved to still be a member of the state's workspace with\npermission to connect, so a leaked state cannot be redeemed by anyone else.\nOnly then is the code sent to Slack.\n\nRedirects rather than returning JSON, because the thing following this URL is\na browser mid-navigation, and the destination is built from\n``public_app_url`` rather than from the request \u2014 the same rule as\nverification links, for the same reason.",
@@ -6607,6 +6899,201 @@
           }
         },
         "summary": "Begin connecting a Google Meet account",
+        "tags": ["google-meet"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/google-meet/transcript-access": {
+      "post": {
+        "description": "Issue a state for the **transcript** grant, and return its authorise URL.\n\nA separate route rather than a parameter on the install route, and that is the\ndesign rather than an accident of layout. ``drive.meet.readonly`` is a\nrestricted scope that lets CAIRN read the file the platform produced; folding\nit into \"connect Google Meet\" would mean a workspace acquiring artifact access\nby pressing a button labelled something else. Connecting and granting\ntranscript access are two decisions, so they are two clicks, two OAuth\nclients, two consent screens and two rows.\n\nRequires an existing, live Meet connection: transcript access with nothing to\napply it to is a restricted-scope grant held for no reason.",
+        "operationId": "begin_transcript_access_v1_workspaces__workspace_id__integrations_google_meet_transcript_access_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleMeetTranscriptAccessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to connect integrations."
+          },
+          "404": {
+            "description": "No Google Meet account is connected."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Transcript retrieval is not configured on this deployment."
+          }
+        },
+        "summary": "Begin granting CAIRN access to Google Meet transcripts",
+        "tags": ["google-meet"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/google-meet/transcript-access/revoke": {
+      "post": {
+        "description": "Stop retrieving transcripts, and destroy the credential that could.\n\n**Narrower than disconnecting, deliberately.** The Meet connection keeps\nworking, the subscriptions keep running, and CAIRN goes back to recording only\nthat a transcript exists. Somebody who decides transcript retrieval was a step\ntoo far should not have to tear down the whole connector to undo it.\n\nIdempotent: revoking access nobody granted answers the same way, because from\nthe caller's side \"we do not have it\" is one fact.",
+        "operationId": "revoke_transcript_access_v1_workspaces__workspace_id__integrations_google_meet_transcript_access_revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleMeetTranscriptAccessStateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to disconnect integrations."
+          },
+          "404": {
+            "description": "No Google Meet account is connected."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Withdraw CAIRN's access to Google Meet transcripts",
+        "tags": ["google-meet"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/google-meet/transcripts": {
+      "get": {
+        "description": "Availability and status. **There is no route that returns a transcript.**\n\nWhat a workspace can see here: that a meeting they all consented to produced a\ntranscript, whether CAIRN retrieved it, how large it was, when it will be\ndeleted, and \u2014 when it was refused \u2014 a reason from a vocabulary CAIRN wrote\nthat names nobody.\n\nWhat it cannot see: a line of it. Making transcripts readable is a product\ndecision with its own consent conversation, and shipping it as a side effect\nof shipping retrieval would be making that decision on everybody's behalf.",
+        "operationId": "list_transcripts_v1_workspaces__workspace_id__integrations_google_meet_transcripts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleMeetTranscriptListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to manage integrations."
+          },
+          "404": {
+            "description": "No Google Meet account is connected."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Which meetings produced a transcript, and what happened to it",
         "tags": ["google-meet"]
       }
     },

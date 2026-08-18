@@ -88,6 +88,7 @@ from cairn_api.gmeet.oauth import (
     access_token_for,
 )
 from cairn_api.gmeet.pubsub import PROVIDER
+from cairn_api.gmeet.retrieval import note_withdrawal
 from cairn_api.meetings.guard import CollectionPermit, CollectionRefusedError, permit_collection
 from cairn_api.ops.connectors import (
     SUSPENSION_REASON_CATEGORY,
@@ -1495,6 +1496,17 @@ async def _renew_one(
         # withdrawal is.
         await remove_subscription(
             db, client, connection, meeting_id=subscription.meeting_id, now=now
+        )
+        # Step 36B: the same decision applies to anything already retrieved for
+        # this meeting. Stamping it stops every future processing path and
+        # rewrites nothing — deletion is the retention policy's job, and a
+        # withdrawal that silently erased what was collected would also erase the
+        # evidence that the withdrawal was honoured.
+        await note_withdrawal(
+            db,
+            tenant_id=subscription.tenant_id,
+            meeting_id=subscription.meeting_id,
+            now=now,
         )
         await refresh_connection_health(db, connection, now=now)
         await logger.ainfo(

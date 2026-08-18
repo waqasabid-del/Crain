@@ -434,6 +434,84 @@ def _connectors_gate(settings: Settings) -> Gate:
     )
 
 
+def _meeting_transcripts_gate(settings: Settings) -> Gate:
+    """Retrieving the transcript a consented meeting produced.
+
+    Step 36B, and the one gate in this module whose blocker is a **third party's
+    calendar**. `drive.meet.readonly` is a RESTRICTED OAuth scope: Google requires
+    verification *plus* an independent CASA security assessment ending in a Letter
+    of Assessment, re-taken at least every twelve months. That is weeks to months,
+    it is owned outside this repository, and no amount of finished code shortens
+    it — so a deployment that has not *started* one cannot ship transcript
+    retrieval whatever the state of the working tree.
+
+    **This gate cannot return `PASSED`, structurally**, for a sharper reason than
+    the connectors gate cannot. Its inputs are a client id and a secret; the thing
+    that actually gates the launch is a document a third party issues, which no
+    environment variable can attest to. Reporting "passed" because credentials are
+    present would be signing off a restricted-scope launch on the strength of a
+    `.env` file.
+
+    **A separate gate from `connectors`, which reports on chat coverage.**
+    `ConnectorCategory.MEETING` is deliberately excluded from that gate — see
+    `_connectors_gate` — so a Meet blocker folded in there would either be
+    invisible or would make a workspace with no chat source look chat-covered.
+
+    It also states the narrower fact that makes the wider one bearable: the Meet
+    connection half is SENSITIVE, not restricted, so a deployment can ship
+    transcript *announcements* today and leave retrieval unconfigured. Blocked is
+    then the honest and the desirable state, rather than a failure.
+    """
+    from cairn_api.db.connector_models import ConnectorProvider
+    from cairn_api.ops.connectors import GOOGLE_MEET_TRANSCRIPT_SCOPES, spec
+
+    blocker = spec(ConnectorProvider.GOOGLE_MEET).release_blocker
+    restricted = ", ".join(
+        item.name for item in GOOGLE_MEET_TRANSCRIPT_SCOPES if item.requires_security_assessment
+    )
+
+    if not settings.google_meet_transcript_client_id:
+        return Gate(
+            name="meeting-transcripts",
+            status=GateStatus.BLOCKED,
+            detail=(
+                "Transcript retrieval is not configured. CAIRN records that a "
+                "consented meeting produced a transcript and retrieves nothing, "
+                "which is the intended state until the restricted-scope assessment "
+                "is complete."
+            ),
+            next_step=(
+                f"{blocker} Then, and only then, create a separate OAuth client for "
+                f"the {restricted} scope, set CAIRN_GOOGLE_MEET_TRANSCRIPT_CLIENT_ID, "
+                "CAIRN_GOOGLE_MEET_TRANSCRIPT_CLIENT_SECRET and "
+                "CAIRN_GOOGLE_MEET_TRANSCRIPT_REDIRECT_URI — a client of its own, "
+                "because sharing the Meet connector's would make each grant's scopes "
+                "appear in the other's token response and break both."
+            ),
+        )
+
+    return Gate(
+        name="meeting-transcripts",
+        status=GateStatus.UNVERIFIED,
+        detail=(
+            "A transcript-retrieval OAuth client is configured. Credentials being "
+            "present says nothing about whether the restricted-scope assessment has "
+            "been completed, and this gate has no way to observe that."
+        ),
+        next_step=(
+            f"{blocker} Then verify the whole consent path end to end on one real "
+            "meeting: grant transcript access as a second, explicit action; confirm "
+            "the Meet connection still refreshes afterwards, which is what proves the "
+            "two OAuth clients are genuinely separate; hold a meeting everybody "
+            "consented to with transcription on; confirm exactly one transcript is "
+            "retrieved and stored encrypted, and that no transcript text appears in "
+            "any log or response. Then withdraw consent on a second meeting after its "
+            "announcement and confirm nothing is retrieved, and revoke transcript "
+            "access and confirm the connection and its subscriptions keep working."
+        ),
+    )
+
+
 def evaluate_release_gates(settings: Settings | None = None) -> Sequence[Gate]:
     """Every dependency a live release turns on, in the order to close them."""
     from cairn_api.config import get_settings
@@ -445,6 +523,7 @@ def evaluate_release_gates(settings: Settings | None = None) -> Sequence[Gate]:
         _email_gate(resolved),
         _github_gate(resolved),
         _connectors_gate(resolved),
+        _meeting_transcripts_gate(resolved),
         _model_gate(resolved),
         _audit_sink_gate(resolved),
     )

@@ -18,6 +18,7 @@ from cairn_api.db.session import dispose_engines, platform_session
 from cairn_api.gchat import subscriptions as gchat_subscriptions
 from cairn_api.github import handlers as github_handlers
 from cairn_api.github import jobs as github_jobs
+from cairn_api.gmeet import retrieval as gmeet_retrieval
 from cairn_api.gmeet import subscriptions as gmeet_subscriptions
 from cairn_api.jobs.factory import build_queue
 from cairn_api.jobs.queue import JobQueue
@@ -85,6 +86,20 @@ async def run_maintenance(*, interval: float) -> None:
                 # subscription down on the next pass rather than waiting for it
                 # to lapse.
                 meet_renewals = await gmeet_subscriptions.renew_expiring_subscriptions(session)
+                # Step 36B: retrieve the transcripts a consented meeting
+                # announced. On this loop rather than on the job queue because
+                # the unit of work is "whatever is waiting" rather than one
+                # message, and because a queued job would carry an artifact
+                # reference in its payload — which is the one identifier this
+                # connector keeps encrypted and off every diagnostics screen.
+                #
+                # The pass re-asks Step 35's consent gate for every artifact
+                # immediately before the download it authorises, so a withdrawal
+                # between the announcement and the retrieval collects nothing.
+                transcripts = await gmeet_retrieval.retrieve_pending_transcripts(session)
+                # And the retention path, which is what makes the raw store
+                # deletable rather than merely bounded. Provenance survives it.
+                transcripts_purged = await gmeet_retrieval.purge_expired_transcripts(session)
         except Exception as exc:
             await logger.awarning("maintenance.failed", error=str(exc))
         else:
@@ -109,6 +124,20 @@ async def run_maintenance(*, interval: float) -> None:
                     withdrawn=meet_renewals.withdrawn,
                     failed=meet_renewals.failed,
                 )
+            if transcripts.considered:
+                await logger.ainfo(
+                    "maintenance.gmeet_transcripts_retrieved",
+                    count=transcripts.retrieved,
+                    # Separate from `failed` for the reason `withdrawn` is above:
+                    # a transcript refused because consent moved, or because the
+                    # thing announced was not a transcript, is the product
+                    # working.
+                    refused=transcripts.refused,
+                    retired=transcripts.retired,
+                    failed=transcripts.dead_lettered,
+                )
+            if transcripts_purged:
+                await logger.ainfo("maintenance.gmeet_transcripts_purged", count=transcripts_purged)
 
 
 def register_handlers(queue: JobQueue, target: JobRegistry | None = None) -> None:
