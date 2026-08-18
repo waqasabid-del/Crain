@@ -25,6 +25,7 @@ from typing import Any
 
 import pytest
 from cairn_api.db.fact_models import Fact as FactRow
+from cairn_api.db.fact_models import FactSource as FactSourceRow
 from cairn_api.db.github_models import GitHubInstallation, WebhookDelivery
 from cairn_api.db.models import Membership, Tenant, TenantRole, User
 from cairn_api.db.tenancy import tenant_session
@@ -637,3 +638,236 @@ class TestTheApiExposesWhatThePipelineProduced:
 
         assert "/facts" in schema
         assert "/brief" in schema
+
+
+class TestNothingIsDroppedFromALargePush:
+    """**The defect this class exists for was found in production, by a person.**
+
+    A 26-commit push produced facts for 20 commits. `MAX_EVIDENCE_ITEMS` sliced
+    the list and the remaining six were discarded with no log line, no counter
+    and no marker on the delivery. One of the dropped commits was co-authored,
+    so two people's work vanished, and the only trace that anything had happened
+    was a commit on GitHub with no matching fact.
+
+    That is worse than an error. This repository's own reporting rule is that a
+    cap must say so; this one was invisible from every side. The webhook
+    returned 202, the delivery was marked processed, the counts in the log were
+    the counts of what survived, and a brief written from the result read as a
+    complete week.
+
+    The cap itself is not the bug. It bounds prompt size and cost, and raising
+    it only moves the cliff. The bug is that work past the cap was lost rather
+    than carried.
+    """
+
+    @staticmethod
+    def _push(installation_id: int, *, commits: int = 26) -> dict[str, Any]:
+        """A push whose tail is past the cap, with the co-author in the tail.
+
+        The last commit is the interesting one: under the old slice it was the
+        furthest thing from being processed, and it is the one carrying a second
+        person's name.
+        """
+        trailer = "\n\nCo-authored-by: Tom Reilly <tom@acme.test>"
+        return {
+            "installation": {"id": installation_id},
+            "repository": {"full_name": "acme-inc/api", "id": 42},
+            "sender": {"login": "priya", "id": 7},
+            "ref": "refs/heads/main",
+            "commits": [
+                {
+                    "id": format(index, "040x"),
+                    "message": (
+                        f"Land change {index} in the batch"
+                        + (trailer if index == commits - 1 else "")
+                    ),
+                    "timestamp": "2026-08-14T09:30:00Z",
+                    "url": "https://github.com/acme-inc/api/commit/" + format(index, "040x"),
+                    "author": {"name": "Priya Nair", "email": "priya@acme.test"},
+                }
+                for index in range(commits)
+            ],
+        }
+
+    def test_every_commit_becomes_evidence(self) -> None:
+        """The unit-level statement of the bug: reading a delivery must not lose
+        any of it. Chunking happens after the read, over the whole list."""
+        from cairn_api.pipeline import jobs
+
+        delivery = WebhookDelivery(
+            delivery_id="gh-" + uuid.uuid4().hex[:12],
+            event_type="push",
+            payload=self._push(1, commits=26),
+        )
+
+        evidence = jobs._read_evidence(delivery)
+
+        assert len(evidence) == 26, "the tail of the push was dropped on read"
+
+    def test_the_co_author_in_the_tail_survives(self) -> None:
+        """The commit that failed live, asserted directly."""
+        from cairn_api.pipeline import jobs
+
+        delivery = WebhookDelivery(
+            delivery_id="gh-" + uuid.uuid4().hex[:12],
+            event_type="push",
+            payload=self._push(1, commits=26),
+        )
+
+        last = jobs._read_evidence(delivery)[-1]
+
+        assert "Tom Reilly" in last.text
+        assert "Priya Nair" in last.text
+
+    def test_chunks_cover_the_whole_delivery_without_overlap(self) -> None:
+        """Every item in exactly one chunk. A gap loses a commit; an overlap
+        costs a duplicate model call for a fact that merges anyway."""
+        from cairn_api.pipeline import jobs
+
+        evidence = jobs._read_evidence(
+            WebhookDelivery(
+                delivery_id="gh-" + uuid.uuid4().hex[:12],
+                event_type="push",
+                payload=self._push(1, commits=26),
+            )
+        )
+
+        chunks = list(jobs._chunks(evidence))
+
+        assert [len(chunk) for chunk in chunks] == [jobs.MAX_EVIDENCE_ITEMS, 6]
+        flattened = [item.evidence_id for chunk in chunks for item in chunk]
+        assert flattened == [item.evidence_id for item in evidence]
+        assert len(set(flattened)) == len(flattened)
+
+    async def test_all_twenty_six_commits_produce_attributed_facts(
+        self,
+        platform: AsyncSession,
+        workspace: tuple[Tenant, GitHubInstallation],
+        providers: Providers,
+    ) -> None:
+        """**The end-to-end version, in the shape that failed.**
+
+        Every commit cited, including the six that used to fall past the cap.
+        """
+        tenant, installation = workspace
+        payload = self._push(installation.installation_id, commits=26)
+        delivery_id = await store_delivery(platform, tenant, payload)
+
+        handler = make_handler(providers=providers)
+        async with tenant_session(tenant.id) as session:
+            await handler(
+                session,
+                JobEnvelope(
+                    job_type=UNDERSTAND_JOB,
+                    tenant_id=tenant.id,
+                    payload={"delivery_id": delivery_id},
+                ),
+            )
+            await session.commit()
+
+        async with tenant_session(tenant.id) as session:
+            cited = set(await session.scalars(select(FactSourceRow.evidence_id)))
+
+        expected = {"github:commit:" + format(index, "040x") for index in range(26)}
+        missing = expected - cited
+        assert not missing, f"{len(missing)} commit(s) produced no fact: {sorted(missing)}"
+
+    async def test_reprocessing_a_chunked_delivery_does_not_duplicate_facts(
+        self,
+        platform: AsyncSession,
+        workspace: tuple[Tenant, GitHubInstallation],
+        providers: Providers,
+    ) -> None:
+        """Chunking must not cost the idempotency the single-pass path had.
+
+        `_already_understood` is set containment over the evidence ids it is
+        handed, so it has to be asked per chunk. Asked over the whole delivery
+        it would answer "no" while any chunk was outstanding, and re-run every
+        chunk on every redelivery.
+        """
+        tenant, installation = workspace
+        payload = self._push(installation.installation_id, commits=26)
+        delivery_id = await store_delivery(platform, tenant, payload)
+        handler = make_handler(providers=providers)
+        envelope = JobEnvelope(
+            job_type=UNDERSTAND_JOB,
+            tenant_id=tenant.id,
+            payload={"delivery_id": delivery_id},
+        )
+
+        counts = []
+        for _ in range(2):
+            async with tenant_session(tenant.id) as session:
+                await handler(session, envelope)
+                await session.commit()
+            async with tenant_session(tenant.id) as session:
+                counts.append(len(list(await session.scalars(select(FactRow)))))
+
+        assert counts[0] == counts[1], f"redelivery changed the fact count: {counts}"
+
+
+class TestEveryCapSaysSoOutLoud:
+    """A cap that cannot be observed is indistinguishable from a quiet week."""
+
+    def test_the_item_cap_is_not_a_slice_any_more(self) -> None:
+        """The literal defect: `found[:MAX_EVIDENCE_ITEMS]` discarded the tail.
+
+        Asserted against the source because the behaviour it produced - facts
+        that never exist - leaves nothing to assert on.
+        """
+        import inspect
+
+        from cairn_api.pipeline import jobs
+
+        source = inspect.getsource(jobs._read_evidence)
+        assert "[:MAX_EVIDENCE_ITEMS]" not in source
+
+    def test_truncating_an_over_long_message_is_recorded(self) -> None:
+        """`MAX_EVIDENCE_CHARS` had the same silence as the item cap.
+
+        It cannot be chunked away - a commit message is one piece of evidence
+        under one id, and splitting it would either duplicate that id or invent
+        one - so it stays a cap and becomes an honest one: counted, logged, and
+        marked in the text, so the model is told it is reading a fragment rather
+        than left to summarise a sentence that stops mid-word.
+        """
+        from cairn_api.pipeline import jobs
+
+        long_message = "x" * (jobs.MAX_EVIDENCE_CHARS + 500)
+        delivery = WebhookDelivery(
+            delivery_id="gh-" + uuid.uuid4().hex[:12],
+            event_type="push",
+            payload={
+                "repository": {"full_name": "acme-inc/api"},
+                "commits": [
+                    {
+                        "id": "c" * 40,
+                        "message": long_message,
+                        "url": None,
+                        "author": {"name": "Priya Nair", "email": "priya@acme.test"},
+                    }
+                ],
+            },
+        )
+
+        [item] = jobs._read_evidence(delivery)
+
+        assert len(item.text) <= jobs.MAX_EVIDENCE_CHARS + len(jobs.TRUNCATION_MARKER)
+        assert item.text.endswith(jobs.TRUNCATION_MARKER)
+
+    def test_a_message_within_the_cap_is_left_alone(self) -> None:
+        from cairn_api.pipeline import jobs
+
+        delivery = WebhookDelivery(
+            delivery_id="gh-" + uuid.uuid4().hex[:12],
+            event_type="push",
+            payload={
+                "repository": {"full_name": "acme-inc/api"},
+                "commits": [{"id": "d" * 40, "message": "Short and complete", "url": None}],
+            },
+        )
+
+        [item] = jobs._read_evidence(delivery)
+
+        assert item.text == "Short and complete"
+        assert jobs.TRUNCATION_MARKER not in item.text

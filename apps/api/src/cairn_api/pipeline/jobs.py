@@ -6,13 +6,14 @@ Ties `classify`, `extract`, `resolve`, `store` and `graph` to the GitHub webhook
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
 import structlog
+from opentelemetry import metrics
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,16 +43,51 @@ from cairn_api.pipeline.provider import (
     VertexProvider,
 )
 from cairn_api.pipeline.spend import BudgetedProvider, ledger_for
+from cairn_api.telemetry.attributes import safe
 
 logger = structlog.get_logger(__name__)
 
+meter = metrics.get_meter("cairn.pipeline")
+
+#: Every time a cap changes what the pipeline would otherwise have done.
+#:
+#: One counter with an `outcome`, rather than one per cap, so "is anything being
+#: capped anywhere" is a single query. `chunked` means a delivery needed more
+#: than one model round and got them; `chars_truncated` means a message was cut
+#: and marked. Neither is an error, and both are things somebody reading a thin
+#: brief needs to be able to check.
+evidence_capped = meter.create_counter(
+    "cairn.pipeline.evidence_capped",
+    description="Deliveries whose evidence hit a size cap",
+)
+
 UNDERSTAND_JOB = "pipeline.understand"
 
-#: Ceiling on evidence items per delivery — caps model spend and attacker-controlled input.
+#: Evidence items per *model round* — caps prompt size, model spend and how much
+#: attacker-controlled input reaches one call.
+#:
+#: **A batch size, not a limit on what is read.** It used to be
+#: `found[:MAX_EVIDENCE_ITEMS]`, which silently discarded everything past the
+#: twentieth item: a real 26-commit push produced facts for 20 commits, and the
+#: six that vanished included a co-authored one, so two people's work
+#: disappeared with no log line, no counter and no marker anywhere. Raising the
+#: number would only have moved the cliff.
 MAX_EVIDENCE_ITEMS = 20
 
-#: Characters kept per evidence item; safe to truncate since this is extraction input, not a stored fact.
+#: Characters kept per evidence item; safe to truncate since this is extraction
+#: input, not a stored fact.
+#:
+#: Unlike the item cap this one cannot be chunked away. A commit message is one
+#: piece of evidence under one id, and splitting it would either duplicate that
+#: id — breaking the idempotency check, which is set containment over ids — or
+#: invent one that cites nothing real. So it stays a cap and becomes an honest
+#: one: counted, logged, and marked in the text.
 MAX_EVIDENCE_CHARS = 4_000
+
+#: Appended when the cap above bites, so the *model* is told it is reading a
+#: fragment. Without it, extraction summarises a message that stops mid-word and
+#: states the result with the confidence of a complete one.
+TRUNCATION_MARKER = "\n[truncated]"
 
 
 class DeliveryNotFoundError(LookupError):
@@ -371,6 +407,43 @@ def _commit_text(commit: Mapping[str, Any], message: str) -> str:
     return f"Author: {name}" + chr(10) + message
 
 
+def _bounded(text: str, *, delivery_id: str) -> str:
+    """Apply the per-item character cap, visibly.
+
+    Returns the text unchanged when it fits. When it does not, the cut is
+    marked, logged and counted — the same treatment the item cap gets, for the
+    same reason: a cap nobody can see is indistinguishable from a short commit
+    message, and the person who notices is the one whose work was summarised
+    from half a sentence.
+    """
+    if len(text) <= MAX_EVIDENCE_CHARS:
+        return text
+
+    logger.info(
+        "evidence.truncated",
+        delivery_id=delivery_id,
+        # Lengths, never the text: this is a commit message, which is customer
+        # content and stays out of the log store.
+        original_chars=len(text),
+        kept_chars=MAX_EVIDENCE_CHARS,
+    )
+    evidence_capped.add(1, safe({"outcome": "chars_truncated"}))
+    return text[:MAX_EVIDENCE_CHARS] + TRUNCATION_MARKER
+
+
+def _chunks(evidence: list[_Evidence]) -> Iterator[list[_Evidence]]:
+    """The delivery's evidence, in model-sized batches, losing nothing.
+
+    Order is preserved and every item appears in exactly one chunk, so the
+    chunk boundaries are a function of the stored payload alone. That is what
+    makes a redelivery land on the same boundaries as the first attempt, and
+    therefore what lets each chunk's idempotency check answer for the same set
+    of evidence ids twice.
+    """
+    for start in range(0, len(evidence), MAX_EVIDENCE_ITEMS):
+        yield evidence[start : start + MAX_EVIDENCE_ITEMS]
+
+
 def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
     """Everything in a payload a fact could legitimately cite. Evidence ids
     are stable across redelivery (commit SHA; PR/issue number), which is
@@ -460,13 +533,13 @@ def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
     return [
         _Evidence(
             evidence_id=item.evidence_id,
-            text=item.text[:MAX_EVIDENCE_CHARS],
+            text=_bounded(item.text, delivery_id=delivery.delivery_id),
             url=item.url,
             occurred_at=item.occurred_at,
             project=project,
             actor=item.actor,
         )
-        for item in found[:MAX_EVIDENCE_ITEMS]
+        for item in found
     ]
 
 
@@ -642,10 +715,74 @@ async def _understand(
         )
         return
 
+    batches = list(_chunks(evidence))
+    if len(batches) > 1:
+        # Said out loud, once, before any of it runs. The number that matters to
+        # a reader is how many rounds this delivery takes, because that is the
+        # difference between "the brief is thin" and "the brief is still being
+        # written".
+        await logger.ainfo(
+            "understand.chunked",
+            delivery_id=delivery.delivery_id,
+            event_type=delivery.event_type,
+            evidence=len(evidence),
+            chunks=len(batches),
+            chunk_size=MAX_EVIDENCE_ITEMS,
+        )
+        evidence_capped.add(1, safe({"outcome": "chunked"}))
+
+    for number, batch in enumerate(batches, start=1):
+        await _understand_chunk(
+            session,
+            delivery,
+            batch,
+            tenant_id=tenant_id,
+            providers=providers,
+            model_name=model_name,
+            chunk=number,
+            chunks=len(batches),
+        )
+
+
+async def _understand_chunk(
+    session: AsyncSession,
+    delivery: WebhookDelivery,
+    evidence: list[_Evidence],
+    *,
+    tenant_id: uuid.UUID,
+    providers: Providers,
+    model_name: str,
+    chunk: int,
+    chunks: int,
+) -> None:
+    """One model round over one batch of a delivery's evidence.
+
+    **Sequential in this job rather than one queued job per chunk.** The
+    alternative was re-enqueuing, which is this repository's idiom elsewhere
+    (`github/jobs.py` re-enqueues a backfill batch rather than looping) and
+    keeps every job inside its five-minute lease. It was rejected here for one
+    reason: it needs a queue threaded into this handler, and this handler is
+    wired in two places without one. A wiring gap would then drop the tail of a
+    push exactly as the old slice did — the same defect, arrived at by a longer
+    route, and just as quiet.
+
+    The cost is honest: a very large push holds a worker for several rounds, and
+    if it outlives the lease another worker reclaims it and repeats work. That
+    is waste, not corruption — every chunk is idempotent and Stage 3 merges
+    repeats — and waste is recoverable in a way a missing fact is not.
+    """
     index = {item.evidence_id: item for item in evidence}
 
+    # Asked per chunk, not per delivery. Over the whole delivery this would
+    # answer "no" while any chunk was outstanding and re-run every chunk on
+    # every redelivery; over one chunk it skips exactly the work already done.
     if await _already_understood(session, tenant_id=tenant_id, evidence_ids=list(index)):
-        await logger.adebug("understand.already_applied", delivery_id=delivery.delivery_id)
+        await logger.adebug(
+            "understand.already_applied",
+            delivery_id=delivery.delivery_id,
+            chunk=chunk,
+            chunks=chunks,
+        )
         return
 
     # Per-tenant ledger so one workspace's runaway backfill can't deny the model to others (spend.py).
@@ -660,6 +797,8 @@ async def _understand(
             "understand.skipped",
             delivery_id=delivery.delivery_id,
             event_class=classification.event_class.value,
+            chunk=chunk,
+            chunks=chunks,
         )
         return
 
@@ -676,6 +815,8 @@ async def _understand(
         await logger.ainfo(
             "understand.nothing_extracted",
             delivery_id=delivery.delivery_id,
+            chunk=chunk,
+            chunks=chunks,
             abstained=result.abstained,
             live_model=providers.live,  # distinguishes "extracted nothing" from "no model" (an outage)
             spend_exceeded=ledger.exceeded,
@@ -703,6 +844,8 @@ async def _understand(
         delivery_id=delivery.delivery_id,
         event_type=delivery.event_type,
         evidence=len(evidence),
+        chunk=chunk,
+        chunks=chunks,
         facts=len(plan.decisions),
         edges=update.edges_written,
         embeddings=update.embeddings_written,
