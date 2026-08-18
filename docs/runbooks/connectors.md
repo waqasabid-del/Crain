@@ -113,6 +113,11 @@ that nothing tells you is missing.
 
 ### Setup, and what each permission buys
 
+Create the App with `python scripts/create_github_app.py --webhook-url <url>`, which posts a
+manifest GitHub builds from, so the permissions the installation ends up with are the ones in
+version control and the credentials go straight to `.env` without passing through a person. The
+table below is what that manifest declares, and what to set if you ever build one by hand.
+
 Create a GitHub App on the account that owns the repositories. **Read-only throughout — no write
 permission of any kind is ever required, and widening one to make something work is a product
 invariant broken, not a fix.**
