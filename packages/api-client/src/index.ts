@@ -339,6 +339,8 @@ export interface RequestOptions {
 
 type SignUpBody = paths["/v1/auth/signup"]["post"]["requestBody"]["content"]["application/json"];
 type LogInBody = paths["/v1/auth/login"]["post"]["requestBody"]["content"]["application/json"];
+type VerifyEmailBody =
+  paths["/v1/auth/verify-email"]["post"]["requestBody"]["content"]["application/json"];
 type InviteBody =
   paths["/v1/workspaces/{workspace_id}/invitations"]["post"]["requestBody"]["content"]["application/json"];
 export type CorrectionBody =
@@ -404,6 +406,13 @@ export interface CairnClient {
   /** Create an account and its first workspace. Signs the caller in. */
   signUp(body: SignUpBody, options?: RequestOptions): Promise<Session>;
   logIn(body: LogInBody, options?: RequestOptions): Promise<Session>;
+  /** Redeem the link from a verification email.
+   *
+   * Unauthenticated, deliberately: somebody clicking a link in their inbox may
+   * have no session in that browser, and requiring one would send them to a
+   * sign-in screen that discards the token they arrived with. The token is the
+   * credential - 256 bits delivered only to the address it proves. */
+  verifyEmail(body: VerifyEmailBody, options?: RequestOptions): Promise<Session>;
   /** Who the caller is. Resolves to null when signed out, rather than throwing. */
   getSession(options?: RequestOptions): Promise<Session | null>;
   logOut(options?: RequestOptions): Promise<void>;
@@ -756,6 +765,11 @@ export function createClient(options: ClientOptions): CairnClient {
       body: paths["/v1/auth/login"]["post"]["requestBody"]["content"]["application/json"],
       options?: RequestOptions,
     ) => request<Session>("POST", "/v1/auth/login", body, options),
+
+    verifyEmail: (
+      body: paths["/v1/auth/verify-email"]["post"]["requestBody"]["content"]["application/json"],
+      options?: RequestOptions,
+    ) => request<Session>("POST", "/v1/auth/verify-email", body, options),
 
     getSession: async (options?: RequestOptions): Promise<Session | null> => {
       try {

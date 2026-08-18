@@ -60,6 +60,41 @@ services:
       timeout: 3s
       retries: 20
 
+  # Mail sink - every message the application sends, locally, in a real inbox.
+  #
+  # Local development sends over SMTP through the same `SmtpSender` a deployment
+  # uses, rather than through the console backend. The console backend writes the
+  # message to the log and reports success, which means a sender bug - a malformed
+  # header, an address the relay rejects, a link built from the wrong base URL -
+  # cannot be observed locally at all. It stays available as a fallback; it is not
+  # the documented default.
+  #
+  # Mailpit accepts anything and delivers nowhere, so no address in it is real and
+  # nothing can escape to a person. Nothing in the application knows it exists:
+  # it is an SMTP host and a port, and swapping it for a relay is configuration.
+  mailpit:
+    image: axllent/mailpit:v1.21
+    container_name: cairn-mailpit
+    restart: unless-stopped
+    environment:
+      # Messages are held in memory and vanish with the container. Deliberate:
+      # a mail sink that accumulates is a store of tokens and addresses on a
+      # developer machine, and every one of them is a live credential until it
+      # expires.
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      # SMTP, for CAIRN_SMTP_HOST/CAIRN_SMTP_PORT.
+      - "1025:1025"
+      # The web UI, and the API the browser tests read.
+      - "8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
 volumes:
   postgres_data:
     name: cairn_postgres_data

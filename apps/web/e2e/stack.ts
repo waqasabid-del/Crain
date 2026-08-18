@@ -1,3 +1,5 @@
+import type { APIRequestContext } from "@playwright/test";
+
 /**
  * The stack the browser test drives, and the accounts it signs in as.
  *
@@ -72,3 +74,59 @@ export const GLOBEX_OWNER: SeededAccount = {
   email: "jordan@globex.example.com",
   password: SEED_PASSWORD,
 };
+
+/**
+ * The local mail sink, and the reason these journeys can assert on mail at all.
+ *
+ * Mailpit accepts SMTP on 1025 and exposes what it captured over HTTP on 8025.
+ * It is started by `docker compose up -d` alongside PostgreSQL — see the compose
+ * file — and the API is pointed at it by `playwright.config.ts`, so the browser
+ * journeys exercise the same `SmtpSender` a deployment uses.
+ *
+ * The alternative was the console backend, where a message is a log line. That
+ * is what allowed a verification link to point at a route that did not exist:
+ * the link was *written* correctly, printed correctly, and 404'd when clicked,
+ * and no test on either side of the boundary could see it.
+ */
+export const MAILPIT_ORIGIN = "http://localhost:8025";
+
+export interface CapturedMessage {
+  ID: string;
+  Subject: string;
+  To: { Address: string }[];
+  From: { Address: string };
+}
+
+/** Everything the sink is currently holding, newest first. */
+export async function capturedMessages(request: APIRequestContext): Promise<CapturedMessage[]> {
+  const response = await request.get(`${MAILPIT_ORIGIN}/api/v1/messages`);
+  const body = (await response.json()) as { messages: CapturedMessage[] };
+  return body.messages;
+}
+
+/** The plain-text body, which is where the links are — every message is text. */
+export async function messageBody(request: APIRequestContext, id: string): Promise<string> {
+  const response = await request.get(`${MAILPIT_ORIGIN}/api/v1/message/${id}`);
+  const body = (await response.json()) as { Text: string };
+  return body.Text;
+}
+
+/**
+ * Empty the sink.
+ *
+ * Called at the start of a journey rather than the end: a run that fails
+ * half-way leaves its messages behind on purpose, because the message is the
+ * evidence somebody needs to see.
+ */
+export async function clearMail(request: APIRequestContext): Promise<void> {
+  await request.delete(`${MAILPIT_ORIGIN}/api/v1/messages`);
+}
+
+/** The first link in a message body. Every CAIRN email carries exactly one. */
+export function linkIn(body: string): string {
+  const match = /https?:\/\/\S+/.exec(body);
+  if (match === null) {
+    throw new Error("the message carried no link");
+  }
+  return match[0];
+}

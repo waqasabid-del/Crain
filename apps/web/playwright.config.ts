@@ -72,6 +72,15 @@ export default defineConfig({
         // pydantic-settings parses a tuple-typed field as JSON at the source
         // level, before any `mode="before"` validator is reached.
         CAIRN_CORS_ALLOWED_ORIGINS: JSON.stringify([WEB_ORIGIN]),
+        // The real sender, into the local sink. Not the console backend: a
+        // message written to a log is a message nobody clicked, which is how a
+        // verification link pointing at a route that did not exist survived.
+        CAIRN_EMAIL_BACKEND: "smtp",
+        CAIRN_SMTP_HOST: "localhost",
+        CAIRN_SMTP_PORT: "1025",
+        // The links in captured mail have to point at the app these tests
+        // drive, not at the developer's own dev server on 3000.
+        CAIRN_PUBLIC_APP_URL: WEB_ORIGIN,
       },
     },
     {

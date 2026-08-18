@@ -60,6 +60,7 @@ export function createStubClient(overrides: Partial<CairnClient> = {}): CairnCli
   return {
     signUp: vi.fn(unexpected("signUp")),
     logIn: vi.fn(unexpected("logIn")),
+    verifyEmail: vi.fn(unexpected("verifyEmail")),
     getSession: vi.fn(() => Promise.resolve(null)),
     logOut: vi.fn(() => Promise.resolve()),
     logOutEverywhere: vi.fn(unexpected("logOutEverywhere")),
