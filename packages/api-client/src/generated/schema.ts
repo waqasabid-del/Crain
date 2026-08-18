@@ -1463,6 +1463,71 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/workspaces/{workspace_id}/me/meeting-requests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Meetings you have been asked about
+     * @description The caller's own invitations to answer, and nobody else's.
+     *
+     *     **Self only by construction rather than by a check.** The person is resolved
+     *     from the caller's session; there is no subject parameter, no filter and no
+     *     flag that widens it, so no role has a route through which to read what a
+     *     colleague was asked or how they answered.
+     *
+     *     **No permission is declared**, and requiring one would be the wrong axis.
+     *     Every role including Viewer may answer a question about their own presence in
+     *     a meeting, and making that a grant would mean a person's own consent was
+     *     something the workspace let them have.
+     */
+    get: operations["my_meeting_requests_v1_workspaces__workspace_id__me_meeting_requests_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/me/meeting-requests/{meeting_id}/decision": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Agree, refuse, or take your agreement back
+     * @description Record the caller's own answer, and recompute what it makes possible.
+     *
+     *     **The only route in the product that writes a consent decision.** The user id
+     *     stored in `decided_by_user_id` is the one the session cookie resolved to, and
+     *     the body has no field that could name anybody else — so an administrator
+     *     calling this records their own answer to their own invitation, or gets a 404.
+     *
+     *     **404, not 403, for a decision that is not the caller's.** Whether a meeting
+     *     exists is not a non-participant's to confirm, and a 403 would confirm it —
+     *     turning this into a way of discovering which colleagues are in a meeting
+     *     somebody asked to capture.
+     *
+     *     **Append-only.** Changing your mind supersedes the previous row and inserts a
+     *     new one; nothing is updated in place and nothing is deleted, because the
+     *     history is the product's only evidence that withdrawal was possible and
+     *     honoured.
+     */
+    post: operations["decide_meeting_request_v1_workspaces__workspace_id__me_meeting_requests__meeting_id__decision_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/workspaces/{workspace_id}/me/role": {
     parameters: {
       query?: never;
@@ -1584,6 +1649,68 @@ export interface paths {
     get: operations["my_week_v1_workspaces__workspace_id__me_week_get"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/meetings/capture-requests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Capture requests in this workspace, and where they stand
+     * @description The list and the totals, with no per-person answer anywhere in either.
+     *
+     *     Read-only, including the eligibility it reports: the gate is consulted for
+     *     display and nothing is written, so opening this screen cannot change what
+     *     CAIRN believes it is allowed to do.
+     */
+    get: operations["list_capture_requests_v1_workspaces__workspace_id__meetings_capture_requests_get"];
+    put?: never;
+    /**
+     * Ask everybody in a meeting whether CAIRN may collect it
+     * @description Create the question. It grants nothing.
+     *
+     *     The request lands `pending` with no consent rows at all, and stays there
+     *     until every expected participant has affirmatively agreed from their own
+     *     session. Silence never ages into agreement, so a request created and then
+     *     forgotten collects nothing, forever.
+     *
+     *     Gated on `WORKSPACE_SETTINGS` (Owner and Admin) because *asking* is a
+     *     configuration action. What that gate emphatically does not confer is any
+     *     ability to answer — see the module docstring.
+     */
+    post: operations["create_capture_request_v1_workspaces__workspace_id__meetings_capture_requests_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/meetings/capture-requests/{meeting_id}/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Call off a capture request
+     * @description Withdraw the question.
+     *
+     *     Only an open request can be cancelled. A refused one is already closed, and
+     *     cancelling it would replace "somebody said no" with a tidier word — the
+     *     record has to keep saying refused, because that is what the product may later
+     *     have to demonstrate it honoured.
+     */
+    post: operations["cancel_capture_request_v1_workspaces__workspace_id__meetings_capture_requests__meeting_id__cancel_post"];
     delete?: never;
     options?: never;
     head?: never;
@@ -2125,6 +2252,16 @@ export interface components {
       periodStart: string;
     };
     /**
+     * CaptureState
+     * @description Where a capture request stands.
+     *
+     *     `ELIGIBLE` is computed, never asserted: it is written only by the gate, and
+     *     only when every currently expected participant holds a live acceptance for
+     *     the current policy version. Nothing else in the product may set it.
+     * @enum {string}
+     */
+    CaptureState: "pending" | "eligible" | "refused" | "expired" | "cancelled" | "completed";
+    /**
      * Certainty
      * @description How much CAIRN trusts a claim.
      *
@@ -2288,6 +2425,16 @@ export interface components {
      * @enum {string}
      */
     ConnectorProvider: "github" | "slack" | "google_chat";
+    /**
+     * ConsentDecision
+     * @description One person's answer.
+     *
+     *     There is no `assumed`, `implied`, `inherited` or `default` member, and no
+     *     boolean that could be initialised to true. Silence is `PENDING` forever —
+     *     it never ages into agreement.
+     * @enum {string}
+     */
+    ConsentDecision: "pending" | "accepted" | "declined" | "withdrawn" | "expired";
     /**
      * ConsentResponse
      * @description What CAIRN may attribute to the caller, and what it never does.
@@ -2797,6 +2944,153 @@ export interface components {
       password: string;
     };
     /**
+     * MeetingCaptureCreateRequest
+     * @description Ask a named set of people whether one meeting may be collected.
+     *
+     *     **There is no consent field, and there is no route that adds one.** An
+     *     administrator names who would be in the meeting; every one of those people
+     *     then answers for themselves from their own session. `extra="forbid"` means a
+     *     client that invents `consented` or `approvedBy` is rejected rather than
+     *     quietly ignored.
+     */
+    MeetingCaptureCreateRequest: {
+      /** Externalmeetingref */
+      externalMeetingRef: string;
+      /** Participantpersonids */
+      participantPersonIds: string[];
+      provider: components["schemas"]["MeetingProvider"];
+      /** Purpose */
+      purpose: string;
+      /**
+       * Scheduledend
+       * Format: date-time
+       */
+      scheduledEnd: string;
+      /**
+       * Scheduledstart
+       * Format: date-time
+       */
+      scheduledStart: string;
+    };
+    /**
+     * MeetingCaptureListResponse
+     * @description Every capture request in the workspace, plus the totals.
+     */
+    MeetingCaptureListResponse: {
+      /** Notice */
+      notice: string;
+      /** Requests */
+      requests?: components["schemas"]["MeetingCaptureResponse"][];
+      totals: components["schemas"]["MeetingStateCounts"];
+    };
+    /**
+     * MeetingCaptureResponse
+     * @description One capture request, as the workspace that asked for it may see it.
+     */
+    MeetingCaptureResponse: {
+      /** Acceptedcount */
+      acceptedCount?: number | null;
+      /** Eligible */
+      eligible: boolean;
+      /** Externalmeetingref */
+      externalMeetingRef: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Message */
+      message: string;
+      /** Participantcount */
+      participantCount: number;
+      /** Policyversion */
+      policyVersion: string;
+      provider: components["schemas"]["MeetingProvider"];
+      /** Purpose */
+      purpose: string;
+      reason: components["schemas"]["ReasonCode"];
+      /**
+       * Requestedat
+       * Format: date-time
+       */
+      requestedAt: string;
+      /**
+       * Scheduledend
+       * Format: date-time
+       */
+      scheduledEnd: string;
+      /**
+       * Scheduledstart
+       * Format: date-time
+       */
+      scheduledStart: string;
+      state: components["schemas"]["CaptureState"];
+    };
+    /**
+     * MeetingDecisionChoice
+     * @description What a participant may say about their own capture request.
+     *
+     *     Deliberately not `ConsentDecision`. That enum also has `PENDING`, which is
+     *     the *absence* of an answer, and `EXPIRED`, which is a conclusion the
+     *     eligibility gate reaches — neither is something a person can assert about
+     *     themselves, so neither is on the wire.
+     * @enum {string}
+     */
+    MeetingDecisionChoice: "accepted" | "declined" | "withdrawn";
+    /**
+     * MeetingDecisionRequest
+     * @description One person's own answer. Carries no subject, by design.
+     */
+    MeetingDecisionRequest: {
+      decision: components["schemas"]["MeetingDecisionChoice"];
+    };
+    /**
+     * MeetingProvider
+     * @description Which platform produced the meeting.
+     *
+     *     Declared now and implemented later, so the column, its CHECK constraint and
+     *     the eligibility gate exist before any provider code does — the order that
+     *     makes it impossible to ship a connector that forgot to ask.
+     * @enum {string}
+     */
+    MeetingProvider: "google_meet" | "zoom";
+    /**
+     * MeetingStateCounts
+     * @description How many requests stand where. The aggregate, and only in totals.
+     */
+    MeetingStateCounts: {
+      /**
+       * Cancelled
+       * @default 0
+       */
+      cancelled: number;
+      /**
+       * Completed
+       * @default 0
+       */
+      completed: number;
+      /**
+       * Eligible
+       * @default 0
+       */
+      eligible: number;
+      /**
+       * Expired
+       * @default 0
+       */
+      expired: number;
+      /**
+       * Pending
+       * @default 0
+       */
+      pending: number;
+      /**
+       * Refused
+       * @default 0
+       */
+      refused: number;
+    };
+    /**
      * MembershipResponse
      * @description A person's place in a workspace.
      *
@@ -2908,6 +3202,59 @@ export interface components {
       notice: string;
       /** Proposals */
       proposals?: components["schemas"]["IdentityProposalResponse"][];
+    };
+    /**
+     * MyMeetingRequestListResponse
+     * @description The requests the caller was asked about. Theirs only.
+     */
+    MyMeetingRequestListResponse: {
+      /** Notice */
+      notice: string;
+      /** Requests */
+      requests?: components["schemas"]["MyMeetingRequestResponse"][];
+    };
+    /**
+     * MyMeetingRequestResponse
+     * @description One capture request, as the person who was asked sees it.
+     *
+     *     Carries the caller's own answer and nothing about anybody else's. The
+     *     request's standing is shown because a participant is entitled to know
+     *     whether anything will be collected; *who* caused that standing is not theirs
+     *     to learn, and no field here could tell them.
+     */
+    MyMeetingRequestResponse: {
+      /** Candecide */
+      canDecide: boolean;
+      /** Externalmeetingref */
+      externalMeetingRef: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Message */
+      message: string;
+      /** Mydecidedat */
+      myDecidedAt?: string | null;
+      myDecision?: components["schemas"]["ConsentDecision"] | null;
+      /** Participantcount */
+      participantCount: number;
+      /** Policyversion */
+      policyVersion: string;
+      provider: components["schemas"]["MeetingProvider"];
+      /** Purpose */
+      purpose: string;
+      /**
+       * Scheduledend
+       * Format: date-time
+       */
+      scheduledEnd: string;
+      /**
+       * Scheduledstart
+       * Format: date-time
+       */
+      scheduledStart: string;
+      state: components["schemas"]["CaptureState"];
     };
     /**
      * NotificationStatus
@@ -3062,6 +3409,23 @@ export interface components {
        */
       tenantsWaiting: number;
     };
+    /**
+     * ReasonCode
+     * @description Why collection is or is not permitted. Internal, precise, never shown raw.
+     * @enum {string}
+     */
+    ReasonCode:
+      | "allowed"
+      | "awaiting_consent"
+      | "refused"
+      | "unresolved_participant"
+      | "participant_added"
+      | "policy_changed"
+      | "rescheduled"
+      | "not_collectable"
+      | "window_passed"
+      | "scope_mismatch"
+      | "no_participants";
     /**
      * Region
      * @description Where a tenant's data is stored (only ``US_CENTRAL1`` is live so far,
@@ -6009,6 +6373,91 @@ export interface operations {
       };
     };
   };
+  my_meeting_requests_v1_workspaces__workspace_id__me_meeting_requests_get: {
+    parameters: {
+      query?: {
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MyMeetingRequestListResponse"];
+        };
+      };
+      /** @description No such workspace, or you are not a member. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  decide_meeting_request_v1_workspaces__workspace_id__me_meeting_requests__meeting_id__decision_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        meeting_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["MeetingDecisionRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MyMeetingRequestResponse"];
+        };
+      };
+      /** @description You have no meeting request with that identifier. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description The request is closed, or that answer does not apply. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   my_role_v1_workspaces__workspace_id__me_role_get: {
     parameters: {
       query?: never;
@@ -6229,6 +6678,157 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["HTTPValidationError"];
         };
+      };
+    };
+  };
+  list_capture_requests_v1_workspaces__workspace_id__meetings_capture_requests_get: {
+    parameters: {
+      query?: {
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MeetingCaptureListResponse"];
+        };
+      };
+      /** @description Requires permission to manage workspace settings. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No such workspace, or you are not a member. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  create_capture_request_v1_workspaces__workspace_id__meetings_capture_requests_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["MeetingCaptureCreateRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MeetingCaptureResponse"];
+        };
+      };
+      /** @description Requires permission to manage workspace settings. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No such workspace, or you are not a member. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description That meeting already has an open capture request. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description The window, or one of the people named, is not usable. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  cancel_capture_request_v1_workspaces__workspace_id__meetings_capture_requests__meeting_id__cancel_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        meeting_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MeetingCaptureResponse"];
+        };
+      };
+      /** @description Requires permission to manage workspace settings. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No such capture request in this workspace. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description The request is already closed. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };

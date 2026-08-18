@@ -443,6 +443,21 @@ class TestRowLevelSecurity:
             # these are written from *within* tenant context — and the policy's
             # WITH CHECK clause means a scoped session cannot write a row for
             # another tenant even if it tried.
+            # -- Meeting capture consent (Step 35) ------------------------
+            #
+            # SELECT, INSERT, UPDATE on all three, and **DELETE on none**.
+            #
+            # A request is cancelled rather than removed, so "was this ever
+            # asked for?" stays answerable. A participant is marked removed
+            # rather than deleted, so a shrinking guest list cannot look like a
+            # meeting that never had one. And a consent decision is superseded
+            # rather than edited: the history is how the product demonstrates
+            # that withdrawal was possible and honoured, which makes DELETE
+            # here precisely the privilege somebody who had just overridden a
+            # refusal would reach for.
+            "meeting_capture_requests": {"SELECT", "INSERT", "UPDATE"},
+            "meeting_participants": {"SELECT", "INSERT", "UPDATE"},
+            "meeting_consents": {"SELECT", "INSERT", "UPDATE"},
             "people": {"SELECT", "INSERT", "UPDATE", "DELETE"},
             "identities": {"SELECT", "INSERT", "UPDATE", "DELETE"},
             # Cross-source identity, and the one grant set in this list chosen by

@@ -135,6 +135,43 @@ This is also a security control: file 09 §6.3 requires that Stage 2 output be s
 | **Project**          | Inferred grouping of related activity across sources                                              | Mutable                                                  |
 | **ExternalIdentity** | One provider account bound to one person, with the evidence for the binding                       | Appended and ended, never deleted (Step 34)              |
 
+### Meeting capture consent (Step 35)
+
+**Three tables, and deliberately no workspace toggle.** `meeting_capture_requests`
+records that somebody asked to collect one meeting's platform-produced artifact;
+`meeting_participants` records who is expected; `meeting_consents` records each
+person's own answer. CAIRN never joins a meeting and never produces a recording
+or transcript (md/03 §4.2) — these tables decide only whether it may later ask a
+platform for what that platform already made.
+
+Capture is eligible only when **every currently expected participant** holds a
+live acceptance against the current policy version. That is computed by
+`meetings.eligibility.check` and written in exactly one place; nothing else in
+the product may set `eligible`. Adding a participant, a decline, a withdrawal, a
+policy change, a reschedule beyond tolerance, an unidentified participant, or an
+empty participant list each block it. **An empty list is not unanimity** — the
+vacuous-truth branch is refused explicitly.
+
+**No meeting title, join URL or provider attendee id ever leaves the database.**
+A calendar title is often the most sensitive string in a workspace and every
+participant sees the request; the time window and the requester's written purpose
+identify it instead.
+
+Decisions are **append-only** — changing your mind supersedes rather than edits —
+and none of the three tables carries a DELETE grant. The history is the evidence
+that withdrawal was possible and honoured.
+
+Retention: consent metadata follows the workspace's retention period like every
+other tenant row and is removed with the tenant on deletion. It contains no
+meeting content, because no meeting content exists at this step.
+
+**Never built on these tables** (md/03 §5.4): talk time, participation scores,
+sentiment, coaching, attendance ranking, or any per-person meeting analytic.
+There is no duration column, no speaking column and no attendance outcome — only
+whether somebody agreed, which is a permission and not a measurement.
+
+---
+
 ### Cross-source identity (Step 34)
 
 **One provider account belongs to at most one person per workspace, and CAIRN

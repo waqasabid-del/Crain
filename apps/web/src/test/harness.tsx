@@ -95,6 +95,16 @@ export function createStubClient(overrides: Partial<CairnClient> = {}): CairnCli
     confirmMyIdentity: vi.fn(unexpected("confirmMyIdentity")),
     revokeMyIdentity: vi.fn(unexpected("revokeMyIdentity")),
     getAttributionHealth: vi.fn(unexpected("getAttributionHealth")),
+    createMeetingCaptureRequest: vi.fn(unexpected("createMeetingCaptureRequest")),
+    listMeetingCaptureRequests: vi.fn(unexpected("listMeetingCaptureRequests")),
+    cancelMeetingCaptureRequest: vi.fn(unexpected("cancelMeetingCaptureRequest")),
+    // A benign default, like `listSupportSessions` and `getMyIdentities` above:
+    // the meetings a person has been asked about are shown alongside screens
+    // whose tests are about something else, and failing those on an unstubbed
+    // call would move the cost of this feature onto every unrelated test. An
+    // empty list is also the honest default — nobody has been asked anything.
+    listMyMeetingRequests: vi.fn(() => Promise.resolve({ requests: [], notice: "" })),
+    decideMeetingRequest: vi.fn(unexpected("decideMeetingRequest")),
     getPrivacy: vi.fn(unexpected("getPrivacy")),
     setRetention: vi.fn(unexpected("setRetention")),
     getNotifications: vi.fn(unexpected("getNotifications")),

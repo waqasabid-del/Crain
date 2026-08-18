@@ -1814,6 +1814,77 @@ claiming a colleague's history.
 
 ---
 
+**✅ Step 35 — Meeting-intelligence privacy and consent foundation. Complete.**
+
+Delivered: three tables, one eligibility gate, five routes, the participant and
+administrator screens, and the Trust Center wording. **No provider work** — no
+Meet, Zoom, calendar, OAuth, Drive, transcript, audio, transcription,
+diarization, bot, summary or extraction exists or was touched. This step decides
+only whether CAIRN may ever _ask_.
+
+**There is no workspace toggle, and the absence is the design.** md/03 §3.1
+records that thirteen US states require all-party consent, that the strictest
+applicable law generally governs a multi-state call, and that in those states an
+employer **cannot** mandate AI recording over an employee's objection. CAIRN's
+customers are distributed teams, so the strict case is the ordinary one. There is
+no column an administrator can set to mean "everyone agrees", and no route by
+which one can answer for somebody else — a consent an employer could write is
+worth nothing.
+
+**One gate, called by everything that will ever collect.** Before a future
+integration may read artifact metadata, fetch a platform-produced transcript,
+enqueue a job, create an event or fact, or spend a model call, it asks
+`meetings.eligibility.check`. `CaptureState.ELIGIBLE` is written in exactly one
+place in the product, from that verdict and from nothing else. A second
+calculation in a router or a screen is the failure the shape prevents: two
+consent calculations disagree eventually, and the disagreement is discovered when
+somebody who declined turns up in a brief.
+
+**The branch worth naming: an empty participant list.** `all(...)` over no rows
+is vacuously **true**, so the natural implementation permits collection for a
+meeting nobody was asked about. It is one line, and in thirteen states the blast
+radius is criminal exposure. `NO_PARTICIPANTS` refuses it explicitly.
+
+**No meeting title is stored, ever.** A calendar title is frequently the most
+sensitive string in a workspace — a performance review, a departure, a diagnosis
+— and every participant sees the request. The time window and the requester's
+written purpose identify it well enough for somebody who was in it. That is a
+deliberate loss of convenience.
+
+**The public wording names nobody.** "Somebody invited did not agree" rather than
+who. Naming the refuser makes declining socially expensive, which in an
+employment context is a way of making consent not freely given — the exact defect
+md/03 §3.3 says invalidates it. The workspace view suppresses the accepted count
+once a request is refused, because a count beside a refusal names the refuser by
+subtraction.
+
+**Consent here is an operating safeguard, not the EU lawful basis.** GDPR treats
+employee consent as invalid in an employment context because of the power
+imbalance; the basis remains legitimate interest with a documented assessment
+(md/03 §3.3, md/05 §B.2.1). Nothing in the product describes these records as
+what makes processing lawful.
+
+Decisions are append-only and there is **no DELETE grant** on any of the three
+tables: a request is cancelled rather than removed, a participant is marked
+removed rather than deleted, and changing your mind supersedes rather than edits.
+The history is how the product demonstrates that withdrawal was possible and
+honoured, and it is exactly what somebody who had just overridden a refusal would
+want gone.
+
+**Trap found during the build:** the gate reads `state_changed_at` as evidence
+the meeting moved under people's answers, so stamping it when a request merely
+_becomes_ eligible made the next gate call report `RESCHEDULED` — flipping an
+agreed meeting to refused. The service stamps it only for cancel, refuse and
+expire.
+
+**Deferred, and stated rather than carried:** there is no background sweep, so a
+stale request reads as `pending` while the gate reports `window_passed`; a sweep
+belongs with the provider work. `add_participants` has one production caller
+today, and the calendar-sourced path arrives with the connector. No email, SMS or
+calendar notification is sent — external delivery remains a manual release gate.
+
+---
+
 ## ✅ Stage A gate — PASSED
 
 Two tenants exist and are provably isolated. Users can authenticate with correct roles. Events validate. 150 Python tests and 65 TypeScript tests passing, with WCAG contrast, tenant isolation, migration round-trips, and cross-language schema drift all verified in CI.

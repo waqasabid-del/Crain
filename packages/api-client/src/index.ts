@@ -155,6 +155,71 @@ export type IdentityLinkState = ExternalIdentity["state"];
 export type AttributionHealth =
   paths["/v1/workspaces/{workspace_id}/attribution-health"]["get"]["responses"][200]["content"]["application/json"];
 
+/*
+ * ---------------------------------------------------------------------------
+ * Meeting capture consent
+ * ---------------------------------------------------------------------------
+ *
+ * **Nothing here records a meeting.** CAIRN never joins one, and no provider
+ * integration exists. These types describe only the permission a future
+ * connector would have to hold before it could ask a platform for a transcript
+ * that platform produced under its own flow.
+ *
+ * Two views, and the difference between them is the whole design. The workspace
+ * view is counts and states; the participant's view is their own answer.
+ * **Neither carries another person's decision, id, name or address**, and every
+ * type below is indexed out of the generated document so a field the server adds
+ * cannot appear on a screen without somebody choosing to render it.
+ */
+
+/** Every capture request in one workspace, with the totals by state. */
+export type MeetingCaptureList =
+  paths["/v1/workspaces/{workspace_id}/meetings/capture-requests"]["get"]["responses"][200]["content"]["application/json"];
+
+/**
+ * One capture request, as the workspace that asked for it may see it.
+ *
+ * Indexed out of the list rather than declared separately, so the row a
+ * component renders and the payload the server sends cannot drift apart.
+ * `acceptedCount` is deliberately absent once a request is refused: printed
+ * beside a refusal, a count of acceptances names the person who refused by
+ * arithmetic.
+ */
+export type MeetingCaptureRequest = NonNullable<MeetingCaptureList["requests"]>[number];
+
+/** How many requests stand where. Totals only — there is no per-person view. */
+export type MeetingStateCounts = MeetingCaptureList["totals"];
+
+/** Where a request stands. Computed by the server's eligibility gate, never
+ * asserted by a client: there is no field on any request body that could. */
+export type MeetingCaptureState = MeetingCaptureRequest["state"];
+
+/** Which platform produced the meeting. */
+export type MeetingProvider = MeetingCaptureRequest["provider"];
+
+/** The body for asking. It has no consent field, and no route accepts one. */
+export type MeetingCaptureBody =
+  paths["/v1/workspaces/{workspace_id}/meetings/capture-requests"]["post"]["requestBody"]["content"]["application/json"];
+
+/** The meetings the signed-in person has been asked about. Theirs only. */
+export type MyMeetingRequestList =
+  paths["/v1/workspaces/{workspace_id}/me/meeting-requests"]["get"]["responses"][200]["content"]["application/json"];
+
+/** One request as the person who was asked sees it: their own answer, and the
+ * request's standing. No field here can carry anybody else's decision. */
+export type MyMeetingRequest = NonNullable<MyMeetingRequestList["requests"]>[number];
+
+/**
+ * What a participant may say about their own request.
+ *
+ * Derived from the server's request body rather than restated, so a value added
+ * or removed on the server is a compile error here — the alternative is a client
+ * offering a button for an answer the server will refuse, on the one screen
+ * where being refused looks like the product ignoring you.
+ */
+export type MeetingDecision =
+  paths["/v1/workspaces/{workspace_id}/me/meeting-requests/{meeting_id}/decision"]["post"]["requestBody"]["content"]["application/json"]["decision"];
+
 /**
  * How far a support session reaches.
  *
@@ -469,6 +534,62 @@ export interface CairnClient {
   /** Counts of resolved and unresolved links, for Owners and Admins. Never a
    * name, a per-person row, or any measure of anybody's activity. */
   getAttributionHealth(workspaceId: string, options?: RequestOptions): Promise<AttributionHealth>;
+
+  /**
+   * Ask everybody in a meeting whether CAIRN may collect it. Owner and Admin.
+   *
+   * Creates a question and grants nothing. The request stays pending until every
+   * person named has personally agreed from their own session, and there is no
+   * argument here — or anywhere else in this client — by which the caller could
+   * answer on somebody's behalf.
+   */
+  createMeetingCaptureRequest(
+    workspaceId: string,
+    body: MeetingCaptureBody,
+    options?: RequestOptions,
+  ): Promise<MeetingCaptureRequest>;
+
+  /** Every capture request and the totals. Counts and states only: this call
+   * cannot tell you who agreed, who declined, or who has not answered. */
+  listMeetingCaptureRequests(
+    workspaceId: string,
+    options?: RequestOptions,
+  ): Promise<MeetingCaptureList>;
+
+  /** Call off a request. Only an open one — a refusal stays on the record as a
+   * refusal rather than being tidied into a cancellation. */
+  cancelMeetingCaptureRequest(
+    workspaceId: string,
+    meetingId: string,
+    options?: RequestOptions,
+  ): Promise<MeetingCaptureRequest>;
+
+  /**
+   * The meetings the signed-in person has been asked about.
+   *
+   * Self only, by construction: there is no subject parameter here or on the
+   * decision below, so no administrator has a call through which to read what a
+   * colleague was asked or how they answered.
+   */
+  listMyMeetingRequests(
+    workspaceId: string,
+    options?: RequestOptions,
+  ): Promise<MyMeetingRequestList>;
+
+  /**
+   * Agree, refuse, or take an agreement back — for the caller and nobody else.
+   *
+   * A request that is not the caller's answers 404 rather than 403: whether a
+   * meeting exists is not a non-participant's to confirm. Each answer is
+   * appended rather than replacing the last, so changing your mind is a thing
+   * the record can later be shown to have honoured.
+   */
+  decideMeetingRequest(
+    workspaceId: string,
+    meetingId: string,
+    decision: MeetingDecision,
+    options?: RequestOptions,
+  ): Promise<MyMeetingRequest>;
   /** The caller and nobody else: there is deliberately no subject parameter, so
    * no administrator can label a colleague's role. */
   setWorkRole(
@@ -846,6 +967,59 @@ export function createClient(options: ClientOptions): CairnClient {
         "GET",
         `/v1/workspaces/${workspaceId}/attribution-health`,
         undefined,
+        options,
+      ),
+
+    createMeetingCaptureRequest: (
+      workspaceId: string,
+      body: MeetingCaptureBody,
+      options?: RequestOptions,
+    ) =>
+      request<MeetingCaptureRequest>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/meetings/capture-requests`,
+        body,
+        options,
+      ),
+
+    listMeetingCaptureRequests: (workspaceId: string, options?: RequestOptions) =>
+      request<MeetingCaptureList>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/meetings/capture-requests`,
+        undefined,
+        options,
+      ),
+
+    cancelMeetingCaptureRequest: (
+      workspaceId: string,
+      meetingId: string,
+      options?: RequestOptions,
+    ) =>
+      request<MeetingCaptureRequest>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/meetings/capture-requests/${meetingId}/cancel`,
+        undefined,
+        options,
+      ),
+
+    listMyMeetingRequests: (workspaceId: string, options?: RequestOptions) =>
+      request<MyMeetingRequestList>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/me/meeting-requests`,
+        undefined,
+        options,
+      ),
+
+    decideMeetingRequest: (
+      workspaceId: string,
+      meetingId: string,
+      decision: MeetingDecision,
+      options?: RequestOptions,
+    ) =>
+      request<MyMeetingRequest>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/me/meeting-requests/${meetingId}/decision`,
+        { decision },
         options,
       ),
 

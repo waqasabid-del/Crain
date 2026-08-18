@@ -41,6 +41,7 @@ from cairn_api.api.routers import (
     identities,
     internal,
     me,
+    meetings,
     onboarding,
     slack,
     slack_webhooks,
@@ -184,6 +185,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # means that property is checkable by reading one file rather than by
     # trusting that a later addition to a longer one kept the pattern.
     app.include_router(identities.router, prefix=API_PREFIX)
+    # Its own module, under the same `/workspaces/{workspace_id}` prefix, for the
+    # reason `identities` is: the self-only rule is load-bearing here. Two of its
+    # routes take no subject at all and are the only places a consent decision is
+    # written, so keeping them in one file means "no administrator can consent
+    # for anybody" is a property a reviewer checks by reading one file rather
+    # than by trusting that a later addition to a longer one kept the pattern.
+    app.include_router(meetings.router, prefix=API_PREFIX)
     app.include_router(admin.router, prefix=API_PREFIX)
     app.include_router(trust.router, prefix=API_PREFIX)
     app.include_router(support.router, prefix=API_PREFIX)

@@ -14,6 +14,7 @@ contract.
 
 from __future__ import annotations
 
+import enum
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -27,9 +28,11 @@ from cairn_api.db.connector_models import ConnectorProvider
 from cairn_api.db.external_identity_models import IdentityLinkState, IdentityVerification
 from cairn_api.db.fact_models import FactOrigin
 from cairn_api.db.identity_models import IdentityKind
+from cairn_api.db.meeting_models import CaptureState, ConsentDecision, MeetingProvider
 from cairn_api.db.models import Region, TenantRole, WorkRole
 from cairn_api.db.support_models import SupportScope, SupportSessionStatus
 from cairn_api.domain import Certainty
+from cairn_api.meetings.eligibility import ReasonCode
 
 
 class ApiModel(BaseModel):
@@ -1627,3 +1630,185 @@ class GoogleChatDisconnectResponse(ApiModel):
     #: What disconnecting does *not* do. Stated in the response because the
     #: honest sentence is the less flattering one.
     retention_notice: str
+
+
+# ---------------------------------------------------------------------------
+# Meeting capture consent
+# ---------------------------------------------------------------------------
+#
+# **Nothing in this section records a meeting.** CAIRN never joins one, and these
+# models describe only whether it may later ask a platform for an artifact that
+# platform produced under its own flow.
+#
+# Two views, and the difference between them is the design. The workspace view is
+# counts and states; the participant's view is their own answer. **Neither ever
+# carries another person's decision, id, name or address** — the request is seen
+# by everybody in the meeting, and a screen that shows who declined makes
+# declining socially expensive, which is how consent stops being freely given.
+#
+# There is no meeting title anywhere here, and no field an administrator could
+# set to mean "everyone agrees". Both absences are load-bearing.
+
+
+class MeetingDecisionChoice(enum.StrEnum):
+    """What a participant may say about their own capture request.
+
+    Deliberately not `ConsentDecision`. That enum also has `PENDING`, which is
+    the *absence* of an answer, and `EXPIRED`, which is a conclusion the
+    eligibility gate reaches — neither is something a person can assert about
+    themselves, so neither is on the wire.
+    """
+
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+    #: Agreed, then changed their mind before anything was collected. Separate
+    #: from `declined` because the product promises withdrawal is possible, and a
+    #: record that cannot tell the two apart cannot demonstrate it.
+    WITHDRAWN = "withdrawn"
+
+
+class MeetingCaptureCreateRequest(ApiModel):
+    """Ask a named set of people whether one meeting may be collected.
+
+    **There is no consent field, and there is no route that adds one.** An
+    administrator names who would be in the meeting; every one of those people
+    then answers for themselves from their own session. `extra="forbid"` means a
+    client that invents `consented` or `approvedBy` is rejected rather than
+    quietly ignored.
+    """
+
+    provider: MeetingProvider
+
+    #: The platform's own stable id for the meeting. **Never a title and never a
+    #: join URL**: a calendar title is frequently the most sensitive string in a
+    #: workspace, and a join link is a credential.
+    external_meeting_ref: str = Field(min_length=1, max_length=255)
+
+    scheduled_start: datetime
+    scheduled_end: datetime
+
+    #: Why, in the requester's own words, shown to every participant before they
+    #: answer. Required: a request nobody had to justify is one everybody has to
+    #: evaluate blind.
+    purpose: str = Field(min_length=1, max_length=500)
+
+    #: Who would be in the meeting, as CAIRN person ids. Each must be somebody
+    #: with a CAIRN account, because somebody CAIRN cannot ask is somebody who
+    #: had no way to refuse.
+    participant_person_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+
+
+class MeetingDecisionRequest(ApiModel):
+    """One person's own answer. Carries no subject, by design."""
+
+    decision: MeetingDecisionChoice
+
+
+class MeetingCaptureResponse(ApiModel):
+    """One capture request, as the workspace that asked for it may see it."""
+
+    id: uuid.UUID
+    provider: MeetingProvider
+    external_meeting_ref: str
+    scheduled_start: datetime
+    scheduled_end: datetime
+    purpose: str
+
+    #: Where the request stands. Computed by the eligibility gate and written by
+    #: the service — never asserted by a caller, and `eligible` in particular has
+    #: no code path that sets it from anything but the gate's own verdict.
+    state: CaptureState
+
+    #: The consent wording these answers were given against. A change to it
+    #: invalidates them, and everybody is asked again.
+    policy_version: str
+
+    requested_at: datetime
+
+    #: How many people are currently expected in the meeting.
+    participant_count: int
+
+    #: How many have affirmatively agreed. **A count, never a list**, and `None`
+    #: once the request is refused: with a refusal already visible, a count of
+    #: acceptances would name the person who refused by arithmetic.
+    accepted_count: int | None = None
+
+    #: Whether CAIRN may collect this meeting's artifact right now.
+    eligible: bool
+
+    #: The gate's precise reason, for an operator. Never names anybody.
+    reason: ReasonCode
+
+    #: The same answer in the words a reader gets. Says "somebody" and never a
+    #: name — see `eligibility.public_message`.
+    message: str
+
+
+class MeetingStateCounts(ApiModel):
+    """How many requests stand where. The aggregate, and only in totals."""
+
+    pending: int = 0
+    eligible: int = 0
+    refused: int = 0
+    expired: int = 0
+    cancelled: int = 0
+    completed: int = 0
+
+
+class MeetingCaptureListResponse(ApiModel):
+    """Every capture request in the workspace, plus the totals."""
+
+    requests: list[MeetingCaptureResponse] = Field(default_factory=list)
+    totals: MeetingStateCounts
+
+    #: What this screen deliberately cannot answer, stated in the payload rather
+    #: than in one client — a limit that lives in an interface is a limit the
+    #: next interface does not know about.
+    notice: str
+
+
+class MyMeetingRequestResponse(ApiModel):
+    """One capture request, as the person who was asked sees it.
+
+    Carries the caller's own answer and nothing about anybody else's. The
+    request's standing is shown because a participant is entitled to know
+    whether anything will be collected; *who* caused that standing is not theirs
+    to learn, and no field here could tell them.
+    """
+
+    id: uuid.UUID
+    provider: MeetingProvider
+    external_meeting_ref: str
+    scheduled_start: datetime
+    scheduled_end: datetime
+
+    #: Why the requester says they asked. The only free text on this screen, and
+    #: what a participant actually judges the request by.
+    purpose: str
+
+    state: CaptureState
+    policy_version: str
+
+    #: How many people were asked. A count of the invitation, not of the answers.
+    participant_count: int
+
+    #: The caller's own live answer, or `None` while they have not answered.
+    #: Silence is never filed as agreement.
+    my_decision: ConsentDecision | None = None
+    my_decided_at: datetime | None = None
+
+    #: Whether the caller can still answer or change their answer.
+    can_decide: bool
+
+    #: The gate's public wording. Names nobody.
+    message: str
+
+
+class MyMeetingRequestListResponse(ApiModel):
+    """The requests the caller was asked about. Theirs only."""
+
+    requests: list[MyMeetingRequestResponse] = Field(default_factory=list)
+
+    #: The promise this screen makes, in the payload so every client states it.
+    notice: str

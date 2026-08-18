@@ -373,6 +373,12 @@
         "title": "BriefSummary",
         "type": "object"
       },
+      "CaptureState": {
+        "description": "Where a capture request stands.\n\n`ELIGIBLE` is computed, never asserted: it is written only by the gate, and\nonly when every currently expected participant holds a live acceptance for\nthe current policy version. Nothing else in the product may set it.",
+        "enum": ["pending", "eligible", "refused", "expired", "cancelled", "completed"],
+        "title": "CaptureState",
+        "type": "string"
+      },
       "Certainty": {
         "description": "How much CAIRN trusts a claim.\n\nCategorical, never numeric. A \"73% confident\" badge looks rigorous, means\nnothing to a non-technical reader, and invites false precision. Internal\nnumeric confidence exists for thresholds and evaluation, but it never\nreaches this type or the interface.\n\nSee md/05-ux-design-privacy.md \u00a7A.2.1.",
         "enum": ["verified", "observed", "suggested"],
@@ -642,6 +648,12 @@
         "description": "Which system a connection reaches.\n\nClosed, because a provider is not a label: each value implies a webhook\nverifier, an identity resolver and a retention rule. A free string would let\na typo create a connection nothing on the ingestion side can service, and it\nwould look connected in the UI.",
         "enum": ["github", "slack", "google_chat"],
         "title": "ConnectorProvider",
+        "type": "string"
+      },
+      "ConsentDecision": {
+        "description": "One person's answer.\n\nThere is no `assumed`, `implied`, `inherited` or `default` member, and no\nboolean that could be initialised to true. Silence is `PENDING` forever \u2014\nit never ages into agreement.",
+        "enum": ["pending", "accepted", "declined", "withdrawn", "expired"],
+        "title": "ConsentDecision",
         "type": "string"
       },
       "ConsentResponse": {
@@ -1568,6 +1580,229 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "MeetingCaptureCreateRequest": {
+        "additionalProperties": false,
+        "description": "Ask a named set of people whether one meeting may be collected.\n\n**There is no consent field, and there is no route that adds one.** An\nadministrator names who would be in the meeting; every one of those people\nthen answers for themselves from their own session. `extra=\"forbid\"` means a\nclient that invents `consented` or `approvedBy` is rejected rather than\nquietly ignored.",
+        "properties": {
+          "externalMeetingRef": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Externalmeetingref",
+            "type": "string"
+          },
+          "participantPersonIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Participantpersonids",
+            "type": "array"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/MeetingProvider"
+          },
+          "purpose": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Purpose",
+            "type": "string"
+          },
+          "scheduledEnd": {
+            "format": "date-time",
+            "title": "Scheduledend",
+            "type": "string"
+          },
+          "scheduledStart": {
+            "format": "date-time",
+            "title": "Scheduledstart",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "externalMeetingRef",
+          "scheduledStart",
+          "scheduledEnd",
+          "purpose",
+          "participantPersonIds"
+        ],
+        "title": "MeetingCaptureCreateRequest",
+        "type": "object"
+      },
+      "MeetingCaptureListResponse": {
+        "additionalProperties": false,
+        "description": "Every capture request in the workspace, plus the totals.",
+        "properties": {
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          },
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/MeetingCaptureResponse"
+            },
+            "title": "Requests",
+            "type": "array"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/MeetingStateCounts"
+          }
+        },
+        "required": ["totals", "notice"],
+        "title": "MeetingCaptureListResponse",
+        "type": "object"
+      },
+      "MeetingCaptureResponse": {
+        "additionalProperties": false,
+        "description": "One capture request, as the workspace that asked for it may see it.",
+        "properties": {
+          "acceptedCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acceptedcount"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "externalMeetingRef": {
+            "title": "Externalmeetingref",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "participantCount": {
+            "title": "Participantcount",
+            "type": "integer"
+          },
+          "policyVersion": {
+            "title": "Policyversion",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/MeetingProvider"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/ReasonCode"
+          },
+          "requestedAt": {
+            "format": "date-time",
+            "title": "Requestedat",
+            "type": "string"
+          },
+          "scheduledEnd": {
+            "format": "date-time",
+            "title": "Scheduledend",
+            "type": "string"
+          },
+          "scheduledStart": {
+            "format": "date-time",
+            "title": "Scheduledstart",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CaptureState"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "externalMeetingRef",
+          "scheduledStart",
+          "scheduledEnd",
+          "purpose",
+          "state",
+          "policyVersion",
+          "requestedAt",
+          "participantCount",
+          "eligible",
+          "reason",
+          "message"
+        ],
+        "title": "MeetingCaptureResponse",
+        "type": "object"
+      },
+      "MeetingDecisionChoice": {
+        "description": "What a participant may say about their own capture request.\n\nDeliberately not `ConsentDecision`. That enum also has `PENDING`, which is\nthe *absence* of an answer, and `EXPIRED`, which is a conclusion the\neligibility gate reaches \u2014 neither is something a person can assert about\nthemselves, so neither is on the wire.",
+        "enum": ["accepted", "declined", "withdrawn"],
+        "title": "MeetingDecisionChoice",
+        "type": "string"
+      },
+      "MeetingDecisionRequest": {
+        "additionalProperties": false,
+        "description": "One person's own answer. Carries no subject, by design.",
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/MeetingDecisionChoice"
+          }
+        },
+        "required": ["decision"],
+        "title": "MeetingDecisionRequest",
+        "type": "object"
+      },
+      "MeetingProvider": {
+        "description": "Which platform produced the meeting.\n\nDeclared now and implemented later, so the column, its CHECK constraint and\nthe eligibility gate exist before any provider code does \u2014 the order that\nmakes it impossible to ship a connector that forgot to ask.",
+        "enum": ["google_meet", "zoom"],
+        "title": "MeetingProvider",
+        "type": "string"
+      },
+      "MeetingStateCounts": {
+        "additionalProperties": false,
+        "description": "How many requests stand where. The aggregate, and only in totals.",
+        "properties": {
+          "cancelled": {
+            "default": 0,
+            "title": "Cancelled",
+            "type": "integer"
+          },
+          "completed": {
+            "default": 0,
+            "title": "Completed",
+            "type": "integer"
+          },
+          "eligible": {
+            "default": 0,
+            "title": "Eligible",
+            "type": "integer"
+          },
+          "expired": {
+            "default": 0,
+            "title": "Expired",
+            "type": "integer"
+          },
+          "pending": {
+            "default": 0,
+            "title": "Pending",
+            "type": "integer"
+          },
+          "refused": {
+            "default": 0,
+            "title": "Refused",
+            "type": "integer"
+          }
+        },
+        "title": "MeetingStateCounts",
+        "type": "object"
+      },
       "MembershipResponse": {
         "additionalProperties": false,
         "description": "A person's place in a workspace.\n\nCarries role and join date and nothing else \u2014 no activity counts, no last\nseen, no \"engagement\". Roles govern configuration; they do not govern how\nmuch is visible about a person (md/15 \u00a72.2), and a members list is exactly\nwhere a visibility field would first appear.",
@@ -1753,6 +1988,114 @@
         },
         "required": ["notice"],
         "title": "MyIdentitiesResponse",
+        "type": "object"
+      },
+      "MyMeetingRequestListResponse": {
+        "additionalProperties": false,
+        "description": "The requests the caller was asked about. Theirs only.",
+        "properties": {
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          },
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/MyMeetingRequestResponse"
+            },
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": ["notice"],
+        "title": "MyMeetingRequestListResponse",
+        "type": "object"
+      },
+      "MyMeetingRequestResponse": {
+        "additionalProperties": false,
+        "description": "One capture request, as the person who was asked sees it.\n\nCarries the caller's own answer and nothing about anybody else's. The\nrequest's standing is shown because a participant is entitled to know\nwhether anything will be collected; *who* caused that standing is not theirs\nto learn, and no field here could tell them.",
+        "properties": {
+          "canDecide": {
+            "title": "Candecide",
+            "type": "boolean"
+          },
+          "externalMeetingRef": {
+            "title": "Externalmeetingref",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "myDecidedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mydecidedat"
+          },
+          "myDecision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsentDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "participantCount": {
+            "title": "Participantcount",
+            "type": "integer"
+          },
+          "policyVersion": {
+            "title": "Policyversion",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/MeetingProvider"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "scheduledEnd": {
+            "format": "date-time",
+            "title": "Scheduledend",
+            "type": "string"
+          },
+          "scheduledStart": {
+            "format": "date-time",
+            "title": "Scheduledstart",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CaptureState"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "externalMeetingRef",
+          "scheduledStart",
+          "scheduledEnd",
+          "purpose",
+          "state",
+          "policyVersion",
+          "participantCount",
+          "canDecide",
+          "message"
+        ],
+        "title": "MyMeetingRequestResponse",
         "type": "object"
       },
       "NotificationStatus": {
@@ -2011,6 +2354,24 @@
         ],
         "title": "QueueHealth",
         "type": "object"
+      },
+      "ReasonCode": {
+        "description": "Why collection is or is not permitted. Internal, precise, never shown raw.",
+        "enum": [
+          "allowed",
+          "awaiting_consent",
+          "refused",
+          "unresolved_participant",
+          "participant_added",
+          "policy_changed",
+          "rescheduled",
+          "not_collectable",
+          "window_passed",
+          "scope_mismatch",
+          "no_participants"
+        ],
+        "title": "ReasonCode",
+        "type": "string"
       },
       "Region": {
         "description": "Where a tenant's data is stored (only ``US_CENTRAL1`` is live so far,\nmd/06 \u00a76.3).",
@@ -6662,6 +7023,153 @@
         "tags": ["identities"]
       }
     },
+    "/v1/workspaces/{workspace_id}/me/meeting-requests": {
+      "get": {
+        "description": "The caller's own invitations to answer, and nobody else's.\n\n**Self only by construction rather than by a check.** The person is resolved\nfrom the caller's session; there is no subject parameter, no filter and no\nflag that widens it, so no role has a route through which to read what a\ncolleague was asked or how they answered.\n\n**No permission is declared**, and requiring one would be the wrong axis.\nEvery role including Viewer may answer a question about their own presence in\na meeting, and making that a grant would mean a person's own consent was\nsomething the workspace let them have.",
+        "operationId": "my_meeting_requests_v1_workspaces__workspace_id__me_meeting_requests_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyMeetingRequestListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Meetings you have been asked about",
+        "tags": ["meetings"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/me/meeting-requests/{meeting_id}/decision": {
+      "post": {
+        "description": "Record the caller's own answer, and recompute what it makes possible.\n\n**The only route in the product that writes a consent decision.** The user id\nstored in `decided_by_user_id` is the one the session cookie resolved to, and\nthe body has no field that could name anybody else \u2014 so an administrator\ncalling this records their own answer to their own invitation, or gets a 404.\n\n**404, not 403, for a decision that is not the caller's.** Whether a meeting\nexists is not a non-participant's to confirm, and a 403 would confirm it \u2014\nturning this into a way of discovering which colleagues are in a meeting\nsomebody asked to capture.\n\n**Append-only.** Changing your mind supersedes the previous row and inserts a\nnew one; nothing is updated in place and nothing is deleted, because the\nhistory is the product's only evidence that withdrawal was possible and\nhonoured.",
+        "operationId": "decide_meeting_request_v1_workspaces__workspace_id__me_meeting_requests__meeting_id__decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeetingDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyMeetingRequestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "You have no meeting request with that identifier."
+          },
+          "422": {
+            "description": "The request is closed, or that answer does not apply."
+          }
+        },
+        "summary": "Agree, refuse, or take your agreement back",
+        "tags": ["meetings"]
+      }
+    },
     "/v1/workspaces/{workspace_id}/me/role": {
       "get": {
         "description": "The caller's own work role.\n\nAlso on the session, which is where every screen reads it from. This exists\nfor the one case the session does not cover: confirming what was saved\nwithout re-authenticating.",
@@ -7011,6 +7519,217 @@
         },
         "summary": "What CAIRN believes about you",
         "tags": ["me"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/meetings/capture-requests": {
+      "get": {
+        "description": "The list and the totals, with no per-person answer anywhere in either.\n\nRead-only, including the eligibility it reports: the gate is consulted for\ndisplay and nothing is written, so opening this screen cannot change what\nCAIRN believes it is allowed to do.",
+        "operationId": "list_capture_requests_v1_workspaces__workspace_id__meetings_capture_requests_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingCaptureListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to manage workspace settings."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Capture requests in this workspace, and where they stand",
+        "tags": ["meetings"]
+      },
+      "post": {
+        "description": "Create the question. It grants nothing.\n\nThe request lands `pending` with no consent rows at all, and stays there\nuntil every expected participant has affirmatively agreed from their own\nsession. Silence never ages into agreement, so a request created and then\nforgotten collects nothing, forever.\n\nGated on `WORKSPACE_SETTINGS` (Owner and Admin) because *asking* is a\nconfiguration action. What that gate emphatically does not confer is any\nability to answer \u2014 see the module docstring.",
+        "operationId": "create_capture_request_v1_workspaces__workspace_id__meetings_capture_requests_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeetingCaptureCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingCaptureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to manage workspace settings."
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "409": {
+            "description": "That meeting already has an open capture request."
+          },
+          "422": {
+            "description": "The window, or one of the people named, is not usable."
+          }
+        },
+        "summary": "Ask everybody in a meeting whether CAIRN may collect it",
+        "tags": ["meetings"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/meetings/capture-requests/{meeting_id}/cancel": {
+      "post": {
+        "description": "Withdraw the question.\n\nOnly an open request can be cancelled. A refused one is already closed, and\ncancelling it would replace \"somebody said no\" with a tidier word \u2014 the\nrecord has to keep saying refused, because that is what the product may later\nhave to demonstrate it honoured.",
+        "operationId": "cancel_capture_request_v1_workspaces__workspace_id__meetings_capture_requests__meeting_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "meeting_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Meeting Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingCaptureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to manage workspace settings."
+          },
+          "404": {
+            "description": "No such capture request in this workspace."
+          },
+          "422": {
+            "description": "The request is already closed."
+          }
+        },
+        "summary": "Call off a capture request",
+        "tags": ["meetings"]
       }
     },
     "/v1/workspaces/{workspace_id}/members": {
