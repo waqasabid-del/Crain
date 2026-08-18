@@ -175,8 +175,14 @@ async def _link_account(
     context, so a matching address in another company's workspace is invisible
     here rather than merely unmatched.
 
-    Never overwrites. Re-pointing an existing link would move ownership of a
-    record between people, which is a merge decision, not an inference.
+    Never overwrites, in both directions. Re-pointing an existing link would
+    move ownership of a record between people, which is a merge decision, not an
+    inference — and so would attaching an account that another person row in
+    this workspace already holds. `uq_people_tenant_user` enforces the second
+    case, and enforcing it here as well is not belt-and-braces: the index raises
+    inside the delivery job, which then retries, fails identically, and
+    dead-letters, so one person appearing in a commit stops that workspace
+    ingesting anything at all.
     """
     if person.user_id is not None:
         return
@@ -192,6 +198,29 @@ async def _link_account(
         )
     )
     if user_id is None:
+        return
+
+    # The account may already belong to another person row here — a workspace
+    # whose accounts were linked before any commit arrived has exactly this
+    # shape, since nothing writes an identity row for the address in that path.
+    holder: uuid.UUID | None = await session.scalar(
+        select(Person.id).where(
+            Person.tenant_id == person.tenant_id,
+            Person.user_id == user_id,
+            Person.id != person.id,
+        )
+    )
+    if holder is not None:
+        await logger.ainfo(
+            "identity.account_already_held",
+            person_id=str(person.id),
+            holder_person_id=str(holder),
+            detail=(
+                "A verified address matched an account another person record in "
+                "this workspace already holds. Declined rather than merged: "
+                "moving an account between person records is a merge decision."
+            ),
+        )
         return
 
     person.user_id = user_id

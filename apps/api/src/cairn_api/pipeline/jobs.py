@@ -347,6 +347,30 @@ def _slack_timestamp(ts: str) -> datetime | None:
         return None
 
 
+def _commit_text(commit: Mapping[str, Any], message: str) -> str:
+    """The commit message, with the author it is credited to named above it.
+
+    **The message alone loses the author.** `Co-authored-by:` trailers are in the
+    message, but the author is not — they live in `commit.author`, which nothing
+    rendered. The first real delivery produced a fact crediting the co-author and
+    omitting the person who wrote the commit: one half of a pair credited, which
+    is md/01 §5.1's failure arriving from the side nobody guarded.
+
+    Not an `actor`, deliberately. An actor is a stable provider account id, and
+    `commit.author` offers a login and an address that the account holder can
+    change at will. Naming them in the text keeps this a claim the payload made,
+    which extraction weighs and a person can correct, rather than provenance the
+    system asserts.
+    """
+    author = commit.get("author")
+    name = _text(author.get("name")) if isinstance(author, dict) else ""
+    if not name:
+        # Absent stays absent. A commit with no author named is a commit with no
+        # author named, and inventing a label for it is the guess this avoids.
+        return message
+    return f"Author: {name}" + chr(10) + message
+
+
 def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
     """Everything in a payload a fact could legitimately cite. Evidence ids
     are stable across redelivery (commit SHA; PR/issue number), which is
@@ -376,7 +400,7 @@ def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
         found.append(
             _Evidence(
                 evidence_id=f"github:commit:{sha}",
-                text=message,
+                text=_commit_text(commit, message),
                 url=_text(commit.get("url")),
                 occurred_at=_timestamp(commit.get("timestamp")),
             )
