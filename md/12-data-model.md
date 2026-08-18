@@ -172,6 +172,35 @@ whether somebody agreed, which is a permission and not a measurement.
 
 ---
 
+### Google Meet artifacts (Step 36)
+
+**Meet is artifact-only.** CAIRN never joins a call, never records, and never
+transcribes. The only thing it may ever receive is a transcript the meeting
+platform itself produced, and only for a meeting every participant consented to
+under Step 35.
+
+Two authorisations, deliberately separate. `meetings.space.readonly` (sensitive)
+lets Google announce that a transcript exists. `drive.meet.readonly` (restricted)
+lets CAIRN fetch one — its own consent action, its own OAuth client, its own
+encrypted refresh token. Connecting Meet therefore grants nothing about
+transcripts, and the tables reflect that: a connection can exist with no grant.
+
+`kind = 'transcript'` and `provider = 'google_meet'` are CHECK constraints, so a
+recording, an audio file or a smart note cannot be stored — not "is not stored",
+_cannot be_. Transcript-ness is checked three ways before a byte is written:
+reference shape, declared type, and the MIME of what arrived.
+
+Raw transcript bytes live in their own table, encrypted, with **no grant to the
+application role**. Retention deletion removes the bytes and leaves the
+provenance — provider, meeting id, artifact digest, generated and retrieval
+times, checksum, consent-policy version — so "a transcript existed and was
+deleted on this date" stays answerable after the content is gone.
+
+Nothing reads a transcript at this step. There is no route that returns one, and
+no model call touches one.
+
+---
+
 ### Cross-source identity (Step 34)
 
 **One provider account belongs to at most one person per workspace, and CAIRN

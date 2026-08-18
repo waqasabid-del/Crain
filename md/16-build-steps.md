@@ -1898,6 +1898,66 @@ work.
 
 ---
 
+**✅ Step 36 — Google Meet: connection, consent-gated subscriptions, and transcript
+retrieval. Complete in the product, blocked at Google.**
+
+Delivered: a separate Meet OAuth client, subscriptions that exist only for a
+consented meeting, a Pub/Sub receiver, restricted-scope transcript authorisation
+as its own consent action, artifact retrieval behind the Step 35 gate, retention,
+the workspace and Trust Center surfaces, and five browser tests. Two migrations,
+both verified up/down/up.
+
+**Meet is not Chat, and the difference is the release gate.**
+`meetings.space.readonly` is a **sensitive** scope: Google OAuth app verification,
+weeks, no independent assessment. The connection and subscription half can ship
+on that. `drive.meet.readonly` — which retrieval needs — is **restricted**:
+verification _plus_ an independent CASA security assessment with annual
+re-verification, months. Those are separate gates and the product says so
+separately. The frontend brief for this step asked for Chat's wording verbatim;
+it was refused, because copying it would have put a checkable falsehood on the
+one page whose entire claim is checkability.
+
+**Transcript access is a separate consent on a separate OAuth client.** Not an
+expansion of the Meet grant: its own route, callback, client id, encrypted
+refresh token, and `requested_grant` inside the single-use state predicate so the
+two flows cannot redeem each other's codes. A shared client would silently widen
+the _connection's_ grant at Google and break its scope-equality check days later,
+somewhere nobody would connect to this change.
+
+**The unsafe row is unrepresentable.** `kind = 'transcript'` and
+`provider = 'google_meet'` are CHECK constraints, so a recording row cannot be
+written rather than merely not being written. Transcript-ness is checked three
+ways — reference shape, declared type, and the MIME of what actually arrived. The
+raw transcript lives in its own table with **no grant to the application role at
+all**, so retention deletion removes the bytes and leaves the provenance
+standing.
+
+Every retrieval path takes an unforgeable `CollectionPermit` and re-derives it
+per artifact inside the transaction, then re-checks the chain: permit↔artifact
+tenant and meeting, connection active, signal↔subscription↔meeting↔digest,
+subscription not expired, a live transcript grant, source opt-out, and unresolved
+identity. Withdrawal after retrieval stops future processing and deletes nothing.
+
+**One event type is subscribed**: `transcript.v2.fileGenerated`. No participant
+join or leave, no attendance, no recording, no smart notes. Attendance events
+would turn a consent record into a presence log — who was late, who left early —
+which md/03 §5.4 lists as an explicit non-capability.
+
+Findings closed during the step: the Meet card carried a seven-word status
+vocabulary with no endpoint that could ever populate it, because `listIntegrations`
+returns GitHub installations only. The endpoint was added rather than the
+vocabulary deleted, with the status word composed server-side — a client deriving
+"expiring" from a date would be deciding what the renewal window is, and two
+clients would eventually decide differently.
+
+**Deferred, and stated rather than carried:** no transcription, diarization,
+summary, commitment extraction or model call touches a transcript — Step 37. No
+calendar integration, no Zoom, no attendance analytics, no bot. The consent
+screen stays in Testing until the app is published, where refresh tokens expire
+after seven days.
+
+---
+
 ## ✅ Stage A gate — PASSED
 
 Two tenants exist and are provably isolated. Users can authenticate with correct roles. Events validate. 150 Python tests and 65 TypeScript tests passing, with WCAG contrast, tenant isolation, migration round-trips, and cross-language schema drift all verified in CI.
