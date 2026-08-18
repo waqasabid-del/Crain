@@ -199,3 +199,42 @@ class TestOptOutBlocksAttributionForEveryChatProduct:
         """Guards the parametrised helpers above from being fed the wrong thing."""
         with pytest.raises(UnknownSourceError):
             canonical.parse(str(uuid.uuid4()))
+
+
+class TestNothingInTheProductInventsASource:
+    """Every source string the codebase writes must be one somebody can refuse.
+
+    The audit that closed Step 34 found `db/seed.py` still writing
+    `source="chat"` — evidence carrying a source name that no longer exists, in
+    the fixture every demo and browser test signs into. It would have failed
+    closed at read time rather than mis-attributing, which is the right failure,
+    but only after somebody wondered why the seeded workspace was empty.
+    """
+
+    def test_the_seed_writes_only_real_sources(self) -> None:
+        import inspect
+        import re
+
+        from cairn_api.db import seed
+
+        written = set(re.findall(r'source="([a-z_]+)"', inspect.getsource(seed)))
+
+        assert written <= set(canonical.SOURCES), (
+            f"the seed writes {written - set(canonical.SOURCES)}, which nobody can opt out of"
+        )
+
+    def test_seeded_evidence_ids_carry_a_real_prefix(self) -> None:
+        import inspect
+        import re
+
+        from cairn_api.db import seed
+
+        prefixes = {
+            item.split(":", 1)[0]
+            for item in re.findall(r'evidence_id="([^"]+)"', inspect.getsource(seed))
+        }
+
+        for prefix in prefixes:
+            # Raises rather than returning a default, so an invented prefix fails
+            # here rather than at ingestion time in a worker.
+            canonical.parse(prefix)

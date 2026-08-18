@@ -128,11 +128,57 @@ This is also a security control: file 09 §6.3 requires that Stage 2 output be s
 
 `ActivityEvent` is the immutable input record. The Understanding layer produces three derived, mutable entities stored separately:
 
-| Entity      | Description                                                                                       | Mutability                                               |
-| ----------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| **Person**  | Resolved identity graph — handles, emails, display names, merge history                           | Mutable; user-correctable (file 01 §5.3)                 |
-| **Fact**    | Extracted decision, commitment, or blocker, with `valid_from` / `valid_until` and `superseded_by` | Mutable via supersession, never overwrite (file 09 §3.2) |
-| **Project** | Inferred grouping of related activity across sources                                              | Mutable                                                  |
+| Entity               | Description                                                                                       | Mutability                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| **Person**           | Resolved identity graph — handles, emails, display names, merge history                           | Mutable; user-correctable (file 01 §5.3)                 |
+| **Fact**             | Extracted decision, commitment, or blocker, with `valid_from` / `valid_until` and `superseded_by` | Mutable via supersession, never overwrite (file 09 §3.2) |
+| **Project**          | Inferred grouping of related activity across sources                                              | Mutable                                                  |
+| **ExternalIdentity** | One provider account bound to one person, with the evidence for the binding                       | Appended and ended, never deleted (Step 34)              |
+
+### Cross-source identity (Step 34)
+
+**One provider account belongs to at most one person per workspace, and CAIRN
+never guesses which.** `external_identities` binds a provider account — a Slack
+`U…`, a Google Chat `users/…`, a GitHub numeric user id — to a `Person`, and a
+row exists only for one of two reasons:
+
+| Verification           | What happened                                                                                                                          |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `verified_email_match` | The provider supplied an address it stated it had verified, and it equalled the verified address of a CAIRN account in this workspace. |
+| `self_confirmed`       | The person said so, from an authenticated session.                                                                                     |
+
+There is deliberately no third member and no `suggested`/`inferred` state.
+**Nothing links a person by display name, similar name, avatar, writing style,
+message content, organisation chart, shared channel, working hours, or model
+output.** There is no threshold to tune, because a threshold implies a high
+enough score would be good enough, and for "is this the same human" it is not.
+
+A CHECK constraint requires the evidence to match the method: a verified-email
+row must carry the address that proved it, a self-confirmed row must not — so a
+row cannot blur "the provider proved it" with "the person said so".
+
+**Ownership is exclusive while live**, enforced by a partial unique index on
+`(tenant_id, provider, provider_account_id) WHERE state = 'active'`. Two people
+cannot hold one account, the race between simultaneous confirmations is decided
+by the database, and an account can change hands only through an explicit
+revocation that leaves its reason behind.
+
+**Unresolved is a first-class answer.** Activity whose provider account matches
+no live row stays attributed to the account and to nobody. `fact_people` carries
+either a human-readable `mention` (text a model wrote, published, correctable) or
+a structured `provider` + `provider_account_id` (internal, never serialised) —
+exactly one, by CHECK. The account ids are private provider identifiers and never
+reach an API response, an export, a log line or a screen; what a reader sees is a
+count, `unresolvedActors`, which says one contributor here has not connected
+their account without saying who.
+
+**Ending a link changes the claim, never the record.** Revoking or disputing sets
+`state` and clears `person_id` on the rows that account was attributed to. The
+fact, its statement, its sources, the quoted evidence and the provider's own
+record of who produced it all remain. A disputed link means the attribution was
+wrong, not that the work was imaginary.
+
+---
 
 **Facts are superseded, never deleted.** History is preserved; only currently-valid facts reach synthesis. A human correction (file 09 §9) supersedes the AI-derived fact and is recorded as such — retaining both the original and the correction, which is what makes corrections usable as evaluation data (file 10 §2.1).
 

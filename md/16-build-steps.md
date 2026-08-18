@@ -1738,7 +1738,79 @@ button is not a connected connector**, and the runbook opens by saying so.
 `/v1/internal/operations/connectors` does not carry `subscriptionsMissing`, so the number this
 connector's worst failure mode moves cannot be seen from any screen; it is a response field and a
 call, not a query. The Pub/Sub publisher principal is unconfirmed, and the reactivation window is
-undocumented by Google.
+undocumented by Google. **Closed in Step 34:** the reader now exists —
+`GET /v1/internal/operations/connectors` carries `subscriptions`, for the
+Engineering and Security staff roles only.
+
+---
+
+**✅ Step 34 — Cross-source identity, attribution, and consent integrity. Complete.**
+
+Delivered: `external_identities`, self-only identity routes, a privacy-safe
+attribution aggregate, provider-actor extraction for all three sources,
+deterministic reconciliation, the Connected identities screens, and four browser
+tests. Three migrations, each verified up/down/up.
+
+**One provider account belongs to at most one person, and CAIRN never guesses.**
+Two ways in and no third: a provider-verified address matching a CAIRN-verified
+address, or the person's own confirmation from an authenticated session. There is
+deliberately no `suggested` enum member for a future author to reach for — adding
+one is a migration somebody has to write and defend, which is the point.
+Nothing links a person by name, avatar, writing style, content, or model output.
+
+**The step began by finding a live privacy defect.** Evidence carried
+`github`/`slack`/`google_chat`; consent offered `github`/`chat`/`meeting`/
+`document`; and opt-out is enforced by intersecting the two. `{"chat"} & {"slack"}`
+is empty, so **every Slack and Google Chat opt-out silently did nothing** — the
+toggle saved, the row existed, every screen reported the refusal as honoured, and
+CAIRN kept reading. The failure was invisible from both ends. `cairn_api.sources`
+is now the single definition, `chat` is gone rather than aliased because one word
+for two separately-connected products could never express "stop reading my Slack
+but keep Google Chat", and unknown values fail closed instead of defaulting to
+`github` — a default that had been relabelling unknown evidence as the source a
+workspace most likely had connected.
+
+**A name no longer assigns ownership.** `mentions.py` attributed a fact on a
+single exact `display_name` match; two colleagues called Sam are one rename from
+inheriting each other's work, and the single-match rule made that rarer rather
+than safer. The name is still recorded so a person can see and correct what was
+claimed about them — it simply no longer creates ownership.
+
+**The account id had to move out of `mention`.** It was encoded there first, and
+an audit found that column is a required field of the published OpenAPI document,
+rendered straight onto feed credits, used as both id and label of a person facet,
+and exported into evaluation cases. A Slack member id shown to every colleague as
+somebody's name is a disclosure — introduced by a change whose whole purpose was
+to attribute work more carefully. It now lives in structured columns that no
+serializer can reach, and the regression tests read the production source rather
+than trusting a comment, because an edit that drops a filter reinstates the leak
+silently.
+
+**Reconciliation is one `UPDATE` whose predicate carries every safety property:**
+exact tenant, provider and account, with `person_id IS NULL`, so it is idempotent,
+concurrency-safe and resumable by construction and can never take work already
+attributed to somebody else. **Confirming an account is not opting back in** —
+refused sources are excluded, so it cannot become the back door that restores the
+history a refusal exists to prevent.
+
+**Ending a link takes the attribution with it.** The browser test found that
+revocation stopped future attribution while everything already attributed stayed
+on the person's record — "I unlinked that account" and "that work is still filed
+under my name" both true on one screen, and the person can see the second.
+Clearing `person_id` deletes nothing: the fact, its sources, the quoted evidence
+and the provider's own record of who produced it all remain.
+
+Findings the audit closed: `db/seed.py` still wrote `source="chat"`, evidence
+carrying a source name that no longer existed, in the fixture every demo and
+browser test signs into; and the seeded demo facts attributed by display name, so
+they stopped resolving when name matching was retired.
+
+**Deferred, and stated rather than carried:** `IdentityProposal` carries a kind
+and a value while confirming needs the source's own account id, so a proposal
+cannot become a one-click confirm without guessing the missing half — proposals
+are read-only and the confirm path is a typed field. That is also the safer
+shape: a pick-list of the workspace's unclaimed accounts is a directory for
+claiming a colleague's history.
 
 ---
 

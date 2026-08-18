@@ -117,7 +117,7 @@ class TestOptOutIsPerSource:
         tenant_id, person_id = workspace
         from_github = await add_fact(tenant_id, person_id, source="github")
         from_chat = await add_fact(
-            tenant_id, person_id, source="chat", statement="Priya raised the staging blocker."
+            tenant_id, person_id, source="slack", statement="Priya raised the staging blocker."
         )
 
         async with tenant_session(tenant_id) as session:
@@ -172,7 +172,7 @@ class TestOptOutIsPerSource:
         not what they were promised.
         """
         tenant_id, person_id = workspace
-        fact_id = await add_fact(tenant_id, person_id, source="meeting", second_source="chat")
+        fact_id = await add_fact(tenant_id, person_id, source="meeting", second_source="slack")
 
         async with tenant_session(tenant_id) as session:
             await consent.opt_out(
@@ -260,7 +260,7 @@ class TestOptOutAppliesToNewActivity:
             )
             await session.commit()
 
-        fact_id = await add_fact(tenant_id, None, source="chat")
+        fact_id = await add_fact(tenant_id, None, source="slack")
 
         async with tenant_session(tenant_id) as session:
             await store.attach_people(session, tenant_id=tenant_id, fact_id=fact_id)

@@ -116,21 +116,21 @@ async def workspace(platform: AsyncSession, embedder: HashingEmbedder) -> Worksp
         _fact(
             "Priya shipped rate limiting to production.",
             evidence=[("github", f"ev-pr-{suffix}", "acme/payments")],
-            people=["Priya Nair"],
+            people=[f"@priya-{suffix}"],
             at=MONDAY,
         ),
         _fact(
             "Ali is blocked on the staging certificate.",
             kind=FactKind.BLOCKER,
-            evidence=[("chat", f"ev-msg-{suffix}", None)],
-            people=["Ali Hassan"],
+            evidence=[("slack", f"ev-msg-{suffix}", None)],
+            people=[f"@ali-{suffix}"],
             at=TUESDAY,
         ),
         _fact(
             "The team chose to throttle write endpoints at the gateway.",
             kind=FactKind.DECISION,
             evidence=[("github", f"ev-issue-{suffix}", "acme/gateway")],
-            people=["Priya Nair"],
+            people=[f"@priya-{suffix}"],
             at=WEDNESDAY,
         ),
     ]
@@ -212,8 +212,8 @@ class TestFilters:
         assert "Ali is blocked on the staging certificate." not in payments
 
     async def test_filtering_by_source_returns_only_that_source(self, workspace: Workspace) -> None:
-        chat = await statements(workspace.tenant_id, feed.FeedFilters(sources=("chat",)))
-        assert chat == {"Ali is blocked on the staging certificate."}
+        slack = await statements(workspace.tenant_id, feed.FeedFilters(sources=("slack",)))
+        assert slack == {"Ali is blocked on the staging certificate."}
 
     async def test_filtering_by_date_uses_when_the_work_happened(
         self, workspace: Workspace
@@ -353,7 +353,7 @@ class TestFacets:
         async with tenant_session(workspace.tenant_id) as session:
             found_facets = await feed.facets(session, tenant_id=workspace.tenant_id)
 
-        assert set(found_facets.sources) == {"github", "chat"}
+        assert set(found_facets.sources) == {"github", "slack"}
         assert set(found_facets.projects) == {"acme/payments", "acme/gateway"}
         assert {name for _, name in found_facets.people} == {"Priya Nair", "Ali Hassan"}
 
@@ -558,7 +558,7 @@ class TestOverHttp:
         assert len(everything.json()["items"]) == 2, "positive control"
 
         filtered = await client.get(
-            f"/v1/workspaces/{workspace_id}/facts", params={"source": "chat"}
+            f"/v1/workspaces/{workspace_id}/facts", params={"source": "slack"}
         )
         assert filtered.status_code == 200, filtered.text
         [item] = filtered.json()["items"]
@@ -574,7 +574,7 @@ class TestOverHttp:
         assert response.status_code == 200, response.text
         body = response.json()
 
-        assert set(body["sources"]) == {"github", "chat"}
+        assert set(body["sources"]) == {"github", "slack"}
         assert body["projects"] == ["acme/payments"]
         assert [person["name"] for person in body["people"]] == []
 
@@ -731,7 +731,7 @@ async def _seed_over_http(tenant_id: uuid.UUID) -> None:
                 _fact(
                     "Ali is blocked on the staging certificate.",
                     kind=FactKind.BLOCKER,
-                    evidence=[("chat", f"ev-msg-{suffix}", None)],
+                    evidence=[("slack", f"ev-msg-{suffix}", None)],
                     at=TUESDAY,
                 ),
             ],

@@ -33,6 +33,7 @@ from sqlalchemy import select
 
 from cairn_api.auth.tokens import hash_password
 from cairn_api.db.auth_models import PasswordCredential
+from cairn_api.db.connector_models import ConnectorProvider
 from cairn_api.db.github_models import GitHubInstallation, WebhookDelivery
 from cairn_api.db.identity_models import Identity, IdentityKind, Person
 from cairn_api.db.models import Membership, Region, Tenant, TenantRole, User, WorkRole
@@ -43,6 +44,7 @@ from cairn_api.jobs.envelope import JobEnvelope
 from cairn_api.pipeline import store
 from cairn_api.pipeline.facts import Fact, FactKind, SourceRef
 from cairn_api.pipeline.jobs import UNDERSTAND_JOB, build_providers, make_handler
+from cairn_api.pipeline.mentions import ProviderActor
 
 #: The password every seeded account uses. Public, and local-only by
 #: construction: `config.py` refuses to start a deployed environment on the
@@ -96,6 +98,16 @@ DELIVERIES: list[dict[str, Any]] = [
 ]
 
 
+#: The Slack account the seeded workspace leaves unconnected.
+#:
+#: Public by construction, like `SEED_PASSWORD`: it identifies nobody, it exists
+#: only in the development database, and the browser test needs a value it can
+#: type into the confirm field.
+SEEDED_SLACK_ACTOR: str = ProviderActor(
+    provider=ConnectorProvider.SLACK, account_id="U0SEEDALI"
+).mention
+
+
 def _attributed_facts() -> list[Fact]:
     """Statements about named people, for the screens that are about a person.
 
@@ -107,6 +119,27 @@ def _attributed_facts() -> list[Fact]:
     """
     now = datetime.now(UTC)
     return [
+        # **One deliberately unresolved contributor.** A Slack account nobody has
+        # connected, so the fact it produced carries recorded provenance and no
+        # owner — which is the ordinary state of a workspace whose members have
+        # not linked their accounts yet, and the state the Connected identities
+        # screen exists to resolve. `store._person_row` converts this encoding
+        # into the structured columns; the sentinel never reaches the database.
+        Fact(
+            kind=FactKind.DELIVERY,
+            statement="Someone rewrote the retry logic for the webhook consumer.",
+            sources=[
+                SourceRef(
+                    source="slack",
+                    evidence_id="slack:message:9915",
+                    quote="pushed the retry rewrite, should stop the duplicate deliveries",
+                    project=None,
+                )
+            ],
+            people=[SEEDED_SLACK_ACTOR],
+            certainty=Certainty.OBSERVED,
+            occurred_at=now - timedelta(days=2),
+        ),
         Fact(
             kind=FactKind.DELIVERY,
             statement="Priya shipped rate limiting to the public API.",
@@ -119,7 +152,7 @@ def _attributed_facts() -> list[Fact]:
                 )
             ],
             certainty=Certainty.VERIFIED,
-            people=["Priya Nair"],
+            people=["@priya"],
             occurred_at=now - timedelta(days=1),
         ),
         Fact(
@@ -127,14 +160,14 @@ def _attributed_facts() -> list[Fact]:
             statement="The staging certificate expired, blocking the payments release.",
             sources=[
                 SourceRef(
-                    source="chat",
-                    evidence_id="chat:message:9871",
+                    source="slack",
+                    evidence_id="slack:message:9871",
                     quote="staging is down again, cert expired",
                     project=None,
                 )
             ],
             certainty=Certainty.OBSERVED,
-            people=["Ali Rahman"],
+            people=["@ali"],
             occurred_at=now - timedelta(days=2),
         ),
         Fact(
@@ -149,15 +182,15 @@ def _attributed_facts() -> list[Fact]:
                 )
             ],
             certainty=Certainty.OBSERVED,
-            people=["Ali Rahman", "Sara Bennett"],
+            people=["@ali", "@sara"],
             occurred_at=now - timedelta(days=3),
         ),
         Fact(
             kind=FactKind.OPEN_QUESTION,
             statement="Nobody has decided whether the new limits apply to internal callers.",
-            sources=[SourceRef(source="chat", evidence_id="chat:message:9903", project=None)],
+            sources=[SourceRef(source="slack", evidence_id="slack:message:9903", project=None)],
             certainty=Certainty.SUGGESTED,
-            people=["Sara Bennett"],
+            people=["@sara"],
             occurred_at=now - timedelta(days=1),
         ),
         Fact(
@@ -172,7 +205,7 @@ def _attributed_facts() -> list[Fact]:
                 )
             ],
             certainty=Certainty.OBSERVED,
-            people=["Sara Bennett"],
+            people=["@sara"],
             occurred_at=now,
         ),
     ]

@@ -36,7 +36,7 @@ the rate limiter until infra rotates them.
 everything is on track.
 """
 
-EVIDENCE = {"ev-1": "github", "ev-2": "chat", "ev-3": "github", "ev-4": "chat"}
+EVIDENCE = {"ev-1": "github", "ev-2": "slack", "ev-3": "github", "ev-4": "slack"}
 
 
 async def main() -> int:

@@ -631,12 +631,28 @@ class TestMentionResolution:
             resolution = await resolve_mentions(session, tenant_id=tenant_id, names=["@alihassan"])
         assert resolution.person_ids == [people["ali"]]
 
-    async def test_an_exact_display_name_resolves(
+    async def test_an_exact_display_name_resolves_to_nobody(
         self, tenant_id: uuid.UUID, people: dict[str, uuid.UUID]
     ) -> None:
+        """**A name is not evidence of identity, even an exact and unique one.**
+
+        This test asserted the opposite until Step 34, and the behaviour it
+        described was the last path by which a string a model wrote could decide
+        whose record something joined. Uniqueness was never the safeguard it
+        looked like: two colleagues called Sam are one rename apart, a new hire
+        can collide with an existing person tomorrow, and the model writes the
+        name from message text an outsider may have influenced.
+
+        Ownership now comes from a provider account the person confirmed, or from
+        an identifier in the identity graph. The name is still *kept* — the row
+        below still carries it, so "who did the model mean?" stays answerable and
+        correctable — it simply no longer attributes.
+        """
         async with tenant_session(tenant_id) as session:
             resolution = await resolve_mentions(session, tenant_id=tenant_id, names=["priya nair"])
-        assert resolution.person_ids == [people["priya"]]
+
+        assert resolution.person_ids == []
+        assert resolution.unresolved[0].unresolved_reason == "a name is not evidence of identity"
 
     async def test_an_ambiguous_name_resolves_to_nobody(
         self, platform: AsyncSession, tenant_id: uuid.UUID, people: dict[str, uuid.UUID]
@@ -653,7 +669,10 @@ class TestMentionResolution:
             resolution = await resolve_mentions(session, tenant_id=tenant_id, names=["Ali Hassan"])
 
         assert resolution.person_ids == []
-        assert "2 people share this name" in (resolution.unresolved[0].unresolved_reason or "")
+        # The reason changed with the rule: ambiguity is no longer *why* a name
+        # fails to attribute, because a name never attributes now. Keeping the
+        # old wording would describe a tiebreak that no longer runs.
+        assert resolution.unresolved[0].unresolved_reason == "a name is not evidence of identity"
 
     async def test_an_unknown_name_is_kept_rather_than_dropped(
         self, tenant_id: uuid.UUID, people: dict[str, uuid.UUID]

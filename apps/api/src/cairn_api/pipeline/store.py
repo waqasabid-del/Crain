@@ -502,6 +502,54 @@ async def reconcile_actor(
     return changed
 
 
+async def detach_actor(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    person_id: uuid.UUID,
+    provider: ConnectorProvider,
+    provider_account_id: str,
+) -> int:
+    """Stop saying this account's work is this person's. Returns rows changed.
+
+    The other half of `reconcile_actor`, and the half a browser test found
+    missing: ending a link stopped *future* attribution while everything already
+    attributed stayed on the person's record. "I have unlinked that account" and
+    "that work is still filed under my name" cannot both be true on the same
+    screen, and the second is the one the person can see.
+
+    **Nothing is deleted.** The fact, its statement, its sources, the quoted
+    evidence and the provider account that produced it all remain exactly as they
+    were — only `person_id` is cleared, which is the single field that was ever
+    CAIRN's claim rather than a record of what happened. The workspace's history
+    is not the person's to erase, and a disputed link means the attribution was
+    wrong, not that the work was imaginary.
+
+    Scoped to rows carrying this exact account, so a fact the person is
+    attributed to through some other route — a confirmed identity claim, their
+    own correction — is untouched.
+    """
+    result = await session.execute(
+        update(FactPerson)
+        .where(
+            FactPerson.tenant_id == tenant_id,
+            FactPerson.provider == provider.value,
+            FactPerson.provider_account_id == provider_account_id,
+            FactPerson.person_id == person_id,
+        )
+        .values(person_id=None)
+        .returning(FactPerson.id)
+    )
+    changed = len(result.all())
+
+    await logger.ainfo(
+        "attribution.detached",
+        provider=provider.value,
+        facts=changed,
+    )
+    return changed
+
+
 async def _opt_outs_for(
     session: AsyncSession,
     tenant_id: uuid.UUID,

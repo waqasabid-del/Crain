@@ -302,3 +302,86 @@ class TestConsentSurvivesReconciliation:
 
         assert await reconcile(workspace) == 0
         assert await attributed(workspace.tenant_id, fact_id) is None
+
+
+class TestEndingALinkTakesTheAttributionWithIt:
+    """The half a browser test found missing.
+
+    `end_link` stopped *future* attribution while everything already attributed
+    stayed on the person's record — so "I unlinked that account" and "that work
+    is still filed under my name" were both true on the same screen, and the
+    second is the one the person can see.
+    """
+
+    async def test_unlinking_clears_what_the_account_was_attributed_to(
+        self, platform: AsyncSession
+    ) -> None:
+        workspace = await a_workspace(platform)
+        fact_id = await a_fact_from(workspace.tenant_id)
+        await a_link(workspace)
+        assert await reconcile(workspace) == 1
+
+        async with tenant_session(workspace.tenant_id) as session:
+            detached = await store.detach_actor(
+                session,
+                tenant_id=workspace.tenant_id,
+                person_id=workspace.person_id,
+                provider=ConnectorProvider.SLACK,
+                provider_account_id=SLACK_USER,
+            )
+            await session.commit()
+
+        assert detached == 1
+        assert await attributed(workspace.tenant_id, fact_id) is None
+
+    async def test_the_evidence_and_the_provider_record_survive(
+        self, platform: AsyncSession
+    ) -> None:
+        """Nothing is deleted. The workspace's history is not the person's to
+        erase, and a disputed link means the attribution was wrong — not that
+        the work was imaginary."""
+        workspace = await a_workspace(platform)
+        fact_id = await a_fact_from(workspace.tenant_id)
+        await a_link(workspace)
+        await reconcile(workspace)
+
+        async with tenant_session(workspace.tenant_id) as session:
+            await store.detach_actor(
+                session,
+                tenant_id=workspace.tenant_id,
+                person_id=workspace.person_id,
+                provider=ConnectorProvider.SLACK,
+                provider_account_id=SLACK_USER,
+            )
+            await session.commit()
+
+        async with tenant_session(workspace.tenant_id) as session:
+            fact = await session.get(FactRow, fact_id)
+            assert fact is not None
+            assert fact.statement == "Shipped the auth fix."
+            assert len(fact.sources) == 1
+            [link] = fact.people
+            # The provider's own record of who produced it is untouched; only
+            # CAIRN's claim about whose it is has gone.
+            assert link.provider_account_id == SLACK_USER
+            assert link.person_id is None
+
+    async def test_it_leaves_a_colleagues_attribution_alone(self, platform: AsyncSession) -> None:
+        """Scoped to this person and this account, so unlinking cannot reach
+        work somebody else owns."""
+        workspace = await a_workspace(platform)
+        colleague = await a_workspace(platform)
+        theirs = await a_fact_from(workspace.tenant_id, person_id=colleague.person_id)
+
+        async with tenant_session(workspace.tenant_id) as session:
+            detached = await store.detach_actor(
+                session,
+                tenant_id=workspace.tenant_id,
+                person_id=workspace.person_id,
+                provider=ConnectorProvider.SLACK,
+                provider_account_id=SLACK_USER,
+            )
+            await session.commit()
+
+        assert detached == 0
+        assert await attributed(workspace.tenant_id, theirs) == colleague.person_id

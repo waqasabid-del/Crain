@@ -26,7 +26,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.graph_models import EdgeKind, FactEdge, FactEmbedding
-from cairn_api.db.identity_models import Person
+from cairn_api.db.identity_models import Identity, IdentityKind, Person
 from cairn_api.db.models import Tenant
 from cairn_api.db.tenancy import tenant_session
 from cairn_api.domain import Certainty
@@ -205,15 +205,30 @@ class TestGraphBuilding:
     async def test_resolved_people_do_create_an_edge(
         self, platform: AsyncSession, tenant_id: uuid.UUID, embedder: HashingEmbedder
     ) -> None:
+        # A resolvable identifier, not a display name. Names no longer create
+        # ownership anywhere in the pipeline — two colleagues called Sam are one
+        # rename from inheriting each other's work — so a fixture that attributed
+        # by name would be exercising a path the product has retired. The subject
+        # here is whether *resolved* people create an edge, so the person is
+        # given an identity that resolves.
         person = Person(tenant_id=tenant_id, display_name="Ali Hassan")
         platform.add(person)
+        await platform.flush()
+        platform.add(
+            Identity(
+                tenant_id=tenant_id,
+                person_id=person.id,
+                kind=IdentityKind.GITHUB_LOGIN,
+                value="alihassan",
+            )
+        )
         await platform.commit()
 
         await seed(
             tenant_id,
             [
-                fact("Reviewed the payments migration.", people=["Ali Hassan"]),
-                fact("Raised a question about the billing schema.", people=["Ali Hassan"]),
+                fact("Reviewed the payments migration.", people=["@alihassan"]),
+                fact("Raised a question about the billing schema.", people=["@alihassan"]),
             ],
             embedder,
         )
@@ -307,6 +322,15 @@ class TestMultiHopRetrieval:
         """
         reviewer = Person(tenant_id=tenant_id, display_name="Dana Whitfield")
         platform.add(reviewer)
+        await platform.flush()
+        platform.add(
+            Identity(
+                tenant_id=tenant_id,
+                person_id=reviewer.id,
+                kind=IdentityKind.GITHUB_LOGIN,
+                value="danaw",
+            )
+        )
         await platform.commit()
 
         decision = fact(
@@ -318,14 +342,14 @@ class TestMultiHopRetrieval:
             "The staged rollout pull request is waiting on review.",
             kind=FactKind.BLOCKER,
             evidence=[("meeting", "ev-planning-01"), ("github", "ev-pr-77")],
-            people=["Dana Whitfield"],
+            people=["@danaw"],
             at=MONDAY + timedelta(days=1),
         )
         reviewer_fact = fact(
             "Dana is on leave until the end of the month.",
             kind=FactKind.IN_PROGRESS,
             evidence=[("chat", "ev-thread-9")],
-            people=["Dana Whitfield"],
+            people=["@danaw"],
             at=MONDAY + timedelta(days=2),
         )
         thread = fact(

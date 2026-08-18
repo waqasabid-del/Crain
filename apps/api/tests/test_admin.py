@@ -922,12 +922,14 @@ class TestNotificationIsEnforcedNotDeclared:
         )
         platform.add(person)
         await platform.flush()
+        # The handle, not the display name: a name no longer attributes.
+        handle = f"person-{uuid.uuid4().hex[:8]}"
         platform.add(
             Identity(
                 tenant_id=tenant_id,
                 person_id=person.id,
                 kind=IdentityKind.GITHUB_LOGIN,
-                value=f"priya-{uuid.uuid4().hex[:8]}",
+                value=handle,
             )
         )
         await platform.commit()
@@ -937,7 +939,7 @@ class TestNotificationIsEnforcedNotDeclared:
             statement="Priya shipped rate limiting.",
             sources=[SourceRef(source="github", evidence_id=f"ev-{uuid.uuid4().hex[:8]}")],
             certainty=Certainty.VERIFIED,
-            people=["Priya Nair"],
+            people=[f"@{handle}"],
             occurred_at=datetime.now(UTC),
         )
 
@@ -956,7 +958,10 @@ class TestNotificationIsEnforcedNotDeclared:
             [link] = fact.people
             # The mention survives with nobody behind it — the same shape an
             # unresolved mention has, and the same shape an opt-out leaves.
-            assert link.mention == "Priya Nair"
+            # The handle the fact cited, kept verbatim. The mention survives an
+            # unattributed row — that is what makes "who did the system mean?"
+            # answerable while the notification gate is still closed.
+            assert link.mention == f"@{handle}"
             assert link.person_id is None, "attributed to somebody nobody had told"
 
     async def test_once_they_have_been_notified_attribution_resumes(
@@ -979,12 +984,14 @@ class TestNotificationIsEnforcedNotDeclared:
         )
         platform.add(person)
         await platform.flush()
+        # The handle, not the display name: a name no longer attributes.
+        handle = f"person-{uuid.uuid4().hex[:8]}"
         platform.add(
             Identity(
                 tenant_id=tenant_id,
                 person_id=person.id,
                 kind=IdentityKind.GITHUB_LOGIN,
-                value=f"ali-{uuid.uuid4().hex[:8]}",
+                value=handle,
             )
         )
         await platform.commit()
@@ -999,7 +1006,7 @@ class TestNotificationIsEnforcedNotDeclared:
             statement="Ali fixed the staging certificate.",
             sources=[SourceRef(source="github", evidence_id=f"ev-{uuid.uuid4().hex[:8]}")],
             certainty=Certainty.VERIFIED,
-            people=["Ali Hassan"],
+            people=[f"@{handle}"],
             occurred_at=datetime.now(UTC),
         )
         async with tenant_session(tenant_id) as session:
@@ -1034,12 +1041,14 @@ class TestNotificationIsEnforcedNotDeclared:
         outsider = Person(tenant_id=tenant_id, display_name="Sam Okafor")
         platform.add(outsider)
         await platform.flush()
+        # The handle, not the display name: a name no longer attributes.
+        handle = f"person-{uuid.uuid4().hex[:8]}"
         platform.add(
             Identity(
                 tenant_id=tenant_id,
                 person_id=outsider.id,
                 kind=IdentityKind.GITHUB_LOGIN,
-                value=f"sam-{uuid.uuid4().hex[:8]}",
+                value=handle,
             )
         )
         await platform.commit()
@@ -1049,7 +1058,7 @@ class TestNotificationIsEnforcedNotDeclared:
             statement="Sam Okafor contributed a fix upstream.",
             sources=[SourceRef(source="github", evidence_id=f"ev-{uuid.uuid4().hex[:8]}")],
             certainty=Certainty.VERIFIED,
-            people=["Sam Okafor"],
+            people=[f"@{handle}"],
             occurred_at=datetime.now(UTC),
         )
         async with tenant_session(tenant_id) as session:

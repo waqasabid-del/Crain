@@ -268,7 +268,28 @@ async def revoke_identity(
     row = await _own_identity_or_404(db, person, identity_id)
 
     await external.end_link(db, identity=row, actor_user_id=context.user.id, disputed=body.disputed)
+
+    # Ending the link and un-attributing its work are one action, in one
+    # transaction. Doing only the first leaves "I unlinked that account" and
+    # "that work is still filed under my name" both true on the same screen, and
+    # the person can see the second. Nothing is deleted — the fact, its sources
+    # and the account that produced it all remain; only CAIRN's claim about
+    # whose it is goes away.
+    detached = await store.detach_actor(
+        db,
+        tenant_id=context.tenant_id,
+        person_id=row.person_id,
+        provider=row.provider,
+        provider_account_id=row.provider_account_id,
+    )
     await db.commit()
+
+    await logger.ainfo(
+        "identity.link_ended",
+        provider=row.provider.value,
+        disputed=body.disputed,
+        detached=detached,
+    )
 
     return _response(row)
 
