@@ -265,3 +265,59 @@ class TestTheFactoryReachesIt:
         from cairn_api.pipeline import jobs
 
         assert "select_providers(get_settings())" in inspect.getsource(jobs.build_providers)
+
+
+class TestQuotaExhaustionIsNotRateLimiting:
+    """Found by the first live run, and a real defect rather than a nuisance.
+
+    OpenAI returns **429 for both** "you are going too fast" and "this account
+    has no credit left". The first clears by waiting; the second never does. A
+    worker told to retry after a delay will retry a credit-exhausted account
+    forever — burning the retry budget, filling the dead-letter queue with a
+    cause nobody can act on from the message, and reporting a transient fault
+    for a billing problem.
+
+    `error.type` and `error.code` are OpenAI's own bounded vocabulary, not
+    customer text, so reading them keeps the no-bodies rule intact.
+    """
+
+    async def test_an_exhausted_balance_says_so_and_does_not_promise_a_retry(self) -> None:
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                429,
+                headers={"Retry-After": "20"},
+                json={
+                    "error": {
+                        "type": "insufficient_quota",
+                        "code": "credit_balance_exhausted",
+                        "message": "You exceeded your current quota.",
+                    }
+                },
+            )
+        )
+
+        with pytest.raises(ModelError) as caught:
+            await _provider(transport).complete(
+                ModelRequest(instruction=INSTRUCTION, untrusted_data=UNTRUSTED)
+            )
+
+        message = str(caught.value)
+        assert "quota" in message.lower()
+        # The retry delay must not appear: waiting 20 seconds changes nothing.
+        assert "20" not in message
+        # And still no prose from the provider.
+        assert "You exceeded your current quota." not in message
+
+    async def test_ordinary_rate_limiting_still_offers_the_delay(self) -> None:
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                429,
+                headers={"Retry-After": "20"},
+                json={"error": {"type": "rate_limit_exceeded", "code": "rate_limit_exceeded"}},
+            )
+        )
+
+        with pytest.raises(ModelError, match="20"):
+            await _provider(transport).complete(
+                ModelRequest(instruction=INSTRUCTION, untrusted_data=UNTRUSTED)
+            )

@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Protocol
+from typing import Any, ClassVar, Final, Protocol
 
 import httpx
 
@@ -230,6 +230,10 @@ class VertexProvider:
         )
 
 
+#: 429 codes that never clear by waiting.
+_QUOTA_CODES: Final = frozenset({"insufficient_quota", "credit_balance_exhausted"})
+
+
 class OpenAIProvider:
     """OpenAI chat completions over REST.
 
@@ -338,9 +342,20 @@ class OpenAIProvider:
             return
 
         if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+            # **429 means two different things and only one of them clears.**
+            # OpenAI returns it both for "you are going too fast" and for "this
+            # account has no credit left". Telling a worker to retry the second
+            # burns the retry budget forever and dead-letters the job with a
+            # cause nobody can act on from the message. `error.type` and
+            # `error.code` are OpenAI's own bounded vocabulary rather than
+            # customer text, so reading them keeps the no-bodies rule intact.
+            if self._error_code(response) in _QUOTA_CODES:
+                msg = "OpenAI refused the request: the account's quota is exhausted"
+                raise ModelError(msg)
+
             retry_after = response.headers.get("Retry-After")
-            # The number is the only part of a 429 worth keeping: it tells the
-            # worker when to come back and it identifies nobody.
+            # The number is the only part of a rate limit worth keeping: it tells
+            # the worker when to come back and it identifies nobody.
             msg = (
                 f"OpenAI rate limited the request; retry after {retry_after}s"
                 if retry_after
@@ -350,6 +365,26 @@ class OpenAIProvider:
 
         msg = f"OpenAI returned {response.status_code}"
         raise ModelError(msg)
+
+    @staticmethod
+    def _error_code(response: httpx.Response) -> str:
+        """OpenAI's machine-readable classification, or an empty string.
+
+        Reads `error.type` and `error.code` only — never `error.message`, which
+        can quote the prompt. Any failure to parse yields "", so a malformed
+        body falls through to the generic path rather than raising inside the
+        error handler.
+        """
+        try:
+            error = (response.json() or {}).get("error") or {}
+        except ValueError:
+            return ""
+        # Not `field`: that name is `dataclasses.field`, imported above.
+        for name in ("type", "code"):
+            value = error.get(name)
+            if isinstance(value, str) and value:
+                return value
+        return ""
 
     def _parse(self, response: httpx.Response) -> ModelResponse:
         """Read the completion, and refuse anything that only looks like one."""
