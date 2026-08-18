@@ -1,0 +1,113 @@
+# CAIRN — staging, as code.
+#
+# Two services from ONE image. The Dockerfile ships both entrypoints and makes
+# the API the default command, so the worker is a command override and nothing
+# about the build differs between them. A deploy moves both or neither, which is
+# the property the single image exists to guarantee: an API on a revision the
+# worker was not rebuilt for is a job payload the worker cannot deserialise.
+#
+# NOT APPLIED. Nothing here has been deployed. Creating the services, the
+# database and the secret values is a human action against an account this
+# repository does not hold credentials for — see infra/STAGING.md.
+#
+# Every secret is `sync: false`: the NAME lives here, the VALUE is set once in
+# the dashboard and never enters a file, a migration or a CI log.
+
+databases:
+  - name: cairn-staging-db
+    databaseName: cairn
+    # The application connects as a NOBYPASSRLS role created by migrations, not
+    # as this owner. Preflight refuses to boot if it ever holds BYPASSRLS.
+    user: cairn_owner
+    postgresMajorVersion: "16"
+    plan: basic-256mb
+    # pgvector is enabled by migration (`CREATE EXTENSION vector`), not here.
+    # Automated daily backups come with the plan; point-in-time recovery does
+    # not, and staging runs without it deliberately. See DECISIONS.md §2.
+
+services:
+  # ---------------------------------------------------------------------------
+  # API
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: cairn-staging-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    region: frankfurt
+    branch: main
+    # Render sets PORT; the image's CMD already honours it.
+    healthCheckPath: /healthz
+    # /healthz, never /readyz. Readiness includes the database, so a brief
+    # PostgreSQL blip would fail the check and restart an application process
+    # that was fine — and restarting the API does not fix PostgreSQL.
+    autoDeploy: false
+    envVars: &shared
+      - key: CAIRN_ENVIRONMENT
+        value: staging
+      - key: CAIRN_QUEUE_BACKEND
+        value: postgres
+      # Email refuses `console` in a deployed environment, correctly: an invited
+      # colleague would never hear from us. SMTP credentials land in Session 11,
+      # so every email-dependent flow stays red until then and says so.
+      - key: CAIRN_EMAIL_BACKEND
+        value: smtp
+      # Flipped to false in Session 11, when a collector exists. Until then this
+      # is a decision written down rather than a default nobody noticed:
+      # instrumentation that exports nowhere is discovered during the incident
+      # it was supposed to explain.
+      - key: CAIRN_TELEMETRY_OPTIONAL
+        value: "true"
+      - key: CAIRN_MODEL_BACKEND
+        value: openai
+      - key: CAIRN_PUBLIC_APP_URL
+        sync: false
+      - key: CAIRN_CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: CAIRN_SESSION_COOKIE_DOMAIN
+        sync: false
+      # The application role: NOSUPERUSER, NOBYPASSRLS, so row-level security
+      # actually applies. RLS is silently inert for a superuser.
+      - key: CAIRN_DATABASE_URL
+        sync: false
+      # The platform role, which needs BYPASSRLS for the cross-tenant reads the
+      # webhook path makes before tenant context exists.
+      - key: CAIRN_PLATFORM_DATABASE_URL
+        sync: false
+      - key: CAIRN_SECRET_KEY
+        sync: false
+      - key: CAIRN_CONNECTOR_ENCRYPTION_KEY
+        sync: false
+      - key: CAIRN_OPENAI_API_KEY
+        sync: false
+      - key: CAIRN_GITHUB_APP_ID
+        sync: false
+      - key: CAIRN_GITHUB_PRIVATE_KEY
+        sync: false
+      - key: CAIRN_GITHUB_WEBHOOK_SECRET
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # Worker
+  # ---------------------------------------------------------------------------
+  - type: worker
+    name: cairn-staging-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    region: frankfurt
+    branch: main
+    # The only difference between the two services.
+    dockerCommand: python -m cairn_api.jobs.main
+    autoDeploy: false
+    # Instance count is set by hand, from `tenantsWaiting` and
+    # `longestWaitMinutes` on /v1/internal/operations/queue.
+    #
+    # NOT autoscaled, and not an oversight: this host autoscales on CPU, and the
+    # worker's stages are latency-bound on an external API, so CPU stays flat
+    # while work piles up. A CPU autoscaler would never fire on the only
+    # condition that matters. See DECISIONS.md §1.
+    numInstances: 1
+    envVars: *shared

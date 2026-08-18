@@ -1,6 +1,17 @@
 # infra/
 
-**This directory is empty on purpose, and that is a gap rather than a decision.**
+**This directory is no longer empty, and still nothing is deployed.**
+
+`DECISIONS.md` records where CAIRN will run and why. `render.yaml` declares it.
+`STAGING.md` is the checklist, with every command marked for whether it has
+actually been run — most have not, because the account and the database do not
+exist yet. Read that file's markers before trusting a line of it.
+
+Everything below remains true.
+
+---
+
+**This directory was empty on purpose, and that was a gap rather than a decision.**
 
 An `infra/` directory that contains a plausible-looking `main.tf` nobody has
 ever applied is worse than an empty one: it reads, to a reviewer or a customer's
