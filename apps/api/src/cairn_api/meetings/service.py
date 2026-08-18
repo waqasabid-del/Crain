@@ -54,6 +54,7 @@ from cairn_api.db.meeting_models import (
     ParticipantSource,
     ParticipantStatus,
 )
+from cairn_api.meetings import audit
 from cairn_api.meetings.eligibility import Eligibility, ReasonCode, check
 
 #: A request in one of these states is finished. Nothing reopens it — a refusal
@@ -514,6 +515,10 @@ async def record_decision(
     db.add(fresh)
     await db.flush()
 
+    # The word, never whose. The durable record of who decided what is the
+    # appended row itself; this is the operational signal beside it.
+    await audit.record(audit.ConsentEvent.DECISION_RECORDED, decision=decision.value)
+
     await refresh_state(db, meeting=meeting, now=moment)
     return await _my_result(db, meeting, participant, fresh, moment)
 
@@ -543,6 +548,8 @@ async def refresh_state(
     if meeting.state in TERMINAL:
         return _view(meeting, participants, consents, moment)
 
+    was = meeting.state
+
     if verdict.allowed:
         # No stamp: becoming eligible is a consequence of the answers, not a
         # change to the meeting, and recording it as one would make the gate read
@@ -556,6 +563,13 @@ async def refresh_state(
         meeting.state_changed_at = moment
     else:
         meeting.state = CaptureState.PENDING
+
+    if meeting.state is not was:
+        await audit.record(
+            audit.ConsentEvent.ELIGIBILITY_CHANGED,
+            reason=verdict.reason,
+            participants=len([p for p in participants if p.status is ParticipantStatus.EXPECTED]),
+        )
 
     await db.flush()
     return _view(meeting, participants, consents, moment)
