@@ -70,9 +70,10 @@ from cairn_api.db.brief_models import Brief as BriefRow
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.domain import Certainty
 from cairn_api.pipeline import store
+from cairn_api.pipeline import synthesize as synthesize_module
 from cairn_api.pipeline.facts import FactKind
 from cairn_api.pipeline.jobs import build_providers
-from cairn_api.pipeline.retrieval import retrieve
+from cairn_api.pipeline.retrieval import retrieve_window
 from cairn_api.pipeline.synthesize import synthesize
 
 logger = structlog.get_logger(__name__)
@@ -454,7 +455,11 @@ async def get_brief(
     start = since or (end - timedelta(days=DEFAULT_BRIEF_DAYS))
     _validate_period(start, end)
 
-    complete = briefs.is_complete(end)
+    # A record only when the caller NAMED a finished boundary. `is_complete(end)`
+    # with the defaulted `end = now` was true by `<=` on every request, so the
+    # current period was generated, archived (206 junk rows in one workspace)
+    # and reported `stored: true` while the docstring promised it was live.
+    complete = briefs.is_record(until)
     if complete:
         existing = await briefs.load_stored(db, tenant_id=context.tenant_id, start=start, end=end)
         if existing is not None:
@@ -484,13 +489,17 @@ async def get_brief(
 
     providers = build_providers()
 
-    retrieval = await retrieve(
+    # A time slice, not a question. `retrieve` ranks by similarity to a query
+    # vector, which let seed facts with dense delivered/decided vocabulary
+    # occupy all eight entry points forever while yesterday's real commit never
+    # ranked. The brief's candidates are recency-bounded by its own window;
+    # `retrieve` remains what it always was - the path for questions.
+    retrieval = await retrieve_window(
         db,
         tenant_id=context.tenant_id,
-        question=BRIEF_QUESTION,
-        embedder=providers.embedder,
         since=start,
         until=end,
+        limit=synthesize_module.MAX_FACTS,
     )
 
     # `for_context()` orders for placement: entry points last, closest to the

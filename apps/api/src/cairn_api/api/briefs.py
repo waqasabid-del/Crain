@@ -51,6 +51,23 @@ def is_complete(period_end: datetime, *, now: datetime | None = None) -> bool:
     return period_end <= (now or datetime.now(UTC))
 
 
+def is_record(until: datetime | None, *, now: datetime | None = None) -> bool:
+    """Whether this request names a finished period, and its brief is a record.
+
+    **The default request is never a record.** The endpoint defaults its end
+    boundary to `now`, and `is_complete(now)` is true by `<=` - so every
+    default read of "the current period" was treated as a finished one:
+    generated, stored as an archive row (206 of them accumulated in one
+    workspace), and reported `stored: true` for a brief the docstring promises
+    is live. The archive then answered instead of the present.
+
+    The fix is semantic, not an operator flip: a period is a record only when
+    the *caller named* a boundary and that boundary has passed. Asking with no
+    boundary is asking about the present, by construction.
+    """
+    return until is not None and is_complete(until, now=now)
+
+
 #: How long one generation of the current period is reused, per workspace. Five
 #: minutes absorbs a morning's readers, keeps a correction visible almost at
 #: once, and is exactly the rate `BRIEF_PER_WORKSPACE` allows — twelve an hour.
