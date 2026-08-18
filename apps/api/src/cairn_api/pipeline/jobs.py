@@ -27,9 +27,9 @@ from cairn_api.jobs.runner import JobHandler, JobRegistry, registry
 from cairn_api.pipeline import graph, store
 from cairn_api.pipeline.classify import classify
 from cairn_api.pipeline.embeddings import (
-    DEFAULT_EMBEDDING_MODEL,
     EmbeddingProvider,
     HashingEmbedder,
+    OpenAIEmbeddingProvider,
     VertexEmbeddingProvider,
 )
 from cairn_api.pipeline.extract import extract
@@ -122,12 +122,7 @@ def select_providers(settings: Settings) -> Providers:
                 api_key=settings.openai_api_key.get_secret_value(),
                 model=settings.openai_model,
             ),
-            # **Embeddings stay hashed for now.** An OpenAI embedder is Session
-            # 3; pairing a real model with a hashed embedder is honest — the
-            # briefs are real and retrieval is degraded — whereas silently
-            # switching embedding models would invalidate every vector already
-            # stored.
-            embedder=HashingEmbedder(),
+            embedder=OpenAIEmbeddingProvider(api_key=settings.openai_api_key.get_secret_value()),
             live=True,
         )
 
@@ -560,7 +555,7 @@ def _enrich(ref: SourceRef, item: _Evidence | None) -> SourceRef:
 def make_handler(
     *,
     providers: Providers | None = None,
-    model_name: str = DEFAULT_EMBEDDING_MODEL,
+    model_name: str | None = None,
 ) -> JobHandler:
     """Build the handler, bound to the model adapters it will use.
 
@@ -570,6 +565,13 @@ def make_handler(
     scripted model.
     """
     resolved = providers or build_providers()
+    # **Taken from the embedder, not defaulted.** This defaulted to the hashing
+    # name whichever embedder it was handed, so selecting a real one wrote
+    # OpenAI or Vertex vectors into the `hashing-v1` partition — two
+    # incomparable geometries under one label, with nothing raised and nothing
+    # logged. The only repair afterwards is to re-embed everything, because the
+    # rows cannot be told apart.
+    stored_under = model_name or resolved.embedder.model_name
 
     async def handle_understanding(session: AsyncSession, envelope: JobEnvelope) -> None:
         delivery_id = envelope.payload.get("delivery_id")
@@ -590,7 +592,7 @@ def make_handler(
             delivery,
             tenant_id=envelope.tenant_id,
             providers=resolved,
-            model_name=model_name,
+            model_name=stored_under,
         )
 
     return handle_understanding
