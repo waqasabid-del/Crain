@@ -14,7 +14,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import Field, PostgresDsn, field_validator, model_validator
+from pydantic import Field, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: Public in this repository. Any deployed environment that sees this value in
@@ -60,7 +60,11 @@ EmailBackend = Literal["console", "smtp"]
 #: against. It exists here so a local environment can produce real output
 #: through the real pipeline instead of an empty product; a deployed
 #: environment refuses to start on it.
-ModelBackend = Literal["auto", "vertex", "scripted", "offline"]
+#:
+#: "openai" is a real model behind an API key. Unlike "vertex" it carries no
+#: ambient credential — there is nothing to infer from the environment — so
+#: selecting it without a key is refused at boot in every environment.
+ModelBackend = Literal["auto", "vertex", "openai", "scripted", "offline"]
 
 #: Environments that never hold customer data and therefore may use the
 #: development defaults below.
@@ -238,6 +242,39 @@ class Settings(BaseSettings):
             "deterministic provider the evaluation harness grades against, so a "
             "local environment produces real output through the real pipeline; "
             "a deployed environment refuses to start on it."
+        ),
+    )
+
+    openai_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description=(
+            "OpenAI API key. Required when model_backend is 'openai' and refused "
+            "at boot without one, in every environment: unlike Vertex there is "
+            "no ambient credential to fall back on, so the alternative to failing "
+            "here is failing at the first customer's first brief. Held as a "
+            "SecretStr so it cannot reach a log line or a traceback through the "
+            "settings repr."
+        ),
+    )
+
+    openai_model: str = Field(
+        default="gpt-4o-mini",
+        description=(
+            "The chat model the understanding pipeline calls. Pinned rather than "
+            "tracking an alias, because an alias moves under a deployment that "
+            "did not change: cost, latency and output quality would all shift on "
+            "somebody else's release day, and the evaluation baseline would drift "
+            "with no commit to point at."
+        ),
+    )
+
+    openai_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        description=(
+            "The embedding model retrieval uses. Pinned for the same reason, and "
+            "more sharply: changing an embedding model invalidates every vector "
+            "already stored, so this value is part of the data's shape rather "
+            "than a tuning knob."
         ),
     )
 
@@ -681,6 +718,33 @@ class Settings(BaseSettings):
             msg = f"database_url must use the postgresql+asyncpg driver, got {value.scheme!r}"
             raise ValueError(msg)
         return value
+
+    @model_validator(mode="after")
+    def require_a_key_for_the_openai_backend(self) -> Self:
+        """Selecting the OpenAI backend without a key is refused at boot.
+
+        **Every environment, including local and test**, which is why this is a
+        validator of its own rather than a line inside
+        `reject_development_defaults_outside_local` — that one returns early for
+        non-deployed environments, and this is not a "deployed environments hold
+        customer data" rule. It is a setting that cannot work anywhere.
+
+        Vertex can infer a credential from the environment it runs in; an API key
+        cannot be inferred from anything. So the failure without one is not
+        "degraded" but "every model call raises", and the difference between
+        discovering that at boot and discovering it at the first request is the
+        difference between a revision that never serves traffic and a workspace
+        whose briefs are quietly empty for a day.
+        """
+        if self.model_backend == "openai" and not self.openai_api_key.get_secret_value().strip():
+            msg = (
+                "CAIRN_MODEL_BACKEND=openai requires CAIRN_OPENAI_API_KEY. "
+                "There is no ambient credential to fall back on, so without a "
+                "key every model call fails and the pipeline produces empty "
+                "briefs rather than an error anybody would see."
+            )
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def reject_a_shared_google_oauth_client(self) -> Self:
