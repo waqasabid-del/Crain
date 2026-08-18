@@ -21,6 +21,7 @@ from cairn_api.github import handlers as github_handlers
 from cairn_api.github import jobs as github_jobs
 from cairn_api.gmeet import retrieval as gmeet_retrieval
 from cairn_api.gmeet import subscriptions as gmeet_subscriptions
+from cairn_api.gmeet import understanding as gmeet_understanding
 from cairn_api.jobs.factory import build_queue
 from cairn_api.jobs.queue import JobQueue
 from cairn_api.jobs.runner import JobRegistry
@@ -123,6 +124,14 @@ async def run_maintenance(*, interval: float) -> None:
                 # immediately before the download it authorises, so a withdrawal
                 # between the announcement and the retrieval collects nothing.
                 transcripts = await gmeet_retrieval.retrieve_pending_transcripts(session)
+                # And the read the retrieval deliberately never did: stored
+                # transcripts into the understanding pipeline, consent re-asked
+                # inside the reading transaction, certainty capped at
+                # `suggested`. On this loop for a structural reason - the raw
+                # table grants the application role nothing, so only this
+                # platform-side pass may decrypt, and nothing about a
+                # transcript is ever handed to the job broker.
+                understood = await gmeet_understanding.understand_stored_transcripts(session)
                 # And the retention path, which is what makes the raw store
                 # deletable rather than merely bounded. Provenance survives it.
                 transcripts_purged = await gmeet_retrieval.purge_expired_transcripts(session)
@@ -165,6 +174,13 @@ async def run_maintenance(*, interval: float) -> None:
                     # every time somebody exercised a right.
                     withdrawn=meet_renewals.withdrawn,
                     failed=meet_renewals.failed,
+                )
+            if understood.considered:
+                await logger.ainfo(
+                    "maintenance.gmeet_transcripts_understood",
+                    count=understood.understood,
+                    refused=understood.refused,
+                    skipped=understood.skipped,
                 )
             if transcripts.considered:
                 await logger.ainfo(

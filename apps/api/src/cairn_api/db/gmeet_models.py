@@ -199,6 +199,12 @@ class GoogleMeetTranscriptState(enum.StrEnum):
     #: Retrieved, checksummed and stored.
     STORED = "stored"
 
+    #: Read into the understanding pipeline, under a permit re-checked at the
+    #: moment of reading. Terminal for the reading path: the bytes are never
+    #: sent to a model twice. Retention and purge act on the raw row regardless
+    #: of this state - understanding does not extend a transcript's life.
+    UNDERSTOOD = "understood"
+
     #: The gate said no. Terminal, and **not** a failure: somebody exercised a
     #: right the product promises them, or the artifact was not a transcript.
     REFUSED = "refused"
