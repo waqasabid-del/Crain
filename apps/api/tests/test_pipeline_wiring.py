@@ -34,6 +34,7 @@ from cairn_api.jobs.envelope import JobEnvelope
 from cairn_api.jobs.memory import InMemoryJobQueue
 from cairn_api.pipeline.embeddings import HashingEmbedder
 from cairn_api.pipeline.jobs import UNDERSTAND_JOB, Providers, make_handler
+from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -593,7 +594,7 @@ class TestTheApiExposesWhatThePipelineProduced:
         app = create_app(
             Settings(
                 environment="test",
-                github_webhook_secret=SECRET,
+                github_webhook_secret=SecretStr(SECRET),
                 cors_allowed_origins=("http://localhost:3000",),
             )
         )
@@ -628,7 +629,7 @@ class TestTheApiExposesWhatThePipelineProduced:
         app = create_app(
             Settings(
                 environment="test",
-                github_webhook_secret=SECRET,
+                github_webhook_secret=SecretStr(SECRET),
                 cors_allowed_origins=("http://localhost:3000",),
             )
         )

@@ -61,6 +61,7 @@ from cairn_api.slack.oauth import (
     SlackTokenGrant,
 )
 from fastapi import FastAPI
+from pydantic import SecretStr
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 from test_api_workspaces import Actor, join_as, new_actor
@@ -147,7 +148,7 @@ async def slack_app(engine: AsyncEngine) -> AsyncIterator[FastAPI]:
             environment="test",
             cors_allowed_origins=(TEST_ORIGIN,),
             slack_client_id="A0FAKE0001.1234",
-            slack_client_secret="not-a-real-client-secret",  # noqa: S106
+            slack_client_secret=SecretStr("not-a-real-client-secret"),
             slack_redirect_uri=CALLBACK,
         )
     )

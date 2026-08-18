@@ -37,6 +37,7 @@ from cairn_api.jobs.memory import InMemoryJobQueue
 from cairn_api.jobs.runner import JobRegistry
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -114,7 +115,7 @@ def webhook_app(queue: InMemoryJobQueue) -> FastAPI:
         Settings(
             environment="test",
             cors_allowed_origins=("http://localhost:3000",),
-            github_webhook_secret=SECRET,
+            github_webhook_secret=SecretStr(SECRET),
         )
     )
     app.state.queue = queue

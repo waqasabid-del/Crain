@@ -54,6 +54,7 @@ from httpx import ASGITransport, AsyncClient
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from pydantic import SecretStr
 
 # Every secret in this file is a literal by necessity.
 # ruff: noqa: S105, S106
@@ -746,7 +747,7 @@ def webhook_app(queue: InMemoryJobQueue) -> FastAPI:
         Settings(
             environment="test",
             cors_allowed_origins=("http://localhost:3000",),
-            github_webhook_secret=GITHUB_SECRET,
+            github_webhook_secret=SecretStr(GITHUB_SECRET),
         )
     )
     app.state.queue = queue

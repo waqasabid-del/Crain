@@ -46,7 +46,7 @@ def build_sender(settings: Settings | None = None) -> EmailSender:
         port=settings.smtp_port,
         sender=settings.email_from,
         username=settings.smtp_username,
-        password=settings.smtp_password,
+        password=(settings.smtp_password.get_secret_value() if settings.smtp_password else None),
     )
 
 

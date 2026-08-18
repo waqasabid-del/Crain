@@ -40,7 +40,7 @@ from cairn_api.connectors.credentials import (
 )
 from cairn_api.db.connector_models import ConnectorProvider, SourceConnection
 from cryptography.fernet import Fernet
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, SecretStr, ValidationError
 
 #: Shaped like a real Slack bot token so a substring check is meaningful. A
 #: secret like "x" would be found in half the strings this module builds.
@@ -150,7 +150,7 @@ class TestFailClosed:
         # Assignment does not re-run the model validator, which is the point:
         # `build_cipher` must not depend on the validator having seen this
         # value.
-        hand_built.connector_encryption_key = DEVELOPMENT_CONNECTOR_KEY
+        hand_built.connector_encryption_key = SecretStr(DEVELOPMENT_CONNECTOR_KEY)
 
         with pytest.raises(CredentialEncryptionError, match="published in this repository"):
             build_cipher(hand_built)
@@ -168,7 +168,7 @@ class TestFailClosed:
         # Fernet's own message is accurate and says nothing about which setting
         # produced it.
         with pytest.raises(CredentialEncryptionError, match=CONNECTOR_ENCRYPTION_KEY_VAR):
-            build_cipher(_settings(connector_encryption_key="not-base64"))
+            build_cipher(_settings(connector_encryption_key=SecretStr("not-base64")))
 
 
 class TestRoundTrip:

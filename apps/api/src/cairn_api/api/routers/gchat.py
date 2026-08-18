@@ -131,7 +131,7 @@ def google_chat_api(settings: SettingsDep) -> GoogleChatApi:
     try:
         return HttpGoogleChatApi(
             client_id=settings.google_chat_client_id,
-            client_secret=settings.google_chat_client_secret,
+            client_secret=settings.google_chat_client_secret.get_secret_value(),
         )
     except GoogleChatInstallError as error:
         raise _problem(error, status.HTTP_503_SERVICE_UNAVAILABLE) from error

@@ -53,6 +53,7 @@ from cairn_api.internal import audit
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
+from pydantic import SecretStr
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
@@ -715,7 +716,7 @@ class TestSubscriptionHealthAgainstRealRows:
                 environment="test",
                 cors_allowed_origins=(TEST_ORIGIN,),
                 google_chat_client_id="1234.apps.googleusercontent.com",
-                google_chat_client_secret="not-a-real-client-secret",  # noqa: S106
+                google_chat_client_secret=SecretStr("not-a-real-client-secret"),
                 google_chat_redirect_uri="https://cairn.test/v1/integrations/google-chat/callback",
                 google_chat_project_id="cairn-test",
                 google_chat_pubsub_topic="projects/cairn-test/topics/chat",

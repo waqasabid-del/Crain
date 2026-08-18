@@ -5,6 +5,7 @@ exist, span verification (§5.2), guardrails, hedging (only downward)."""
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -222,11 +223,36 @@ def _build_claim(raw: Any, by_id: dict[uuid.UUID, Fact]) -> tuple[BriefClaim | N
     )
 
 
+#: A fact id, as it appears when a model puts one in prose. Optionally wrapped
+#: in the brackets it usually arrives in, with the space before them, so that
+#: removing it leaves a sentence rather than a gap and a stray full stop.
+_LEAKED_ID = re.compile(
+    r"\s*[(\[]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[)\]]?",
+    re.IGNORECASE,
+)
+
+
+def _strip_identifiers(text: str) -> str:
+    """Remove fact ids from prose a person reads.
+
+    Claims carry citations structurally, so an id in the narrative is never
+    load-bearing - it is the model referencing the data block it was shown. A
+    founder should not meet a database key in the middle of a sentence, and the
+    fix is removal rather than a prompt rule, because this is a thing that must
+    not happen rather than a thing that should be rare.
+    """
+    cleaned = _LEAKED_ID.sub("", text)
+    # Collapse the double spaces a mid-sentence removal leaves behind.
+    return re.sub(r"[ 	]{2,}", " ", cleaned).strip()
+
+
 def _narrative(narrative: Any, brief: Brief) -> str:
     if not isinstance(narrative, str) or not narrative.strip():
         return " ".join(claim.text for claim in brief.claims)
 
-    text = narrative.strip()
+    text = _strip_identifiers(narrative.strip())
+    if not text:
+        return " ".join(claim.text for claim in brief.claims)
     if guardrails.inspect(text):
         brief.suppressed.append(Suppression(text=text, reason="narrative tripped a guardrail"))
         return " ".join(claim.text for claim in brief.claims)

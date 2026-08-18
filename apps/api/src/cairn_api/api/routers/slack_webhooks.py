@@ -456,8 +456,8 @@ def _signing_secret(request: Request) -> str:
     # where a malformed value should be caught; reading the environment directly
     # would bypass that and re-read it on every request.
     settings: Settings | None = getattr(request.app.state, "settings", None)
-    if settings is not None and settings.slack_signing_secret:
-        return settings.slack_signing_secret
+    if settings is not None and settings.slack_signing_secret.get_secret_value():
+        return settings.slack_signing_secret.get_secret_value()
 
     return os.environ.get(SIGNING_SECRET_VAR, "")
 

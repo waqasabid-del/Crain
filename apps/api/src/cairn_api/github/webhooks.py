@@ -218,7 +218,7 @@ async def receive_github_webhook(
     """
     ingestor = Ingestor(
         name=PROVIDER,
-        provider=GitHubInbound(secret=settings.github_webhook_secret),
+        provider=GitHubInbound(secret=settings.github_webhook_secret.get_secret_value()),
         max_body_bytes=MAX_PAYLOAD_BYTES,
     )
 

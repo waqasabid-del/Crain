@@ -88,7 +88,8 @@ def _client_for(session: AsyncSession) -> object | None:
 
     _ = session
     settings = get_settings()
-    if not settings.github_app_id or not settings.github_private_key:
+    private_key = settings.github_private_key
+    if not settings.github_app_id or not private_key or not private_key.get_secret_value():
         return None
 
     import httpx
@@ -96,7 +97,7 @@ def _client_for(session: AsyncSession) -> object | None:
     http = httpx.AsyncClient(timeout=30)
     tokens = InstallationTokenCache(
         app_id=settings.github_app_id,
-        private_key=settings.github_private_key,
+        private_key=private_key.get_secret_value(),
         client=http,
     )
     return GitHubGraphQLClient(tokens=tokens, client=http)

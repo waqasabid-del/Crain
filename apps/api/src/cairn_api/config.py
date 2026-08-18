@@ -200,7 +200,7 @@ class Settings(BaseSettings):
         description="Relay username. Omitted for a relay authenticated by network.",
     )
 
-    smtp_password: str | None = Field(default=None, description="Relay password.")
+    smtp_password: SecretStr | None = Field(default=None, description="Relay password.")
 
     # -- Queue ------------------------------------------------------------
 
@@ -289,8 +289,8 @@ class Settings(BaseSettings):
         description="Numeric App ID from the GitHub App settings page.",
     )
 
-    github_webhook_secret: str = Field(
-        default="",
+    github_webhook_secret: SecretStr = Field(
+        default=SecretStr(""),
         description=(
             "Shared secret registered with the GitHub App. The entire basis for "
             "trusting an inbound webhook: the endpoint is unauthenticated, so a "
@@ -299,7 +299,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    github_private_key: str | None = Field(
+    github_private_key: SecretStr | None = Field(
         default=None,
         description=(
             "PEM private key for the GitHub App, used to mint installation "
@@ -328,8 +328,8 @@ class Settings(BaseSettings):
         ),
     )
 
-    slack_client_secret: str = Field(
-        default="",
+    slack_client_secret: SecretStr = Field(
+        default=SecretStr(""),
         description=(
             "Slack app client secret, used only to exchange an install code for "
             "a bot token. Never leaves this process and never reaches a "
@@ -338,8 +338,8 @@ class Settings(BaseSettings):
         ),
     )
 
-    slack_signing_secret: str = Field(
-        default="",
+    slack_signing_secret: SecretStr = Field(
+        default=SecretStr(""),
         description=(
             "Shared secret Slack signs inbound requests with. Not used by the "
             "install flow at all — declared here because a connector configured "
@@ -374,8 +374,8 @@ class Settings(BaseSettings):
         ),
     )
 
-    google_chat_client_secret: str = Field(
-        default="",
+    google_chat_client_secret: SecretStr = Field(
+        default=SecretStr(""),
         description=(
             "Google OAuth client secret, used only to exchange an authorisation "
             "code for tokens. Server-to-server precisely so it is never in the "
@@ -470,8 +470,8 @@ class Settings(BaseSettings):
         ),
     )
 
-    google_meet_client_secret: str = Field(
-        default="",
+    google_meet_client_secret: SecretStr = Field(
+        default=SecretStr(""),
         description=(
             "Google OAuth client secret for the Meet connector, used only to "
             "exchange an authorisation code for tokens. Server-to-server "
@@ -522,8 +522,8 @@ class Settings(BaseSettings):
         ),
     )
 
-    google_meet_transcript_client_secret: str = Field(
-        default="",
+    google_meet_transcript_client_secret: SecretStr = Field(
+        default=SecretStr(""),
         description=(
             "Google OAuth client secret for the transcript-retrieval client, "
             "used only to exchange an authorisation code for tokens."
@@ -583,8 +583,8 @@ class Settings(BaseSettings):
 
     # -- Connectors --------------------------------------------------------
 
-    connector_encryption_key: str = Field(
-        default="",
+    connector_encryption_key: SecretStr = Field(
+        default=SecretStr(""),
         description=(
             "Fernet key encrypting third-party connector credentials at rest. "
             "Empty falls back to the public development key, which a deployed "
@@ -936,7 +936,7 @@ class Settings(BaseSettings):
             )
             raise ValueError(msg)
 
-        if self.connector_encryption_key == DEVELOPMENT_CONNECTOR_KEY:
+        if self.connector_encryption_key.get_secret_value() == DEVELOPMENT_CONNECTOR_KEY:
             # Worse than no key, because everything reports success. Every
             # token would be recoverable by anyone holding a copy of this
             # repository and a database backup.

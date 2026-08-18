@@ -28,6 +28,7 @@ from cairn_api.gmeet import oauth as meet_oauth
 from cairn_api.gmeet import pubsub as meet_pubsub
 from cairn_api.gmeet import subscriptions as meet_subscriptions
 from cairn_api.sources import SOURCES, Source
+from pydantic import SecretStr
 
 pytestmark = pytest.mark.integration
 
@@ -78,7 +79,7 @@ class TestItAsksForTheSmallestThingThatWorks:
             environment="test",
             cors_allowed_origins=("http://localhost:3000",),
             google_meet_client_id="1234.apps.googleusercontent.com",
-            google_meet_client_secret="not-a-real-secret",  # noqa: S106
+            google_meet_client_secret=SecretStr("not-a-real-secret"),
             google_meet_redirect_uri="https://cairn.test/v1/integrations/google-meet/callback",
         )
 

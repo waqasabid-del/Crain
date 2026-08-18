@@ -9,6 +9,7 @@ import contextlib
 import signal
 
 import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from cairn_api.api.ratelimit import purge_expired_buckets
 from cairn_api.config import get_settings
@@ -30,6 +31,13 @@ from cairn_api.pipeline import retention
 from cairn_api.telemetry.startup import check_telemetry
 
 logger = structlog.get_logger(__name__)
+
+#: Backfill runs re-enqueued per maintenance pass.
+#:
+#: A ceiling rather than "all of them": the sweep runs on every worker, and a
+#: platform with a thousand parked runs should recover steadily rather than
+#: publish a thousand BULK jobs at once and make the recovery the incident.
+BACKFILL_RESUME_LIMIT = 25
 
 DEPTH_REPORT_INTERVAL_SECONDS = 15.0
 MAINTENANCE_INTERVAL_SECONDS = 3600.0
@@ -57,6 +65,24 @@ async def report_depth(queue: JobQueue, *, interval: float) -> None:
                 await logger.ainfo("queue.depth.tenant", tenant_id=str(tenant_id), pending=count)
 
         await asyncio.sleep(interval)
+
+
+async def _resume_backfills(session: AsyncSession) -> int:
+    """Re-enqueue every backfill run a worker may claim.
+
+    Deliberately not a state change: the run rows are left exactly as they are
+    and only the job is republished, so a run that is genuinely throttled stays
+    throttled until its `resume_after` has elapsed. `claimable_runs` is the one
+    place that decides eligibility.
+    """
+    from cairn_api.github import backfill
+    from cairn_api.github import jobs as github_jobs
+
+    queue = build_queue()
+    runs = await backfill.claimable_runs(session, limit=BACKFILL_RESUME_LIMIT)
+    for run in runs:
+        await github_jobs.enqueue(queue, run)
+    return len(runs)
 
 
 async def run_maintenance(*, interval: float) -> None:
@@ -100,9 +126,25 @@ async def run_maintenance(*, interval: float) -> None:
                 # And the retention path, which is what makes the raw store
                 # deletable rather than merely bounded. Provenance survives it.
                 transcripts_purged = await gmeet_retrieval.purge_expired_transcripts(session)
+                # Backfill runs that parked and lost their job.
+                #
+                # `THROTTLED` is not an error - it is what exhausting the rate
+                # budget is meant to do - but nothing re-enqueued the run
+                # afterwards, so a parked import kept its row, lost its job and
+                # never resumed. A workspace then sat at zero imported commits
+                # with a healthy connection and no error text, which is the
+                # failure shape this product exists to avoid.
+                #
+                # On this loop for the same reason the Chat renewals are: a
+                # second scheduler is a second thing to supervise, and the query
+                # already excludes live leases and unelapsed throttles, so every
+                # worker running it enqueues nothing twice.
+                resumed = await _resume_backfills(session)
         except Exception as exc:
             await logger.awarning("maintenance.failed", error=str(exc))
         else:
+            if resumed:
+                await logger.ainfo("maintenance.backfills_resumed", count=resumed)
             if purged:
                 await logger.ainfo("maintenance.rate_limit_buckets_purged", count=purged)
             if expired:

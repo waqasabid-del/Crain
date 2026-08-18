@@ -29,10 +29,11 @@ from cairn_api.evaluation.runner import run
 from cairn_api.github.backfill import BACKFILL_JOB
 from cairn_api.github.handlers import GITHUB_DELIVERY_JOB
 from cairn_api.jobs.runner import registry as process_registry
+from pydantic import SecretStr
 
 TEST_SETTINGS = Settings(
     environment="test",
-    github_webhook_secret="audit-secret",  # noqa: S106
+    github_webhook_secret=SecretStr("audit-secret"),
     cors_allowed_origins=("http://localhost:3000",),
 )
 
