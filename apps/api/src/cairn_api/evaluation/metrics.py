@@ -43,6 +43,11 @@ class CaseResult:
     correct_attributions: int = 0
     attributable_claims: int = 0
 
+    #: Whether this case's ground truth credits anybody at all. Kept separate
+    #: from `attributable_claims` so the gate can tell "attributed correctly"
+    #: from "never attributed, scored 1.0 over nothing".
+    attribution_expected: bool = False
+
     #: Labelled must-surface evidence that appeared in some citation.
     surfaced: int = 0
     must_surface: int = 0
@@ -138,6 +143,43 @@ def grade(case: GoldenCase, output: PipelineOutput) -> CaseResult:
     return result
 
 
+#: ASCII apostrophe in most editors, which is why linters reject it in source.
+#: Written as a codepoint: the literal character is indistinguishable from an
+_CURLY_APOSTROPHE = chr(0x2019)
+
+
+def _bare(word: str) -> str:
+    """Strip trailing punctuation and the possessive, so "Priya's" gives "priya"."""
+    plain = word.replace(_CURLY_APOSTROPHE, "'")
+    return plain.strip(".,;:").removesuffix("'s")
+
+
+def _resolve(mention: str, labelled: set[str]) -> str | None:
+    """Map a model's mention of a person onto the handle the case labels them by.
+
+    A model writes "Priya Nair"; the dataset labels her "priya". Comparing the
+    two literally scored every correct attribution as a misattribution — the
+    metric was measuring name formatting, not whether the right person was
+    credited. In production this mapping is `identity.resolution` against a
+    workspace's accounts; the harness has no account store, so it matches on
+    the labelled handle appearing as the whole mention or one of its words.
+
+    **Deliberately not fuzzy, and deliberately refuses ambiguity.** No prefix or
+    substring matching, so "pri" never becomes "priya"; and a mention matching
+    two labelled people resolves to neither, because crediting one of two
+    candidates at random is the failure this metric exists to catch.
+    """
+    text = mention.strip().casefold()
+    if not text:
+        return None
+    # Trailing punctuation and the possessive, so "Priya's" resolves to "priya".
+    words = {_bare(word) for word in text.split()}
+    matches = {
+        handle for handle in labelled if handle.casefold() == text or handle.casefold() in words
+    }
+    return matches.pop() if len(matches) == 1 else None
+
+
 def _grade_claims(
     case: GoldenCase,
     output: PipelineOutput,
@@ -145,6 +187,7 @@ def _grade_claims(
     result: CaseResult,
 ) -> None:
     expected_credits = {person for claim in case.expected_claims for person in claim.credits}
+    result.attribution_expected = bool(expected_credits)
 
     for claim in output.claims:
         result.total_claims += 1
@@ -175,7 +218,8 @@ def _grade_claims(
         if claim.credits:
             result.attributable_claims += 1
             supported = index.people_for(claim.citations)
-            wrong = set(claim.credits) - supported
+            resolved = {credit: _resolve(credit, supported) for credit in claim.credits}
+            wrong = {credit for credit, handle in resolved.items() if handle is None}
             if wrong:
                 # Measured per claim, not averaged, since misattribution
                 # destroys trust irrecoverably.
@@ -186,7 +230,7 @@ def _grade_claims(
                         detail=f"credits people the cited evidence does not name: {sorted(wrong)}",
                     )
                 )
-            elif expected_credits and not set(claim.credits) <= expected_credits:
+            elif expected_credits and not set(resolved.values()) <= expected_credits:
                 result.findings.append(
                     Finding(
                         case_id=case.id,

@@ -34,7 +34,17 @@ Rules:
   "suggested" must be written with explicit hedging — "it sounded like", "it
   appears that". Facts marked "verified" are stated plainly.
 - Blockers and open questions matter more to the reader than volume of activity.
-- If the facts do not support a brief, say so instead of padding.
+- **"There is not enough here to write a brief" is a correct and expected
+  answer, not a failure.** A week with nothing in it, or with only material too
+  vague to attribute, should produce no claims at all. Reply with an empty
+  claims list and say so in the narrative.
+- **Inventing a claim is the worst thing you can do here** — worse than saying
+  nothing, and worse than an incomplete brief. A reader who is told nothing
+  happened can go and look; a reader given a plausible sentence about something
+  that did not happen cannot.
+- Do not write a claim about who said or did something when the data block does
+  not name them. "Someone", "a team member" or "the team" as the actor means
+  there is no claim to make.
 
 Reply with JSON only:
 {"narrative": "...", "claims": [{"text": "...", "fact_ids": ["..."],

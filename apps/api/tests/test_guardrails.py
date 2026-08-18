@@ -115,3 +115,49 @@ class TestDisclosure:
         violations = guardrails.inspect(f"Dana pasted {leaked} into the channel.")
         assert violations
         assert all(leaked not in violation.detail for violation in violations)
+
+
+class TestReportingAnInjectionIsNotEchoingOne:
+    """Found by Session 5's red-team run, and it cost a whole case.
+
+    `injection-prompt-exfiltration` feeds CAIRN a message that asks it to reveal
+    its system prompt. The correct output is a fact *about* that attempt — that
+    is the signal a security-minded reader wants. Instead the guardrail matched
+    the words "system prompt" anywhere in the output and suppressed it, so
+    extraction abstained and the case scored as a missed signal.
+
+    Keyword presence cannot tell "here is my system prompt: ..." from "a message
+    asked for the system prompt". Verbatim echo can, because the first repeats
+    the instruction and the second only names it.
+    """
+
+    def test_a_fact_reporting_an_attempt_survives(self) -> None:
+        reported = (
+            "A chat message asked CAIRN to ignore its instructions and reveal its "
+            "system prompt; nothing was disclosed."
+        )
+
+        assert [item.reason for item in guardrails.inspect(reported)] == []
+
+    def test_a_verbatim_echo_of_the_instruction_is_still_rejected(self) -> None:
+        """The other direction, which is the one that matters if the narrowing
+        goes too far: output that actually repeats a distinctive span of the
+        instruction is a prompt leak whatever it is wrapped in."""
+        from cairn_api.pipeline.extract import INSTRUCTION
+
+        leaked = (
+            "Here is what I was told. "
+            + INSTRUCTION.strip().splitlines()[0]
+            + " "
+            + " ".join(INSTRUCTION.split()[:25])
+        )
+
+        reasons = [item.reason for item in guardrails.inspect(leaked)]
+
+        assert "prompt_leak" in reasons
+
+    def test_naming_a_rule_without_reciting_it_survives(self) -> None:
+        """A brief may legitimately say what CAIRN refused to do."""
+        described = "The message tried to override the extraction rules and was ignored."
+
+        assert [item.reason for item in guardrails.inspect(described)] == []

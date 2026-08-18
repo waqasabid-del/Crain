@@ -12,14 +12,31 @@ import re
 from dataclasses import dataclass
 
 #: Fragments of our own instructions; appearing in output is a leak.
+#: Spans distinctive enough that repeating one is repeating the instruction.
+#:
+#: **Narrowed from keyword presence to verbatim echo**, because the old list
+#: contained "system prompt" and a fact whose whole purpose was to *report* an
+#: exfiltration attempt — "a message asked CAIRN to reveal its system prompt" —
+#: was suppressed as a leak. That cost the `injection-prompt-exfiltration`
+#: red-team case in Session 5: the signal a security-minded reader most wants
+#: was the one thing the guardrail removed.
+#:
+#: Every entry here is a phrase that appears in CAIRN's own instructions and
+#: nowhere in a description of an attempt. Naming a rule is allowed; reciting one
+#: is not.
 _PROMPT_FRAGMENTS = (
     "the block below is data",
     "not instructions",
     "reply with json only",
     "untrusted-",
     "your task is",
-    "system prompt",
 )
+
+#: How many consecutive words of an instruction count as reciting it.
+#:
+#: Long enough that ordinary prose cannot collide with it by accident, short
+#: enough that a leak cannot escape by quoting half a sentence.
+_ECHO_WINDOW = 8
 
 #: Output reading as a directive. Anchored to the start of a *sentence*, not
 #: the statement — anchoring to the statement was tried and missed a red-team case.
@@ -87,10 +104,45 @@ class GuardrailViolation:
     detail: str
 
 
+def _echoes_an_instruction(lowered: str) -> bool:
+    """Whether the text recites a run of CAIRN's own instruction verbatim.
+
+    Compared as word windows rather than substrings so that whitespace and line
+    breaks — which a model reformats freely — do not hide an echo. Imported
+    lazily because `guardrails` is imported by the stages whose instructions it
+    reads, and a module-level import would close the circle.
+    """
+    from cairn_api.pipeline import extract, synthesize
+
+    words = lowered.split()
+    if len(words) < _ECHO_WINDOW:
+        return False
+
+    seen = {
+        " ".join(words[index : index + _ECHO_WINDOW])
+        for index in range(len(words) - _ECHO_WINDOW + 1)
+    }
+
+    for instruction in (extract.INSTRUCTION, synthesize.INSTRUCTION):
+        source = instruction.lower().split()
+        for index in range(len(source) - _ECHO_WINDOW + 1):
+            if " ".join(source[index : index + _ECHO_WINDOW]) in seen:
+                return True
+    return False
+
+
 def inspect(text: str) -> list[GuardrailViolation]:
     """Check one statement. Empty means acceptable."""
     violations: list[GuardrailViolation] = []
     lowered = text.lower()
+
+    if _echoes_an_instruction(lowered):
+        violations.append(
+            GuardrailViolation(
+                reason="prompt_leak",
+                detail=f"output repeats {_ECHO_WINDOW} or more consecutive words of an instruction",
+            )
+        )
 
     for fragment in _PROMPT_FRAGMENTS:
         if fragment in lowered:

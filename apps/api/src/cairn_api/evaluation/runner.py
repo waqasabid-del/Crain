@@ -24,6 +24,7 @@ from cairn_api.evaluation.cases import GoldenDataset, load_dataset
 from cairn_api.evaluation.contract import Pipeline
 from cairn_api.evaluation.gate import (
     BASELINE_PATH,
+    LIVE_BASELINE_PATH,
     REAL_BASELINE_PATH,
     GateProfile,
     evaluate_gate,
@@ -40,6 +41,7 @@ PIPELINES: dict[str, Path] = {
     "reference": BASELINE_PATH,
     "broken": BASELINE_PATH,
     "real": REAL_BASELINE_PATH,
+    "live": LIVE_BASELINE_PATH,
 }
 
 
@@ -80,6 +82,16 @@ def build_pipeline(name: str) -> Pipeline:
         from cairn_api.evaluation.reference import BrokenPipeline
 
         return BrokenPipeline()
+    if name == "live":
+        from cairn_api.config import get_settings
+        from cairn_api.pipeline.harness import UnderstandingPipeline
+        from cairn_api.pipeline.jobs import select_providers
+
+        # The configured backend, whatever it is. This costs money per run and
+        # is never reached from CI; it is the only mode that grades the model's
+        # judgement rather than the gates around it.
+        return UnderstandingPipeline(select_providers(get_settings()).model)
+
     if name == "real":
         from cairn_api.evaluation.scripted import build_scripted_provider
         from cairn_api.pipeline.harness import UnderstandingPipeline
@@ -99,7 +111,9 @@ def main(argv: list[str] | None = None) -> int:
         default="reference",
         choices=sorted(PIPELINES),
         help=(
-            "Which pipeline to grade. 'real' is the product; 'reference' passes "
+            "Which pipeline to grade. 'real' is the product's gates against a "
+            "scripted model; 'live' is the product against the configured "
+            "model, which costs money and needs a key. 'reference' passes "
             "by construction and 'broken' fails on purpose, and both grade the "
             "harness rather than the product."
         ),

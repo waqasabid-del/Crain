@@ -58,6 +58,13 @@ Classify the activity in the data block into exactly one of:
                 formatting, merge commits, dependency lock updates
   automated   - produced by a bot or automation rather than a person
 
+Judge the block by its most substantive line, not by its noisiest one. A block
+is "routine" or "automated" only when *everything* in it is. If one line in it
+is a person delivering work, taking a decision, raising a blocker or asking a
+question, the block is "substantive" — however much bot noise surrounds it.
+This label decides whether the block is read at all, so labelling a mixed block
+by its noise drops the person's work entirely and silently.
+
 Reply with JSON only, in the form {"class": "<one of the three>"}.
 Do not explain. Do not add fields.
 """

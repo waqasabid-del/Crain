@@ -126,6 +126,26 @@ async def main() -> int:
         print(f"   FAILED: {len(uncited)} claim(s) reached the brief uncited.", file=sys.stderr)
         return 1
 
+    # **Read from the ledger, not from the stages.** The ledger is what enforces
+    # the per-tenant ceiling, so if it disagrees with the stages the ceiling is
+    # the thing that is wrong — and a zero here after a successful call is a
+    # defect in the provider, not a reporting quirk.
+    print("-- Cost, from the spend ledger --------------------------------")
+    print(f"   {'stage':<12}{'seconds':>9}{'calls':>7}{'in':>9}{'out':>9}")
+    elapsed = dict(timings)
+    for stage, spend in sorted(ledger.by_stage.items()):
+        print(
+            f"   {stage:<12}{elapsed.get(stage, 0.0):>9.2f}"
+            f"{spend.calls:>7}{spend.input_tokens:>9}{spend.output_tokens:>9}"
+        )
+    print(
+        f"   {'total':<12}{sum(value for _, value in timings):>9.2f}"
+        f"{ledger.total_calls:>7}{ledger.total_tokens:>9}"
+    )
+    if ledger.total_tokens == 0:
+        print("   FAILED: the ledger recorded zero tokens after live calls.", file=sys.stderr)
+        return 1
+
     print("\nAll stages produced output. Read it to judge quality.")
     return 0
 

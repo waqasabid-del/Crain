@@ -321,3 +321,63 @@ class TestQuotaExhaustionIsNotRateLimiting:
             await _provider(transport).complete(
                 ModelRequest(instruction=INSTRUCTION, untrusted_data=UNTRUSTED)
             )
+
+
+class TestExtractionIsSchemaConstrained:
+    """Found by the first successful live run.
+
+    `gpt-4o-mini` returned `"work delivered"` and `"blocker raised"` where the
+    product's `FactKind` enum has `delivery` and `blocker`. Every fact was
+    rejected as an unknown kind, twice, and extraction reported abstention — so
+    a real model reading an event containing a merged PR and an explicit blocker
+    produced nothing, and the failure looked like "there was nothing to find".
+
+    The cause was not the model. `prompts.build` never set `response_schema`, so
+    the strict structured-output path existed and nothing used it: the model was
+    asked in prose to use certain words and, reasonably, used synonyms. Asking
+    the API to enforce the enum is the difference between a request that hopes
+    and one that constrains.
+    """
+
+    def test_the_prompt_builder_can_carry_a_schema(self) -> None:
+        from cairn_api.pipeline import prompts
+
+        request = prompts.build("do the thing", "untrusted", response_schema={"type": "object"})
+
+        assert request.response_schema == {"type": "object"}
+        # And the fencing is unchanged: a schema must not cost the injection
+        # defence.
+        assert "untrusted" in request.untrusted_data
+        assert "untrusted" not in request.instruction
+
+    def test_extraction_constrains_kind_to_the_enum(self) -> None:
+        """The enum is generated from `FactKind`, not restated, so a new kind
+        cannot exist in the product and be unsayable by the model."""
+        from cairn_api.pipeline.extract import EXTRACTION_SCHEMA
+        from cairn_api.pipeline.facts import FactKind
+
+        facts = EXTRACTION_SCHEMA["properties"]["facts"]
+        kind = facts["items"]["properties"]["kind"]
+
+        assert set(kind["enum"]) == {member.value for member in FactKind}
+
+    async def test_the_schema_reaches_openai_as_a_strict_json_schema(self) -> None:
+        from cairn_api.pipeline.extract import EXTRACTION_SCHEMA
+
+        captured: dict[str, Any] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.update(json.loads(request.content))
+            return httpx.Response(200, json=_completion(usage=USAGE))
+
+        await _provider(httpx.MockTransport(handler)).complete(
+            ModelRequest(
+                instruction=INSTRUCTION,
+                untrusted_data=UNTRUSTED,
+                response_schema=EXTRACTION_SCHEMA,
+            )
+        )
+
+        assert captured["response_format"]["json_schema"]["strict"] is True
+        sent = captured["response_format"]["json_schema"]["schema"]
+        assert "delivery" in sent["properties"]["facts"]["items"]["properties"]["kind"]["enum"]
