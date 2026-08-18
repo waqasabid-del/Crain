@@ -402,6 +402,99 @@ class Settings(BaseSettings):
         ),
     )
 
+    # -- Google Meet -------------------------------------------------------
+    #
+    # **A separate OAuth client from Google Chat, deliberately, and this is the
+    # single most consequential line in this block.**
+    #
+    # The Chat install sends `include_granted_scopes=true`, and both connectors
+    # verify the granted set by *equality*. Sharing one client id therefore means
+    # a person who authorised Chat and then authorises Meet gets Chat's scopes
+    # echoed back in Meet's token response — and Meet refuses the install with
+    # `scopes_unexpected`. The reverse happens on the next Chat refresh. Two
+    # working connectors become two broken ones, and nothing in either log says
+    # "you shared a client id".
+    #
+    # The second reason is quieter: `installation_id_for` composes
+    # `f"{client_id}:{tenant_id}"`, so a shared client id makes one workspace's
+    # Chat and Meet connections collide on `(provider, installation_id)`'s
+    # neighbouring uniqueness assumptions and on every log line that reads one.
+
+    google_meet_client_id: str = Field(
+        default="",
+        description=(
+            "Google OAuth client ID for the Meet connector. **Must be a "
+            "different OAuth client from CAIRN_GOOGLE_CHAT_CLIENT_ID.** Sharing "
+            "one breaks both connectors: Chat requests "
+            "`include_granted_scopes=true`, both verify the granted scope set by "
+            "equality, and each then sees the other's scopes. Empty means Google "
+            "Meet is not configured, and the install endpoint refuses rather "
+            "than sending somebody to a consent screen Google will reject."
+        ),
+    )
+
+    google_meet_client_secret: str = Field(
+        default="",
+        description=(
+            "Google OAuth client secret for the Meet connector, used only to "
+            "exchange an authorisation code for tokens. Server-to-server "
+            "precisely so it is never in the browser's half of the flow."
+        ),
+    )
+
+    google_meet_redirect_uri: str = Field(
+        default="http://localhost:8000/v1/integrations/google-meet/callback",
+        description=(
+            "Where Google returns the customer after they consent to the Meet "
+            "connector. Must match a URI registered on the *Meet* OAuth client "
+            "exactly, and must not be the Chat connector's URI.\n\n"
+            "Configured rather than derived from the request: a redirect URI "
+            "built from an attacker-supplied Host header sends the "
+            "authorisation code — and therefore the refresh token it becomes — "
+            "to the attacker."
+        ),
+    )
+
+    google_meet_project_id: str = Field(
+        default="",
+        description=(
+            "Google Cloud project owning the Pub/Sub topic that Meet's "
+            "Workspace Events subscriptions publish to. Named explicitly and "
+            "never inferred from ambient credentials."
+        ),
+    )
+
+    google_meet_pubsub_topic: str = Field(
+        default="",
+        description=(
+            "Fully qualified topic Meet subscriptions publish to, as "
+            "`projects/{project}/topics/{topic}`. Distinct from the Chat topic: "
+            "one topic carrying both would make a Meet event resolvable by "
+            "Chat's receiver and vice versa."
+        ),
+    )
+
+    google_meet_service_account: str = Field(
+        default="",
+        description=(
+            "The service-account address Pub/Sub signs Meet push JWTs with. The "
+            "Meet receiver requires the token's `email` claim to equal this "
+            "exactly, and it is read from CAIRN_GMEET_PUSH_SERVICE_ACCOUNT or "
+            "app state rather than from Chat's setting — a token minted for "
+            "Chat's subscription must not verify at Meet's endpoint."
+        ),
+    )
+
+    google_meet_push_audience: str = Field(
+        default="",
+        description=(
+            "The audience configured on the Meet Pub/Sub push subscription, "
+            "which the receiver requires the JWT's `aud` claim to equal. Set "
+            "explicitly rather than left to Pub/Sub's default of the endpoint "
+            "URL, and set to something other than the Chat audience."
+        ),
+    )
+
     # -- Connectors --------------------------------------------------------
 
     connector_encryption_key: str = Field(
@@ -541,6 +634,38 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
+    def reject_a_shared_google_oauth_client(self) -> Self:
+        """Google Chat and Google Meet must be separate OAuth clients.
+
+        **Every environment, including local and test**, which is why this is a
+        validator of its own rather than a line inside
+        `reject_development_defaults_outside_local` — that one returns early for
+        non-deployed environments, and this failure is a code defect rather than
+        a missing secret.
+
+        Both connectors verify the granted scope set by *equality*, and the Chat
+        authorise URL sends `include_granted_scopes=true`. So a Google account
+        that authorises Chat and then Meet against one client id receives the
+        union in both token responses, and **both** connectors reject it with
+        `scopes_unexpected` — Meet at install, Chat on its next refresh, days
+        later, with nothing in either log naming the shared client as the cause.
+
+        `installation_id_for` composes `f"{client_id}:{tenant_id}"` in each
+        connector as well, so a shared client id also makes one workspace's two
+        connections produce the same installation identity.
+        """
+        if self.google_meet_client_id and self.google_meet_client_id == self.google_chat_client_id:
+            msg = (
+                "CAIRN_GOOGLE_MEET_CLIENT_ID and CAIRN_GOOGLE_CHAT_CLIENT_ID name one "
+                "OAuth client. They must be separate: both connectors verify the "
+                "granted scope set by equality and Chat requests "
+                "include_granted_scopes=true, so a shared client makes each connector "
+                "reject the other's grant."
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
     def reject_development_defaults_outside_local(self) -> Self:
         """Refuse to boot a deployed environment on local defaults.
 
@@ -646,6 +771,18 @@ class Settings(BaseSettings):
             # host that does not exist. That is the lucky outcome.
             msg = (
                 f"CAIRN_GOOGLE_CHAT_REDIRECT_URI is {self.google_chat_redirect_uri!r} while "
+                f"CAIRN_ENVIRONMENT is '{self.environment}'. The Google authorisation "
+                "code arrives on this URL and is exchangeable for a refresh token; it "
+                "must be an https URI registered on the OAuth client."
+            )
+            raise ValueError(msg)
+
+        if self.google_meet_client_id and not self.google_meet_redirect_uri.startswith("https://"):
+            # The same rule as Google Chat's, restated rather than shared,
+            # because the two connectors have separate OAuth clients and
+            # separate registered URIs — see the field descriptions.
+            msg = (
+                f"CAIRN_GOOGLE_MEET_REDIRECT_URI is {self.google_meet_redirect_uri!r} while "
                 f"CAIRN_ENVIRONMENT is '{self.environment}'. The Google authorisation "
                 "code arrives on this URL and is exchangeable for a refresh token; it "
                 "must be an https URI registered on the OAuth client."

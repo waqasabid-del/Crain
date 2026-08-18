@@ -425,6 +425,29 @@ class TestRowLevelSecurity:
             # privilege that can undo a withdrawal of consent is the one an
             # injection gets to use first.
             "google_chat_subscriptions": {"SELECT"},
+            # -- Google Meet (Step 36A) -----------------------------------
+            #
+            # SELECT only, on both, and the same reasoning as Chat's
+            # subscription table. A Meet subscription row is not a permission —
+            # the permission lives in `meeting_consents`, where every
+            # participant answered — it is CAIRN's record of having asked
+            # Google to announce a transcript. Writes happen platform-side in
+            # the renewal sweep, and the privilege that could quietly re-arm a
+            # subscription after somebody withdrew is the one an injection
+            # reaches for first.
+            #
+            # `google_meet_artifact_signals` records only that a transcript
+            # became available. It holds no transcript, no participant and no
+            # joining code, and at this step nothing writes it from a scoped
+            # session.
+            #
+            # `google_meet_oauth_states` is deliberately absent, exactly as
+            # `google_chat_oauth_states` is: the row carries a PKCE verifier,
+            # which is presented to Google and therefore cannot be hashed, and
+            # a redirect URI names no workspace so the table cannot be scoped
+            # to one usefully.
+            "google_meet_subscriptions": {"SELECT"},
+            "google_meet_artifact_signals": {"SELECT"},
             #
             # `google_chat_oauth_states` is deliberately **absent** from this
             # list, exactly as `slack_oauth_states` is below and for the same

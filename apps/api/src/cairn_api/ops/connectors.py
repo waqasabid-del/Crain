@@ -297,6 +297,28 @@ GOOGLE_CHAT_LIMITS = ProviderLimits(
 )
 
 
+#: Google Meet's inbound path, which is the same Pub/Sub push transport as Chat's
+#: and therefore the same numbers.
+#:
+#: Restated rather than aliased. They are equal today because both ride Cloud
+#: Pub/Sub, not because they are the same fact — Google can change one product's
+#: push configuration without changing the other's, and an alias would quietly
+#: make a Meet incident report Chat's ack deadline.
+#:
+#: There is no `events_per_hour`: Google publishes no inbound ceiling, and unlike
+#: Chat there is no per-project read quota behind it either, because this
+#: connector never reads a resource.
+GOOGLE_MEET_LIMITS = ProviderLimits(
+    ack_deadline_seconds=10.0,
+    retry_attempts=None,
+    retry_backoff_minutes=(),
+    retry_backoff_seconds_range=(0.1, 60.0),
+    ack_deadline_max_seconds=600.0,
+    ack_deadline_extendable_per_delivery=False,
+    delivers_at_least_once=True,
+)
+
+
 class ScopeTier(enum.StrEnum):
     """How hard Google makes a scope to ship, which is a release constraint.
 
@@ -350,6 +372,22 @@ RESTRICTED_SCOPE_REVERIFICATION_MONTHS = 12
 GOOGLE_CHAT_SCOPES: tuple[OAuthScope, ...] = (
     OAuthScope(name="chat.messages.readonly", tier=ScopeTier.RESTRICTED),
     OAuthScope(name="chat.spaces.readonly", tier=ScopeTier.SENSITIVE),
+)
+
+
+#: Google Meet's scopes, which are one scope.
+#:
+#: **SENSITIVE, not RESTRICTED**, and the difference is months of calendar time.
+#: `meetings.space.readonly` needs Google OAuth app verification and no
+#: independent CASA assessment, so Meet can go live on a timeline Chat cannot.
+#:
+#: That holds only while the list is one entry long. Retrieving a transcript
+#: means a Drive scope, Drive scopes are RESTRICTED, and adding one moves this
+#: connector into Chat's release regime. The tier is recorded here so that
+#: becomes a visible edit to a constant with a test on it rather than a
+#: discovery during a launch review.
+GOOGLE_MEET_SCOPES: tuple[OAuthScope, ...] = (
+    OAuthScope(name="meetings.space.readonly", tier=ScopeTier.SENSITIVE),
 )
 
 
@@ -531,6 +569,34 @@ SUSPENSION_REASON_CATEGORY: Mapping[SuspensionReason, ConnectorErrorCategory] = 
 }
 
 
+class ConnectorCategory(enum.StrEnum):
+    """What kind of thing a provider is, for the surfaces that group them.
+
+    Added with Google Meet, and the reason is a bug it would otherwise have
+    caused. `release_gates._connectors_gate` used to define "chat connector" by
+    subtraction — ``item is not ConnectorProvider.GITHUB`` — which was correct
+    while the only three providers were GitHub, Slack and Chat. A fourth provider
+    that is not a chat product silently joined that gate, so a deployment with
+    Meet configured and no chat source would have read "a chat connector is
+    configured" and a gate about chat coverage would have been satisfied by a
+    meeting connector.
+
+    Stated rather than inferred, because the next provider after this one will
+    not be a chat product either.
+    """
+
+    #: GitHub. Code review, commits, issues.
+    SOURCE_CONTROL = "source_control"
+
+    #: Slack, Google Chat. A conversation a person can be read in.
+    CHAT = "chat"
+
+    #: Google Meet, and Zoom when it lands. Consent-gated per meeting rather than
+    #: per workspace, which is why it is not a chat source with a different
+    #: transport.
+    MEETING = "meeting"
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderSpec:
     """What is known about a provider before anything is measured."""
@@ -545,6 +611,10 @@ class ProviderSpec:
     #: The environment variables behind those fields, so a blocked release gate
     #: can name them.
     env_vars: tuple[str, ...]
+
+    #: What kind of source this is. Read by the release gate, which reports on
+    #: chat coverage; see `ConnectorCategory` for the bug that made it explicit.
+    category: ConnectorCategory = ConnectorCategory.CHAT
 
     #: Whether a durable per-delivery record exists for this provider. GitHub
     #: has `webhook_deliveries`; nothing else does yet.
@@ -587,6 +657,7 @@ class ProviderSpec:
 PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         provider=ConnectorProvider.GITHUB,
+        category=ConnectorCategory.SOURCE_CONTROL,
         settings_fields=("github_app_id", "github_webhook_secret", "github_private_key"),
         env_vars=(
             "CAIRN_GITHUB_APP_ID",
@@ -601,6 +672,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ),
     ProviderSpec(
         provider=ConnectorProvider.SLACK,
+        category=ConnectorCategory.CHAT,
         settings_fields=("slack_client_id", "slack_client_secret", "slack_signing_secret"),
         env_vars=(
             "CAIRN_SLACK_CLIENT_ID",
@@ -617,6 +689,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ),
     ProviderSpec(
         provider=ConnectorProvider.GOOGLE_CHAT,
+        category=ConnectorCategory.CHAT,
         settings_fields=("google_chat_project_id", "google_chat_service_account"),
         env_vars=("CAIRN_GOOGLE_CHAT_PROJECT_ID", "CAIRN_GOOGLE_CHAT_SERVICE_ACCOUNT"),
         limits=GOOGLE_CHAT_LIMITS,
@@ -639,6 +712,34 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
             "this connector at all, and every configuration check passes in that "
             "state. Then add the app to one space, create the subscription, and "
             "post one message in that space."
+        ),
+    ),
+    ProviderSpec(
+        provider=ConnectorProvider.GOOGLE_MEET,
+        # **Not CHAT.** The release gate reports on chat coverage, and before
+        # this field existed it defined "chat" as "not GitHub" — so adding Meet
+        # would have satisfied a gate about conversations with a connector that
+        # reads none. See `ConnectorCategory`.
+        category=ConnectorCategory.MEETING,
+        settings_fields=("google_meet_project_id", "google_meet_service_account"),
+        env_vars=("CAIRN_GOOGLE_MEET_PROJECT_ID", "CAIRN_GOOGLE_MEET_SERVICE_ACCOUNT"),
+        limits=GOOGLE_MEET_LIMITS,
+        scopes=GOOGLE_MEET_SCOPES,
+        # No `release_blocker`. Meet's single scope is SENSITIVE rather than
+        # RESTRICTED, so it needs OAuth verification and no CASA assessment —
+        # weeks rather than months. Leaving this empty is a claim, and
+        # `GOOGLE_MEET_SCOPES` is where it is checked.
+        manual_verification=(
+            "Google Meet: connecting proves nothing on its own, because "
+            "connecting grants no collection — so the check is the whole consent "
+            "path. Create a capture request for one real meeting, have every "
+            "invited person accept, confirm a subscription reaches 'active', "
+            "hold the meeting with the host turning transcription on, and "
+            "confirm one transcript announcement is recorded. Then have somebody "
+            "withdraw on a second meeting and confirm the subscription is torn "
+            "down on the next maintenance pass. Also confirm the Meet OAuth "
+            "client is a different client from the Google Chat one: sharing it "
+            "breaks both connectors at refresh time, days later."
         ),
     ),
 )
@@ -1374,6 +1475,8 @@ __all__ = [
     "GOOGLE_CHAT_LIMITS",
     "GOOGLE_CHAT_SCOPES",
     "GOOGLE_CHAT_SUBSCRIPTION",
+    "GOOGLE_MEET_LIMITS",
+    "GOOGLE_MEET_SCOPES",
     "LIVE_STATES",
     "NO_DELIVERY_RECORD",
     "NO_SUBSCRIPTION_RECORD",
@@ -1384,6 +1487,7 @@ __all__ = [
     "SUSPENSION_REASON_CATEGORY",
     "ConnectionHealth",
     "ConnectionState",
+    "ConnectorCategory",
     "ConnectorErrorCategory",
     "ConnectorFleet",
     "ConnectorHealth",

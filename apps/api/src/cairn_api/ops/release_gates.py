@@ -354,17 +354,24 @@ def _connectors_gate(settings: Settings) -> Gate:
     a connector that works on Monday and is broken by the following Monday, over
     and over, is indistinguishable from an unstable product.
     """
-    from cairn_api.ops.connectors import PROVIDERS, ConnectorProvider, configured_providers, spec
+    from cairn_api.ops.connectors import PROVIDERS, ConnectorCategory, configured_providers, spec
 
     configured = configured_providers(settings)
-    chat = tuple(item for item in configured if item is not ConnectorProvider.GITHUB)
+    # **By category, not by subtraction.** This read `item is not
+    # ConnectorProvider.GITHUB` while GitHub, Slack and Chat were the only
+    # providers, which was correct and accidental: the moment a fourth provider
+    # arrived that is not a chat product — Google Meet, in Step 36A — a
+    # deployment with Meet configured and no chat source would have satisfied a
+    # gate about chat coverage. `ConnectorSpec.category` states the thing that
+    # was being inferred.
+    chat = tuple(item for item in configured if spec(item).category is ConnectorCategory.CHAT)
 
     if not chat:
         names = ", ".join(
             variable
-            for spec in PROVIDERS
-            if spec.provider is not ConnectorProvider.GITHUB
-            for variable in spec.env_vars
+            for item in PROVIDERS
+            if item.category is ConnectorCategory.CHAT
+            for variable in item.env_vars
         )
         return Gate(
             name="connectors",

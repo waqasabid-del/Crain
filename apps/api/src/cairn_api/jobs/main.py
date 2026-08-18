@@ -18,6 +18,7 @@ from cairn_api.db.session import dispose_engines, platform_session
 from cairn_api.gchat import subscriptions as gchat_subscriptions
 from cairn_api.github import handlers as github_handlers
 from cairn_api.github import jobs as github_jobs
+from cairn_api.gmeet import subscriptions as gmeet_subscriptions
 from cairn_api.jobs.factory import build_queue
 from cairn_api.jobs.queue import JobQueue
 from cairn_api.jobs.runner import JobRegistry
@@ -76,6 +77,14 @@ async def run_maintenance(*, interval: float) -> None:
                 # rows `FOR UPDATE SKIP LOCKED` so running it from every worker
                 # is safe and renews nothing twice.
                 renewals = await gchat_subscriptions.renew_expiring_subscriptions(session)
+                # The Google Meet pass, on the same loop and claiming its rows
+                # the same way. It is *not* housekeeping either, and it does one
+                # thing Chat's does not: it re-asks Step 35's consent gate for
+                # every lease before renewing it, so a withdrawal, a decline, a
+                # late participant, a reschedule or a policy change tears the
+                # subscription down on the next pass rather than waiting for it
+                # to lapse.
+                meet_renewals = await gmeet_subscriptions.renew_expiring_subscriptions(session)
         except Exception as exc:
             await logger.awarning("maintenance.failed", error=str(exc))
         else:
@@ -88,6 +97,17 @@ async def run_maintenance(*, interval: float) -> None:
                     "maintenance.gchat_subscriptions_renewed",
                     count=renewals.changed,
                     failed=renewals.failed,
+                )
+            if meet_renewals.considered:
+                await logger.ainfo(
+                    "maintenance.gmeet_subscriptions_renewed",
+                    count=meet_renewals.changed,
+                    # Counted separately from `failed` on purpose: a lease torn
+                    # down because consent moved is the product working, and an
+                    # aggregate that called it a failure would page somebody
+                    # every time somebody exercised a right.
+                    withdrawn=meet_renewals.withdrawn,
+                    failed=meet_renewals.failed,
                 )
 
 

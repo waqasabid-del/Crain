@@ -37,6 +37,8 @@ from cairn_api.api.routers import (
     facts,
     gchat,
     gchat_push,
+    gmeet,
+    gmeet_push,
     health,
     identities,
     internal,
@@ -207,6 +209,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # carry a `{workspace_id}`. The single-use state identifies the workspace.
     app.include_router(gchat.router, prefix=API_PREFIX)
     app.include_router(gchat.callback_router, prefix=API_PREFIX)
+    # And again for Google Meet, which has its **own** OAuth client rather than
+    # sharing Chat's — both connectors verify the granted scope set by equality,
+    # so one shared client makes each reject the other's grant. There is
+    # deliberately no picker router here: what CAIRN may watch is decided per
+    # meeting by the people in it, not by an admin on a settings screen.
+    app.include_router(gmeet.router, prefix=API_PREFIX)
+    app.include_router(gmeet.callback_router, prefix=API_PREFIX)
     app.include_router(webhooks.router, prefix=API_PREFIX)
     # Mounts the Slack event endpoint and registers the job it publishes, in one
     # call: a router without its handler publishes a job type no worker can
@@ -215,6 +224,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Same one-call pattern, for the same reason: the Google Chat Pub/Sub push
     # receiver and the job it publishes are mounted and registered together.
     gchat_push.install(app, prefix=API_PREFIX)
+    # The Meet receiver mounts no job type, deliberately: Step 36A records that a
+    # transcript exists and publishes no work that could go and fetch it.
+    gmeet_push.install(app, prefix=API_PREFIX)
 
     return app
 

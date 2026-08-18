@@ -1633,6 +1633,62 @@ class GoogleChatDisconnectResponse(ApiModel):
 
 
 # ---------------------------------------------------------------------------
+# Google Meet
+# ---------------------------------------------------------------------------
+#
+# **Two models, and there is deliberately no picker.** Google Chat has a space
+# list because an admin chooses which conversations CAIRN may read. Meet has
+# nothing equivalent: connecting grants no collection at all, and what CAIRN may
+# watch is decided one meeting at a time by the people in it, through Step 35's
+# capture requests. A "choose which meetings" surface here would be an admin
+# granting a permission that is not theirs to grant.
+#
+# **Nothing in this section carries a meeting reference.** For Google Meet that
+# value is the joining code — a credential — which is why Step 35 removed it from
+# its own responses, and why there is no field for it here either.
+
+
+class GoogleMeetInstallResponse(ApiModel):
+    """Where to send the customer, and what connecting does and does not do."""
+
+    #: The Google authorise URL, state parameter and PKCE challenge included.
+    #: Built server-side from settings, never from the request — a redirect URI
+    #: assembled from a `Host` header sends the authorisation code, and therefore
+    #: the account's refresh token, to whoever set the header.
+    authorize_url: str
+
+    #: When the install link stops working, so an interface can say "this expires
+    #: in ten minutes" rather than presenting a stale button.
+    expires_at: datetime
+
+    #: What connecting actually grants, stated before the customer consents
+    #: rather than after they wonder why nothing arrived. The honest sentence is
+    #: the less impressive one, and it belongs on the way in.
+    notice: str
+
+
+class GoogleMeetDisconnectResponse(ApiModel):
+    """What disconnecting did, stated precisely enough to be trusted."""
+
+    state: str
+    disconnected_at: datetime
+
+    #: How many event subscriptions were torn down. A count, never a list: the
+    #: identifiers would be meetings, and how many meetings a workspace had
+    #: consented to is already more than a response needs to imply.
+    subscriptions_removed: int
+
+    #: Whether the stored refresh token was destroyed. Reported rather than
+    #: assumed: a disconnect that leaves the credential in place keeps a standing
+    #: grant after the customer asked us to stop, and they have no way to check
+    #: from outside.
+    credential_cleared: bool
+
+    #: What disconnecting does *not* do.
+    retention_notice: str
+
+
+# ---------------------------------------------------------------------------
 # Meeting capture consent
 # ---------------------------------------------------------------------------
 #

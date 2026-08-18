@@ -53,6 +53,23 @@ class ConnectorProvider(enum.StrEnum):
     SLACK = "slack"
     GOOGLE_CHAT = "google_chat"
 
+    #: Google Meet, added in Step 36A.
+    #:
+    #: **Not the same value as ``sources.Source.MEETING``, and deliberately.**
+    #: `ConnectorProvider` names a *connection* — an OAuth client, a credential,
+    #: a subscription lifecycle — and CAIRN holds a separate one of those for
+    #: Meet. `Source` names what a person may refuse, and meetings are one
+    #: refusable thing regardless of which platform hosted them: somebody who
+    #: opts out of `meeting` has opted out of Meet and Zoom alike. Adding a
+    #: `google_meet` member to `Source` would split that refusal in two and
+    #: silently narrow it.
+    #:
+    #: This value is a checked VARCHAR in **three** migrations
+    #: (`source_connections`, `external_identities`, `fact_people`), so adding it
+    #: here alone gives a value the ORM accepts and PostgreSQL rejects at INSERT.
+    #: `20260818_0200_google_meet.py` updates all three.
+    GOOGLE_MEET = "google_meet"
+
 
 class ConnectionState(enum.StrEnum):
     """Where a connection is in its lifecycle.

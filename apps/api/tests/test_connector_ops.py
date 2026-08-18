@@ -958,6 +958,7 @@ class TestNoMetricMeasuresAPerson:
             connectors.ConnectorProvider.GITHUB,
             connectors.ConnectorProvider.SLACK,
             connectors.ConnectorProvider.GOOGLE_CHAT,
+            connectors.ConnectorProvider.GOOGLE_MEET,
         }
 
 
@@ -1356,6 +1357,11 @@ class TestWhatCanBeObserved:
         assert {item.provider for item in silent} == {
             connectors.ConnectorProvider.SLACK,
             connectors.ConnectorProvider.GOOGLE_CHAT,
+            # Meet joins the silent set for the same reason: only GitHub has a
+            # durable inbound delivery record, so a delivery count for the others
+            # would be a zero that reads as "nothing arrived" rather than as
+            # "this cannot be seen from here".
+            connectors.ConnectorProvider.GOOGLE_MEET,
         }
         for item in silent:
             assert item.deliveries_unobservable_reason in connectors.DELIVERY_UNOBSERVABLE_REASONS

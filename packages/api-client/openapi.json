@@ -646,7 +646,7 @@
       },
       "ConnectorProvider": {
         "description": "Which system a connection reaches.\n\nClosed, because a provider is not a label: each value implies a webhook\nverifier, an identity resolver and a retention rule. A free string would let\na typo create a connection nothing on the ingestion side can service, and it\nwould look connected in the UI.",
-        "enum": ["github", "slack", "google_chat"],
+        "enum": ["github", "slack", "google_chat", "google_meet"],
         "title": "ConnectorProvider",
         "type": "string"
       },
@@ -1356,6 +1356,64 @@
         },
         "required": ["notice"],
         "title": "GoogleChatSpaceSelectionResponse",
+        "type": "object"
+      },
+      "GoogleMeetDisconnectResponse": {
+        "additionalProperties": false,
+        "description": "What disconnecting did, stated precisely enough to be trusted.",
+        "properties": {
+          "credentialCleared": {
+            "title": "Credentialcleared",
+            "type": "boolean"
+          },
+          "disconnectedAt": {
+            "format": "date-time",
+            "title": "Disconnectedat",
+            "type": "string"
+          },
+          "retentionNotice": {
+            "title": "Retentionnotice",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "subscriptionsRemoved": {
+            "title": "Subscriptionsremoved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "state",
+          "disconnectedAt",
+          "subscriptionsRemoved",
+          "credentialCleared",
+          "retentionNotice"
+        ],
+        "title": "GoogleMeetDisconnectResponse",
+        "type": "object"
+      },
+      "GoogleMeetInstallResponse": {
+        "additionalProperties": false,
+        "description": "Where to send the customer, and what connecting does and does not do.",
+        "properties": {
+          "authorizeUrl": {
+            "title": "Authorizeurl",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "title": "Expiresat",
+            "type": "string"
+          },
+          "notice": {
+            "title": "Notice",
+            "type": "string"
+          }
+        },
+        "required": ["authorizeUrl", "expiresAt", "notice"],
+        "title": "GoogleMeetInstallResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -3991,6 +4049,98 @@
         "tags": ["google-chat"]
       }
     },
+    "/v1/integrations/google-meet/callback": {
+      "get": {
+        "description": "Where Google sends the customer back.\n\n**Any ``error`` parameter is a failed install.** The callback branches on the\n*presence* of the parameter, never on the literal ``access_denied``: an\nequality check that missed would fall through to \"exchange the code\" with no\ncode, and the customer would see a parse failure instead of \"you declined\".\n\nThe order of the checks is the security property. The state is claimed \u2014\natomically, single-use \u2014 *before* anything is exchanged, so a replayed\ncallback fails on the second attempt whether or not the first one worked.\n\n**The workspace comes off the stored row and never from the request.** There\nis no ``workspace_id`` parameter on this route to trust, and adding one would\nlet anybody who obtained a state bind an authorisation to a workspace of their\nchoosing.\n\nThen the caller is proved to **still** be a member of that workspace **with\npermission to connect**: minutes passed, and in those minutes the person may\nhave been removed or demoted, and an install that completes on a permission\nthat no longer exists is one nobody currently authorised. Only then is the\ncode sent to Google.",
+        "operationId": "finish_install_v1_integrations_google_meet_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Back to the workspace's admin screen."
+          },
+          "307": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish connecting a Google Meet account",
+        "tags": ["google-meet"]
+      }
+    },
     "/v1/integrations/slack/callback": {
       "get": {
         "description": "Where Slack sends the customer back.\n\n**Any ``error`` parameter is a failed install.** Slack's documentation does\nnot state verbatim which value comes back when somebody presses Cancel, so\nthis does not compare against the literal ``access_denied`` \u2014 an equality\ncheck that missed would fall through to \"exchange the code\" with no code, and\nthe customer would see a parse failure instead of \"you declined\". Presence is\nthe condition; the value is read for categorisation and then discarded.\n\nThe order of the checks is the security property. The state is claimed \u2014\natomically, single-use \u2014 *before* anything is exchanged, so a replayed\ncallback fails on the second attempt whether or not the first one worked.\nThen the caller is proved to still be a member of the state's workspace with\npermission to connect, so a leaked state cannot be redeemed by anyone else.\nOnly then is the code sent to Slack.\n\nRedirects rather than returning JSON, because the thing following this URL is\na browser mid-navigation, and the destination is built from\n``public_app_url`` rather than from the request \u2014 the same rule as\nverification links, for the same reason.",
@@ -6330,6 +6480,134 @@
         },
         "summary": "Choose which Google Chat spaces CAIRN may process",
         "tags": ["google-chat"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/google-meet/disconnect": {
+      "post": {
+        "description": "Stop watching, tear the leases down, and drop the refresh token.\n\nAll three, in one call, with no option to do only the first. A disconnect that\nleaves the credential behind keeps CAIRN holding a standing grant after the\ncustomer asked it to stop, and from outside there is no way to tell the two\napart \u2014 which is exactly why the response says which happened.\n\nThe subscriptions are removed **before** the credential is destroyed, because\ndeleting a lease at Google needs a token. Every meeting is blocked locally\nwhether or not that succeeds: `remove_all_subscriptions` marks each row before\nit calls Google and does not stop on an error, and the receiver refuses a\ndelivery whose connection is not active. A lease that survives at Google\ntherefore delivers into a workspace that will not record it, and lapses on its\nown because nothing renews it.\n\n**The response tells the truth about retention.** Disconnecting stops new\ncollection; it does not delete what was already recorded.",
+        "operationId": "disconnect_google_meet_v1_workspaces__workspace_id__integrations_google_meet_disconnect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleMeetDisconnectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to disconnect integrations."
+          },
+          "404": {
+            "description": "No Google Meet account is connected."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Disconnect Google Meet and destroy the stored credential",
+        "tags": ["google-meet"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/google-meet/install": {
+      "post": {
+        "description": "Issue a one-time state with its PKCE verifier, and return the authorise URL.\n\nReturns the URL rather than redirecting. The caller is a browser application\ndoing this from an admin screen, and a 302 out of an XHR is either followed\ninvisibly or blocked \u2014 neither of which lets the interface state\n:data:`CONNECT_NOTICE` before the customer is standing on Google's consent\nscreen.\n\nRuns on the platform connection because ``google_meet_oauth_states`` is\ndeliberately unreachable from the application role: the callback has to read\nthe row with no tenant context to scope to, so every statement against that\ntable is platform-side and the grant set says so.",
+        "operationId": "begin_install_v1_workspaces__workspace_id__integrations_google_meet_install_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleMeetInstallResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Requires permission to connect integrations."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Google Meet is not configured on this deployment."
+          }
+        },
+        "summary": "Begin connecting a Google Meet account",
+        "tags": ["google-meet"]
       }
     },
     "/v1/workspaces/{workspace_id}/integrations/slack/channels": {
