@@ -126,6 +126,15 @@ search for — by design, not by omission.
 
 ---
 
+## The GitHub App
+
+Created from `scripts/create_github_app.py`, installed on one account, and bound to a workspace by
+an authenticated connect call. Moving it to staging is one field on the App: replace the tunnel URL
+with `https://api.staging.<domain>/v1/webhooks/github`. Nothing else changes - the manifest, the
+connect flow and the verification are identical.
+
+---
+
 ## Data in staging
 
 **No customer-looking data.** Non-production environments hold synthetic data only.
