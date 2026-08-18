@@ -97,7 +97,6 @@ function mine(overrides: Partial<MyMeetingRequest> = {}): MyMeetingRequest {
   return {
     id: "bbbbbbbb-0000-0000-0000-000000000001",
     provider: "google_meet",
-    externalMeetingRef: MEETING_REF,
     scheduledStart: "2026-09-12T13:00:00Z",
     scheduledEnd: "2026-09-12T14:00:00Z",
     purpose: PURPOSE,
@@ -120,7 +119,6 @@ function capture(overrides: Partial<MeetingCaptureRequest> = {}): MeetingCapture
   return {
     id: "cccccccc-0000-0000-0000-000000000001",
     provider: "zoom",
-    externalMeetingRef: MEETING_REF,
     scheduledStart: "2026-09-12T13:00:00Z",
     scheduledEnd: "2026-09-12T14:00:00Z",
     purpose: PURPOSE,

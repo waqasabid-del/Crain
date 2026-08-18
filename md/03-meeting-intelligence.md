@@ -83,6 +83,33 @@ GDPR requires informed consent for recording, **but consent is not a valid lawfu
 
 Flagged identically in file 02 §8.1 and file 05 §B.2.1.
 
+---
+
+## 3.5 What is built (Step 35)
+
+The consent foundation exists; **no provider integration does.** `md/16` records
+the step in full; the load-bearing facts:
+
+- **Three tables and no workspace toggle.** There is no column an administrator
+  can set to mean "everyone agrees", and no route by which one person answers for
+  another — §3.1's operating rule as a schema rather than a policy.
+- **One gate.** `meetings.eligibility.check` decides; `meetings.guard` is the
+  boundary a future connector must pass, returning a permit that cannot be
+  constructed outside that module and takes no `force` argument.
+- **Unanimity is checked against the currently expected list**, so adding
+  somebody invalidates it, and an **empty participant list is refused** rather
+  than treated as vacuous agreement.
+- **No meeting title is stored** and the provider's meeting reference is never
+  published — for Meet that reference is the joining code, which is a credential.
+- **The public wording names nobody**, and no count permits the subtraction that
+  would: naming a refuser makes declining socially expensive, which is how
+  consent stops being freely given (§3.3).
+- Decisions are append-only with no DELETE grant, so withdrawal leaves evidence.
+
+**Still to build (Step 36+):** Meet, Zoom, calendar OAuth, Drive, artifact
+metadata retrieval, transcript download, transcription, diarization, summaries,
+commitment extraction. None of it exists, and each must call the guard.
+
 ### 3.4 Operating rule
 
 **Default to the strictest standard universally: affirmative consent from every participant.** This satisfies every US regime simultaneously, matches documented best practice for multi-jurisdiction organizations, and aligns with file 05's trust posture. The cost of the strict default is low; the cost of error is criminal exposure in thirteen states.

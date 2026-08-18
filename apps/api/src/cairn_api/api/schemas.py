@@ -1710,7 +1710,12 @@ class MeetingCaptureResponse(ApiModel):
 
     id: uuid.UUID
     provider: MeetingProvider
-    external_meeting_ref: str
+
+    # **The provider's meeting reference is deliberately not published.** For
+    # Meet it is the joining code, which is a credential: anybody holding it can
+    # attempt to join the conversation. A request is identified to a client by
+    # its own `id`, which grants nothing. The reference stays in the database,
+    # where the future connector needs it and nobody else does.
     scheduled_start: datetime
     scheduled_end: datetime
     purpose: str
@@ -1779,7 +1784,12 @@ class MyMeetingRequestResponse(ApiModel):
 
     id: uuid.UUID
     provider: MeetingProvider
-    external_meeting_ref: str
+
+    # **The provider's meeting reference is deliberately not published.** For
+    # Meet it is the joining code, which is a credential: anybody holding it can
+    # attempt to join the conversation. A request is identified to a client by
+    # its own `id`, which grants nothing. The reference stays in the database,
+    # where the future connector needs it and nobody else does.
     scheduled_start: datetime
     scheduled_end: datetime
 

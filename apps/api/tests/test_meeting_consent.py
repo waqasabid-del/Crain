@@ -794,12 +794,42 @@ class TestFailsClosed:
     ) -> None:
         """Two requests for one meeting are two sets of answers to one question."""
         owner = await recorded_as_person(platform, await signed_up(app))
-        first = await ask(owner, [owner])
+        # Held by the test rather than read back from the response: the joining
+        # code is deliberately not published, so a caller cannot recover it and
+        # neither can this test.
+        reference = f"meet-{uuid.uuid4().hex[:12]}"
+        await ask(owner, [owner], externalMeetingRef=reference)
 
-        response = await ask(
-            owner, [owner], expect=409, externalMeetingRef=first["externalMeetingRef"]
-        )
+        response = await ask(owner, [owner], expect=409, externalMeetingRef=reference)
         assert response["type"].endswith("/meeting-request-exists")
+
+    async def test_the_joining_code_is_never_published(
+        self, app: FastAPI, platform: AsyncSession
+    ) -> None:
+        """**For Meet, the provider reference is the joining code.**
+
+        Anybody holding it can attempt to join the conversation, which makes it
+        a credential rather than a label — and this API would otherwise have
+        handed it to every participant and every administrator. A request is
+        identified to a client by its own `id`, which grants nothing; the
+        reference stays in the database, where the future connector needs it and
+        nobody else does.
+        """
+        owner = await recorded_as_person(platform, await signed_up(app))
+        reference = f"meet-{uuid.uuid4().hex[:12]}"
+        await ask(owner, [owner], externalMeetingRef=reference)
+
+        workspace = (
+            await owner.client.get(f"/v1/workspaces/{owner.workspace_id}/meetings/capture-requests")
+        ).text
+        mine = (
+            await owner.client.get(f"/v1/workspaces/{owner.workspace_id}/me/meeting-requests")
+        ).text
+
+        assert reference not in workspace
+        assert reference not in mine
+        assert "externalMeetingRef" not in workspace
+        assert "externalMeetingRef" not in mine
 
 
 # --------------------------------------------------------------------------

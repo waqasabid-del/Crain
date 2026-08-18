@@ -1673,10 +1673,6 @@
             "title": "Eligible",
             "type": "boolean"
           },
-          "externalMeetingRef": {
-            "title": "Externalmeetingref",
-            "type": "string"
-          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -1726,7 +1722,6 @@
         "required": [
           "id",
           "provider",
-          "externalMeetingRef",
           "scheduledStart",
           "scheduledEnd",
           "purpose",
@@ -2018,10 +2013,6 @@
             "title": "Candecide",
             "type": "boolean"
           },
-          "externalMeetingRef": {
-            "title": "Externalmeetingref",
-            "type": "string"
-          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -2085,7 +2076,6 @@
         "required": [
           "id",
           "provider",
-          "externalMeetingRef",
           "scheduledStart",
           "scheduledEnd",
           "purpose",

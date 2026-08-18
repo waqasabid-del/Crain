@@ -2992,8 +2992,6 @@ export interface components {
       acceptedCount?: number | null;
       /** Eligible */
       eligible: boolean;
-      /** Externalmeetingref */
-      externalMeetingRef: string;
       /**
        * Id
        * Format: uuid
@@ -3225,8 +3223,6 @@ export interface components {
     MyMeetingRequestResponse: {
       /** Candecide */
       canDecide: boolean;
-      /** Externalmeetingref */
-      externalMeetingRef: string;
       /**
        * Id
        * Format: uuid

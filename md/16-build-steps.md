@@ -1877,11 +1877,24 @@ _becomes_ eligible made the next gate call report `RESCHEDULED` — flipping an
 agreed meeting to refused. The service stamps it only for cancel, refuse and
 expire.
 
+**The final audit found one leak.** `external_meeting_ref` was published on both
+response models. For Meet that reference **is the joining code** — anybody
+holding it can attempt to join the conversation — so the API was handing a
+credential to every participant and every administrator. The model's own
+docstring already said a join link is a credential; the response had simply
+inherited the field. It is gone from both responses, a request is identified to a
+client by its own `id`, and a test asserts the reference and the field name
+appear in neither body.
+
 **Deferred, and stated rather than carried:** there is no background sweep, so a
 stale request reads as `pending` while the gate reports `window_passed`; a sweep
 belongs with the provider work. `add_participants` has one production caller
 today, and the calendar-sourced path arrives with the connector. No email, SMS or
 calendar notification is sent — external delivery remains a manual release gate.
+There is no create form on the administrator's screen: creating a request needs
+participant person ids and no route lists them, so a form would have been
+guesswork, and the empty state says so rather than offering a control that cannot
+work.
 
 ---
 

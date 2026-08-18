@@ -330,7 +330,6 @@ def _response(view: service.MeetingView) -> MeetingCaptureResponse:
     return MeetingCaptureResponse(
         id=view.meeting.id,
         provider=view.meeting.provider,
-        external_meeting_ref=view.meeting.external_meeting_ref,
         scheduled_start=view.meeting.scheduled_start,
         scheduled_end=view.meeting.scheduled_end,
         purpose=view.meeting.purpose,
@@ -356,7 +355,6 @@ def _self_response(view: service.MyMeetingView) -> MyMeetingRequestResponse:
     return MyMeetingRequestResponse(
         id=view.meeting.id,
         provider=view.meeting.provider,
-        external_meeting_ref=view.meeting.external_meeting_ref,
         scheduled_start=view.meeting.scheduled_start,
         scheduled_end=view.meeting.scheduled_end,
         purpose=view.meeting.purpose,
