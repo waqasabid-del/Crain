@@ -35,7 +35,12 @@ from cairn_api.pipeline.embeddings import (
 from cairn_api.pipeline.extract import extract
 from cairn_api.pipeline.facts import Fact, SourceRef
 from cairn_api.pipeline.mentions import ProviderActor
-from cairn_api.pipeline.provider import ModelProvider, ScriptedProvider, VertexProvider
+from cairn_api.pipeline.provider import (
+    ModelProvider,
+    OpenAIProvider,
+    ScriptedProvider,
+    VertexProvider,
+)
 from cairn_api.pipeline.spend import BudgetedProvider, ledger_for
 
 logger = structlog.get_logger(__name__)
@@ -70,10 +75,22 @@ class Providers:
 
 @lru_cache(maxsize=1)
 def build_providers() -> Providers:
-    """Model adapters by `CAIRN_MODEL_BACKEND` (`vertex`/`scripted`/`offline`).
-    Offline is a refusal, not a degraded mode: incompleteness, not confident
-    wrongness (md/09 §8). Cached to run once per process."""
-    settings: Settings = get_settings()
+    """The process's model adapters, built once.
+
+    Cached, and therefore parameterless: `Settings` is not hashable, so an
+    injectable argument would have to be excluded from the cache key — which is
+    the kind of cache that returns one caller's providers to another. The
+    selection itself lives in `select_providers`, which takes settings and
+    caches nothing, so a test can exercise every branch without reaching into
+    the cache or the environment.
+    """
+    return select_providers(get_settings())
+
+
+def select_providers(settings: Settings) -> Providers:
+    """Model adapters by `CAIRN_MODEL_BACKEND`
+    (`openai`/`vertex`/`scripted`/`offline`). Offline is a refusal, not a
+    degraded mode: incompleteness, not confident wrongness (md/09 §8)."""
     project = settings.gcp_project_id
     backend = settings.model_backend
 
@@ -91,6 +108,28 @@ def build_providers() -> Providers:
             ),
         )
         return Providers(model=build_scripted_provider(), embedder=HashingEmbedder(), live=False)
+
+    if backend == "openai":
+        # `config.py` refuses this value without a key, in every environment, so
+        # reaching here means one is present.
+        logger.info(
+            "pipeline.model_backend",
+            backend="openai",
+            model=settings.openai_model,
+        )
+        return Providers(
+            model=OpenAIProvider(
+                api_key=settings.openai_api_key.get_secret_value(),
+                model=settings.openai_model,
+            ),
+            # **Embeddings stay hashed for now.** An OpenAI embedder is Session
+            # 3; pairing a real model with a hashed embedder is honest — the
+            # briefs are real and retrieval is degraded — whereas silently
+            # switching embedding models would invalidate every vector already
+            # stored.
+            embedder=HashingEmbedder(),
+            live=True,
+        )
 
     if project and backend in {"auto", "vertex"}:
         logger.info(
