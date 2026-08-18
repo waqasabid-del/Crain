@@ -18,21 +18,24 @@ import json
 from pathlib import Path
 
 import pytest
+from cairn_api.domain import Certainty
 from cairn_api.evaluation.cases import (
     FailureMode,
     GoldenCase,
     GoldenDataset,
     load_dataset,
 )
-from cairn_api.evaluation.contract import PipelineOutput
+from cairn_api.evaluation.contract import Claim, PipelineOutput
 from cairn_api.evaluation.gate import (
     MIN_ATTRIBUTION_ACCURACY,
     MIN_GROUNDEDNESS,
     REGRESSION_TOLERANCE,
+    GateProfile,
     evaluate_gate,
 )
 from cairn_api.evaluation.metrics import grade
 from cairn_api.evaluation.reference import BrokenPipeline, ReferencePipeline
+from cairn_api.evaluation.report import EvaluationReport
 from cairn_api.evaluation.runner import run
 
 
@@ -607,3 +610,106 @@ class TestTheRealPipelineIsGraded:
         report = await run(load_dataset(), build_pipeline("real"))
         assert report.boundary_violations == 0
         assert report.tone_violations == 0
+
+
+class TestAnUnmeasuredAttributionIsNotAPass:
+    """The failure this class exists to prevent shipped, and stayed green.
+
+    `attribution_accuracy` divides correct attributions by *attributed* claims.
+    When nothing is ever credited that is 0/0, and `_ratio` returns 1.0 — the
+    same number a perfect run produces. The gate read it as a pass while the
+    extraction prompt did not mention the `people` field at all, so the metric
+    guarding the most expensive failure mode in the product was measuring
+    nothing for an entire release cycle.
+    """
+
+    @staticmethod
+    def _case(*, credits: list[str]) -> GoldenCase:
+        return GoldenCase.model_validate(
+            {
+                "id": "credits-somebody",
+                "rationale": "Ground truth that credits somebody, so the metric has a denominator.",
+                "evidence": [
+                    {
+                        "id": "ev-1",
+                        "source": "github",
+                        "content": "Priya merged PR #1.",
+                        "people": ["priya"],
+                        "occurred_at": "2026-08-12T09:00:00Z",
+                    }
+                ],
+                "expected_claims": [
+                    {
+                        "summary": "Priya merged a PR.",
+                        "must_cite": ["ev-1"],
+                        "credits": credits,
+                        "certainty": "verified",
+                    }
+                ],
+            }
+        )
+
+    def _report(self, *, credits: list[str], produced: list[str]) -> EvaluationReport:
+        case = self._case(credits=credits)
+        output = PipelineOutput(
+            claims=[
+                Claim(
+                    text="Priya merged a PR.",
+                    citations=["ev-1"],
+                    credits=produced,
+                    certainty=Certainty.VERIFIED,
+                )
+            ]
+        )
+        return EvaluationReport(dataset_version="t", results=[grade(case, output)])
+
+    def test_the_ground_truth_expecting_credits_is_recorded(self) -> None:
+        report = self._report(credits=["priya"], produced=[])
+        assert report.cases_expecting_attribution == 1
+        assert report.attributable_claims == 0
+        # The trap, stated plainly: this reads exactly like a perfect score.
+        assert report.attribution_accuracy == 1.0
+
+    def test_a_vacuous_hundred_percent_blocks(self) -> None:
+        result = evaluate_gate(
+            self._report(credits=["priya"], produced=[]),
+            baseline={},
+            profile=GateProfile.FULL,
+        )
+        assert not result.passed
+        assert any("measured nothing" in reason for reason in result.blocking)
+
+    def test_it_only_warns_against_a_model_that_cannot_attribute(self) -> None:
+        """The scripted provider emits no people by design, so under MACHINERY
+        this describes the script, not the product."""
+        result = evaluate_gate(
+            self._report(credits=["priya"], produced=[]),
+            baseline={},
+            profile=GateProfile.MACHINERY,
+        )
+        assert any("measured nothing" in reason for reason in result.warnings)
+        assert not any("measured nothing" in reason for reason in result.blocking)
+
+    def test_a_real_attribution_does_not_trip_it(self) -> None:
+        report = self._report(credits=["priya"], produced=["priya"])
+        assert report.attributable_claims == 1
+        result = evaluate_gate(report, baseline={}, profile=GateProfile.FULL)
+        assert not any("measured nothing" in reason for reason in result.blocking)
+
+    def test_a_dataset_that_credits_nobody_is_not_penalised(self) -> None:
+        """A case whose honest answer is "credit nobody" must not be read as a
+        missing measurement — that would push the system toward attributing."""
+        report = self._report(credits=[], produced=[])
+        assert report.cases_expecting_attribution == 0
+        result = evaluate_gate(report, baseline={}, profile=GateProfile.FULL)
+        assert not any("measured nothing" in reason for reason in result.blocking)
+
+
+class TestTheLivePipelineIsSeparatelyBaselined:
+    def test_live_has_its_own_baseline(self) -> None:
+        """Sharing `baseline-real.json` would read every difference between a
+        scripted model and a real one as a regression."""
+        from cairn_api.evaluation.runner import PIPELINES
+
+        assert PIPELINES["live"] != PIPELINES["real"]
+        assert PIPELINES["live"].name == "baseline-live.json"

@@ -16,6 +16,7 @@ from __future__ import annotations
 import pytest
 from cairn_api.config import Settings
 from cairn_api.jobs.factory import QueueConfigurationError, build_queue
+from cairn_api.ops import release_gates
 from cairn_api.ops.release_gates import (
     Gate,
     GateStatus,
@@ -312,3 +313,52 @@ class TestTheHonestSummary:
             monkeypatch.delenv(variable, raising=False)
 
         assert main() == 1
+
+
+def _settings(**overrides: object) -> Settings:
+    """Deployed settings with the model-related fields overridden."""
+    return Settings(**{**DEPLOYED, **overrides})  # type: ignore[arg-type]
+
+
+class TestTheModelGateKnowsAboutOpenAI:
+    """Found by Session 5, running the gate beside a live OpenAI pipeline.
+
+    The gate reported "No GCP project, so the pipeline runs without a model:
+    nothing is extracted and every brief is empty" while that same configuration
+    had just extracted two facts and written a cited brief. An operator-facing
+    gate that describes a working deployment as broken teaches people to ignore
+    it, and a gate people ignore is worse than no gate.
+
+    This does not weaken anything. The OpenAI branch reports `UNVERIFIED`, which
+    blocks a release exactly as `BLOCKED` does — the difference is that it now
+    names the real next step (run the evaluation) instead of an impossible one
+    (set a GCP project for a deployment that does not use Vertex).
+    """
+
+    def test_a_configured_openai_backend_is_not_reported_as_no_model(self) -> None:
+        from pydantic import SecretStr
+
+        gate = release_gates._model_gate(
+            _settings(model_backend="openai", openai_api_key=SecretStr("sk-test"))
+        )
+
+        assert "runs without a model" not in gate.detail
+        assert "openai" in gate.detail.lower() or "OpenAI" in gate.detail
+
+    def test_it_still_blocks_the_release_until_the_evaluation_is_recorded(self) -> None:
+        """Configured is not verified. Every quality number in this repository
+        was produced by the scripted stand-in until a real run replaces it."""
+        from pydantic import SecretStr
+
+        gate = release_gates._model_gate(
+            _settings(model_backend="openai", openai_api_key=SecretStr("sk-test"))
+        )
+
+        assert gate.blocks_release is True
+        assert "evaluation" in gate.next_step.lower()
+
+    def test_no_backend_at_all_still_blocks_with_the_old_wording(self) -> None:
+        gate = release_gates._model_gate(_settings(model_backend="auto"))
+
+        assert gate.blocks_release is True
+        assert "without a model" in gate.detail

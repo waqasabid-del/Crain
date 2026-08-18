@@ -471,3 +471,57 @@ class TestSpanVerification:
 
     def test_a_claim_of_pure_filler_is_not_supported(self) -> None:
         assert not verify.check("It was a week.", ["Priya shipped rate limiting."]).supported
+
+
+class TestTheNarrativeDoesNotLeakIdentifiers:
+    """**Found in the first brief generated from real ingested activity.**
+
+    The narrative read: "The team made a decision to throttle write endpoints at
+    the gateway rather than per service (a4956a67-7998-4422-a12b-ddd66d436503)."
+
+    Claims carry their citations structurally, so the model has no reason to put
+    identifiers in prose - but it is shown fact ids in the data block and asked
+    to reference them, and prose is where a model puts a reference when it is
+    not told otherwise. The result is the one screen a founder reads, with a
+    database key in the middle of a sentence.
+
+    Stripped rather than re-prompted: an instruction reduces the rate, and this
+    is a thing that must not happen rather than a thing that should be rare.
+    """
+
+    @staticmethod
+    def _brief(narrative: str) -> str:
+        from cairn_api.pipeline.synthesize import Brief, _narrative
+
+        return _narrative(narrative, Brief())
+
+    def test_a_trailing_parenthesised_id_goes(self) -> None:
+        cleaned = self._brief(
+            "The team moved throttling to the gateway (a4956a67-7998-4422-a12b-ddd66d436503)."
+        )
+        assert "a4956a67" not in cleaned
+        assert cleaned == "The team moved throttling to the gateway."
+
+    def test_several_ids_in_one_sentence_go(self) -> None:
+        cleaned = self._brief(
+            "Priya shipped rate limiting (fcfc0f55-ad29-4a55-a340-5c3750a2ddd3) "
+            "and documented it (d7cc43c5-e81f-4300-95fc-bd824cab5527)."
+        )
+        assert "-" not in cleaned or "fcfc0f55" not in cleaned
+        assert cleaned == "Priya shipped rate limiting and documented it."
+
+    def test_a_bare_id_goes_too(self) -> None:
+        """Not every leak arrives in brackets."""
+        cleaned = self._brief("See a4956a67-7998-4422-a12b-ddd66d436503 for the decision.")
+        assert "a4956a67" not in cleaned
+
+    def test_ordinary_prose_is_untouched(self) -> None:
+        """The cost of over-eager stripping is a mangled sentence, which is the
+        failure this is meant to prevent."""
+        original = "Sara is redesigning the onboarding flow (after the review)."
+        assert self._brief(original) == original
+
+    def test_a_narrative_that_was_only_an_id_does_not_become_empty_prose(self) -> None:
+        """Stripping everything leaves nothing to say, and an empty narrative
+        must fall back rather than render as a blank screen."""
+        assert self._brief("a4956a67-7998-4422-a12b-ddd66d436503") == ""

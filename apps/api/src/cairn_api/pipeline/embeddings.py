@@ -18,7 +18,7 @@ import hashlib
 import itertools
 import math
 import re
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 import httpx
 
@@ -54,6 +54,13 @@ class EmbeddingProvider(Protocol):
     @property
     def dimensions(self) -> int: ...
 
+    #: The name every vector this provider writes is stored under, and the
+    #: equality predicate retrieval searches with. On the protocol rather than
+    #: chosen by the caller, because a caller that picks the wrong one writes
+    #: incomparable geometries into a single partition and nothing errors.
+    @property
+    def model_name(self) -> str: ...
+
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
@@ -67,6 +74,10 @@ class HashingEmbedder:
     rate limiter" vs "deployed throttling" land far apart) — which is why
     it's safe for tests. Also a working fallback with no credentials.
     """
+
+    @property
+    def model_name(self) -> str:
+        return DEFAULT_EMBEDDING_MODEL
 
     def __init__(self, dimensions: int = DIMENSIONS) -> None:
         if dimensions < 1:
@@ -139,6 +150,16 @@ class VertexEmbeddingProvider:
         return DIMENSIONS
 
     @property
+    def model_name(self) -> str:
+        """Its own name, not the hashing one.
+
+        Vertex vectors were previously written under `hashing-v1` — the handler's
+        default — which put two incomparable geometries in one partition. The
+        width is in the name for the same reason it is in OpenAI's.
+        """
+        return "vertex-te005-768"
+
+    @property
     def endpoint(self) -> str:
         return (
             f"https://{self._location}-aiplatform.googleapis.com/v1"
@@ -196,6 +217,140 @@ class VertexEmbeddingProvider:
                     f"{len(values) if isinstance(values, list) else 'unknown'}, "
                     f"expected {DIMENSIONS}"
                 )
+                raise EmbeddingError(msg)
+            vectors.append([float(value) for value in values])
+        return vectors
+
+
+class OpenAIEmbeddingProvider:
+    """OpenAI text embeddings, shortened natively to 768 dimensions.
+
+    **768 is the schema, not a preference.** `fact_embeddings.embedding` is
+    `Vector(768)`, and similarity between vectors of different widths is
+    undefined — so a mixed-width column is not a degraded index, it is an
+    unsearchable one. `text-embedding-3-small` is 1536 natively and supports
+    server-side shortening, which is what the `dimensions` parameter asks for.
+    Truncating locally would be worse than wrong: the result is no longer a unit
+    vector, so its cosine distance to everything already stored is meaningless
+    while remaining perfectly computable.
+    """
+
+    #: **Written beside every vector, and the equality predicate retrieval
+    #: searches under.** Renaming this does not migrate anything: it partitions
+    #: the table into rows nothing will ever match again, and the symptom is a
+    #: workspace whose retrieval quietly returns nothing while every layer
+    #: reports success. The width is in the name so a future 1536-wide variant
+    #: cannot occupy the same partition.
+    MODEL_NAME: ClassVar[str] = "openai-te3s-768"
+
+    MODEL: ClassVar[str] = "text-embedding-3-small"
+
+    ENDPOINT: ClassVar[str] = "https://api.openai.com/v1/embeddings"
+
+    #: OpenAI accepts up to 2,048 inputs per request. 100 leaves headroom for
+    #: payload size, and matches the Vertex adapter so one number describes the
+    #: pipeline's batching rather than two.
+    BATCH_SIZE: ClassVar[int] = 100
+
+    TIMEOUT_SECONDS: ClassVar[float] = 60.0
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        if not api_key:
+            msg = "OpenAIEmbeddingProvider requires an API key"
+            raise ValueError(msg)
+        self._api_key = api_key
+        self._client = client
+        self._owns_client = client is None
+
+    @property
+    def dimensions(self) -> int:
+        return DIMENSIONS
+
+    @property
+    def model_name(self) -> str:
+        return self.MODEL_NAME
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            # No call: an empty request still costs a round trip and, on some
+            # plans, a minimum charge.
+            return []
+
+        client = self._client or httpx.AsyncClient(timeout=self.TIMEOUT_SECONDS)
+        vectors: list[list[float]] = []
+        try:
+            for index in range(0, len(texts), self.BATCH_SIZE):
+                vectors.extend(
+                    await self._embed_batch(client, texts[index : index + self.BATCH_SIZE])
+                )
+        finally:
+            if self._owns_client:
+                await client.aclose()
+
+        if len(vectors) != len(texts):
+            # A count mismatch misattaches every vector after the gap, and the
+            # numbers stay plausible enough that nothing downstream notices.
+            msg = f"OpenAI returned {len(vectors)} embeddings for {len(texts)} texts"
+            raise EmbeddingError(msg)
+        return vectors
+
+    async def _embed_batch(self, client: httpx.AsyncClient, batch: list[str]) -> list[list[float]]:
+        payload = {
+            "model": self.MODEL,
+            "input": batch,
+            # Server-side shortening. See the class docstring for why this is
+            # not done locally.
+            "dimensions": DIMENSIONS,
+        }
+
+        try:
+            response = await client.post(
+                self.ENDPOINT,
+                json=payload,
+                headers={"Authorization": f"Bearer {self._api_key}"},
+            )
+        except httpx.TimeoutException as exc:
+            msg = "OpenAI embedding request timed out"
+            raise EmbeddingError(msg) from exc
+        except httpx.HTTPError as exc:
+            msg = f"OpenAI embedding request failed: {type(exc).__name__}"
+            raise EmbeddingError(msg) from exc
+
+        if response.status_code != httpx.codes.OK:
+            # No body, for the reason the chat provider gives: the input here is
+            # the fact's own text, so an echoed error carries a customer's words
+            # into a log store outside the erasure path.
+            if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+                retry_after = response.headers.get("Retry-After")
+                msg = (
+                    f"OpenAI rate limited the embedding request; retry after {retry_after}s"
+                    if retry_after
+                    else "OpenAI rate limited the embedding request"
+                )
+                raise EmbeddingError(msg)
+            msg = f"OpenAI embeddings returned {response.status_code}"
+            raise EmbeddingError(msg)
+
+        try:
+            body = response.json()
+        except ValueError as exc:
+            msg = "OpenAI embeddings returned a body that is not JSON"
+            raise EmbeddingError(msg) from exc
+
+        vectors: list[list[float]] = []
+        for item in body.get("data") or []:
+            values = (item or {}).get("embedding")
+            if not isinstance(values, list) or len(values) != DIMENSIONS:
+                # **The whole batch is refused, not the row.** Accepting the
+                # good ones would attach every vector after the gap to the wrong
+                # fact, which is a silent mis-association rather than a failure.
+                width = len(values) if isinstance(values, list) else "unknown"
+                msg = f"OpenAI returned a vector of width {width}, expected {DIMENSIONS}"
                 raise EmbeddingError(msg)
             vectors.append([float(value) for value in values])
         return vectors

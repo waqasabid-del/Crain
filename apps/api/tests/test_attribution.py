@@ -532,6 +532,62 @@ class TestAPersonIsLinkedToTheirAccount:
 
         assert person.user_id == user.id
 
+    async def test_a_second_person_for_one_account_declines_the_link(
+        self, tenant_id: uuid.UUID, platform: AsyncSession
+    ) -> None:
+        """**Found by the first real end-to-end delivery, not by a unit test.**
+
+        `uq_people_tenant_user` arrived in Step 34 and allows one person row per
+        account per workspace. This function was written before it and guards
+        only against relinking *this* person — nothing checked whether the
+        account was already held by another person row. A workspace that had
+        ever produced a second person for the same human (a personal address on
+        one commit, a work address on the next) then failed here with a unique
+        violation on every delivery that named them.
+
+        The failure mode is the expensive part. It raises inside the delivery
+        job, so the job retries, fails identically five times, and dead-letters:
+        one person's presence in a commit stops that workspace ingesting
+        anything at all, and the symptom is a queue depth rather than anything
+        naming identity.
+
+        Declining is the honest outcome, not merging. Re-pointing an account at
+        a different person row moves ownership of a record between people, which
+        is the merge decision this module refuses to make by inference.
+        """
+        address = f"dual-{uuid.uuid4().hex[:10]}@example.com"
+        user = User(email=address, email_verified_at=datetime.now(UTC))
+        platform.add(user)
+        await platform.commit()
+        platform.add(Membership(tenant_id=tenant_id, user_id=user.id, role=TenantRole.MEMBER))
+        await platform.commit()
+
+        async with tenant_session(tenant_id) as session:
+            # A person already holding the account, with no identity row for the
+            # address — which is how `db/seed.py` writes one, and how any path
+            # that links an account before seeing a commit leaves one.
+            held = Person(tenant_id=tenant_id, display_name="Held Account", user_id=user.id)
+            session.add(held)
+            await session.commit()
+            held_id = held.id
+
+            # Now the same address arrives on a commit. No identity claims it,
+            # so resolution creates a second person and tries to link it to the
+            # account the first one already holds.
+            second = await resolve(
+                session,
+                Contributor(email=address, name="Held Account", login="held"),
+                tenant_id=tenant_id,
+            )
+            second_id = second.id
+            linked = second.user_id
+            # The commit is the assertion: before the guard this raised
+            # IntegrityError here and the delivery job dead-lettered.
+            await session.commit()
+
+        assert second_id != held_id
+        assert linked is None, "the account is already held; a second link violates the index"
+
     async def test_an_unverified_address_does_not_link(
         self, tenant_id: uuid.UUID, platform: AsyncSession
     ) -> None:

@@ -105,6 +105,129 @@ error is never stored.
 
 ---
 
+## GitHub
+
+GitHub is the source every other one is measured against, and the only one with a durable inbound
+record. It is also the one where the gap between "installed" and "working" is a single database row
+that nothing tells you is missing.
+
+### Setup, and what each permission buys
+
+Create the App with `python scripts/create_github_app.py --webhook-url <url>`, which posts a
+manifest GitHub builds from, so the permissions the installation ends up with are the ones in
+version control and the credentials go straight to `.env` without passing through a person. The
+table below is what that manifest declares, and what to set if you ever build one by hand.
+
+Create a GitHub App on the account that owns the repositories. **Read-only throughout — no write
+permission of any kind is ever required, and widening one to make something work is a product
+invariant broken, not a fix.**
+
+| Step                      | Exactly                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------- |
+| Webhook URL               | `https://<host>/v1/webhooks/github` — the `/v1` prefix is not optional                            |
+| Webhook secret            | 256 bits of randomness, into `CAIRN_GITHUB_WEBHOOK_SECRET`                                        |
+| Repository permissions    | Contents: **Read-only**; Pull requests: **Read-only**; Issues: **Read-only**; Metadata: Read-only |
+| Subscribe to events       | Push, Pull request, Issues, Issue comment                                                         |
+| Where it can be installed | Only on this account, until there is a reason otherwise                                           |
+
+- **Contents** is what backfill reads. `github/client.py` asks GraphQL for
+  `repository.defaultBranchRef.target.history`, and without this permission the query returns a null
+  repository rather than an error — an empty history that looks like a quiet quarter.
+- **Pull requests** and **Issues** are what `pipeline/jobs.py::_read_evidence` turns into evidence a
+  fact can cite. Their author becomes a `ProviderActor` from `user.id` — GitHub's stable numeric id,
+  never the login, which the account holder can change at any time.
+- **Metadata** is mandatory and granted automatically.
+- **No account permissions, and no organisation permissions.** Nothing in the codebase calls an
+  endpoint that needs one.
+
+Installation lifecycle events (`installation`, `installation_repositories`) are delivered to an App
+without being subscribed to, and are handled inline rather than queued: they decide whether _future_
+deliveries are processed, and deferring them would leave a window in which a suspended
+installation's activity is still captured.
+
+### Installing the App does not connect it
+
+**This is the first thing to check when a correctly configured App produces nothing.** Installing
+grants access; it does not tell CAIRN whose workspace the activity belongs to. That mapping lives in
+`github_installations`, and the only thing that writes it is an authenticated call to
+`POST /v1/workspaces/{workspace_id}/integrations/github` behind the `INTEGRATIONS_CONNECT`
+permission.
+
+That is deliberate and worth not "fixing". An inbound webhook that could create the mapping would
+bind whoever installed the App to a workspace nobody chose — `_apply_lifecycle` ignores an
+`installation.created` for an installation it has never seen, for exactly this reason.
+
+Until the row exists, every delivery is answered `202 {"status":"unclaimed"}` and is **not**
+enqueued: capturing activity for an integration nobody connected is a consent problem, not a
+backlog. Nothing about the response says "misconfigured", because from the endpoint's side it is
+not.
+
+### What actually produces an attributed fact
+
+| Event          | Becomes evidence         | Who it credits                                                               |
+| -------------- | ------------------------ | ---------------------------------------------------------------------------- |
+| `push`         | One item per commit      | The author named in the message header, plus every `Co-authored-by:` trailer |
+| `pull_request` | The PR title and body    | A `ProviderActor` from `user.id`                                             |
+| `issues`       | The issue title and body | A `ProviderActor` from `user.id`                                             |
+
+A push commit deliberately carries **no** actor. A push payload names the pusher, and attributing
+somebody's commit to whoever pushed it is precisely the wrong-person failure the product exists to
+avoid. The author reaches the fact by being named in the evidence text instead, which keeps it a
+claim the payload made — one a person can correct — rather than provenance the system asserts.
+
+### The queue is not optional
+
+The API and the worker are separate processes. On the default in-memory broker they do not share a
+queue, so a delivery is accepted, enqueued into the API's own process, and never runs: an
+acknowledged webhook, a `webhook_deliveries` row that stays `PENDING`, and no fact. Set
+`CAIRN_QUEUE_BACKEND=postgres` before expecting anything to be understood, and treat the `queue`
+release gate as a prerequisite for the GitHub one rather than an unrelated item.
+
+### The ten-second budget
+
+**GitHub expects a 2xx within ten seconds** or it retries. The handler verifies, records and
+enqueues, and does nothing else — normalisation, attribution and every model call happen on the
+worker. `ProviderLimits.ack_deadline_seconds` in `ops/connectors.py` holds the same number so a
+threshold and this page cannot drift apart.
+
+Delivery is not exactly-once: GitHub documents duplicates and gaps as normal. The delivery id is
+written under a unique constraint **before** the job is enqueued, and committed before the
+acknowledgement, because acknowledging first would let a rollback erase work GitHub believes we
+already hold. A redelivery of something already held is answered `200 {"status":"duplicate"}` and
+not re-enqueued.
+
+### Troubleshooting, in this order
+
+1. **Did the delivery arrive?** GitHub's App settings show every delivery with its response. A 401
+   is the signature: the secret in `.env` is not the secret registered on the App, or a proxy
+   rewrote the body. The signature is checked against the raw bytes, so anything that re-encodes
+   them invalidates it.
+2. **Was it claimed?** `{"status":"unclaimed"}` means no `github_installations` row — see above. It
+   is the single most common cause of "installed and nothing happens".
+3. **Is the row there but the delivery still pending?** Read `status` and `error` from the most
+   recent `webhook_deliveries` rows through a tenant-scoped session. `PENDING` with no error is a
+   queue that nothing is draining — check the worker and `CAIRN_QUEUE_BACKEND`.
+4. **Did understanding run?** One `pipeline.understand` job follows each processed delivery. Without
+   a queue bound to the delivery handler it is never published, and the handler logs
+   `github.understanding_not_published` loudly rather than returning quietly.
+5. **Facts but no people?** Extraction names people from the evidence text. A commit whose message
+   has no author header and no trailers names nobody, and an empty `people` is the correct answer
+   there — a wrong name is worse than a missing one.
+
+### Backfill
+
+`github/backfill.py` walks the last ninety days of the default branch through the same attribution
+path live webhooks use, at `BULK` priority so a new customer's history cannot starve the activity
+arriving now. It needs `CAIRN_GITHUB_APP_ID` and `CAIRN_GITHUB_PRIVATE_KEY` — the webhook path needs
+neither, which is why an App can receive deliveries perfectly while backfill is unconfigured.
+
+The cursor is committed only after a page's contents are in the session, so a crash re-reads a page
+rather than skipping one. Re-reading is safe: evidence ids are the commit SHA, and both the evidence
+check and `graph.build`'s `ON CONFLICT DO NOTHING` make a second pass idempotent. Exhausting the
+rate budget parks the run as `THROTTLED` rather than failing it.
+
+---
+
 ## Slack
 
 Slack is the first chat source, and the one where the difference between "configured" and "working"

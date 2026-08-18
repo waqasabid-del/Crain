@@ -24,6 +24,11 @@ BASELINE_PATH = Path(__file__).parent / "baseline.json"
 #: catastrophic regression on every run.
 REAL_BASELINE_PATH = Path(__file__).parent / "baseline-real.json"
 
+#: The same pipeline driven by the configured model instead of the script.
+#: Its own file because the two measure different things and neither is a
+#: regression against the other.
+LIVE_BASELINE_PATH = Path(__file__).parent / "baseline-live.json"
+
 MIN_GROUNDEDNESS = 0.90
 
 #: Higher than groundedness: a fabrication is caught by a reader who checks; a
@@ -100,6 +105,19 @@ def evaluate_gate(
         )
         # Under MACHINERY, low coverage often just means guardrails stripped
         # everything the scripted model produced — not blocking.
+        (blocking if profile is GateProfile.FULL else warnings).append(message)
+
+    # An unmeasured metric reads exactly like a perfect one: `_ratio` returns
+    # 1.0 over an empty denominator. This ran green for a full release cycle
+    # while nothing was credited at all.
+    if report.cases_expecting_attribution and not report.attributable_claims:
+        message = (
+            f"attribution accuracy is 1.0 over 0 attributed claims, but "
+            f"{report.cases_expecting_attribution} case(s) expect credits — "
+            "the metric measured nothing"
+        )
+        # The scripted model emits no people by design, so under MACHINERY this
+        # is a property of the script rather than of the product.
         (blocking if profile is GateProfile.FULL else warnings).append(message)
 
     if report.groundedness < MIN_GROUNDEDNESS:

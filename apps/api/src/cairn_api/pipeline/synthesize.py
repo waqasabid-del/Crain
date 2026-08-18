@@ -5,6 +5,7 @@ exist, span verification (§5.2), guardrails, hedging (only downward)."""
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -34,7 +35,17 @@ Rules:
   "suggested" must be written with explicit hedging — "it sounded like", "it
   appears that". Facts marked "verified" are stated plainly.
 - Blockers and open questions matter more to the reader than volume of activity.
-- If the facts do not support a brief, say so instead of padding.
+- **"There is not enough here to write a brief" is a correct and expected
+  answer, not a failure.** A week with nothing in it, or with only material too
+  vague to attribute, should produce no claims at all. Reply with an empty
+  claims list and say so in the narrative.
+- **Inventing a claim is the worst thing you can do here** — worse than saying
+  nothing, and worse than an incomplete brief. A reader who is told nothing
+  happened can go and look; a reader given a plausible sentence about something
+  that did not happen cannot.
+- Do not write a claim about who said or did something when the data block does
+  not name them. "Someone", "a team member" or "the team" as the actor means
+  there is no claim to make.
 
 Reply with JSON only:
 {"narrative": "...", "claims": [{"text": "...", "fact_ids": ["..."],
@@ -212,11 +223,36 @@ def _build_claim(raw: Any, by_id: dict[uuid.UUID, Fact]) -> tuple[BriefClaim | N
     )
 
 
+#: A fact id, as it appears when a model puts one in prose. Optionally wrapped
+#: in the brackets it usually arrives in, with the space before them, so that
+#: removing it leaves a sentence rather than a gap and a stray full stop.
+_LEAKED_ID = re.compile(
+    r"\s*[(\[]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[)\]]?",
+    re.IGNORECASE,
+)
+
+
+def _strip_identifiers(text: str) -> str:
+    """Remove fact ids from prose a person reads.
+
+    Claims carry citations structurally, so an id in the narrative is never
+    load-bearing - it is the model referencing the data block it was shown. A
+    founder should not meet a database key in the middle of a sentence, and the
+    fix is removal rather than a prompt rule, because this is a thing that must
+    not happen rather than a thing that should be rare.
+    """
+    cleaned = _LEAKED_ID.sub("", text)
+    # Collapse the double spaces a mid-sentence removal leaves behind.
+    return re.sub(r"[ 	]{2,}", " ", cleaned).strip()
+
+
 def _narrative(narrative: Any, brief: Brief) -> str:
     if not isinstance(narrative, str) or not narrative.strip():
         return " ".join(claim.text for claim in brief.claims)
 
-    text = narrative.strip()
+    text = _strip_identifiers(narrative.strip())
+    if not text:
+        return " ".join(claim.text for claim in brief.claims)
     if guardrails.inspect(text):
         brief.suppressed.append(Suppression(text=text, reason="narrative tripped a guardrail"))
         return " ".join(claim.text for claim in brief.claims)

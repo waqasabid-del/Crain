@@ -252,6 +252,30 @@ def _model_gate(settings: Settings) -> Gate:
             next_step="Set CAIRN_MODEL_BACKEND=vertex with CAIRN_GCP_PROJECT_ID.",
         )
 
+    if settings.model_backend == "openai":
+        # **Reported before the GCP check, because that check assumes Vertex.**
+        # This gate told an operator "the pipeline runs without a model: nothing
+        # is extracted and every brief is empty" for a deployment that had just
+        # extracted facts and written a cited brief through OpenAI. A gate that
+        # describes a working deployment as broken teaches people to ignore it.
+        #
+        # Still `UNVERIFIED`, which blocks a release exactly as `BLOCKED` does:
+        # configured is not verified, and every quality number in this
+        # repository came from the scripted stand-in until a live run replaces
+        # it. What changes is that the next step is now the one that can
+        # actually be taken.
+        return Gate(
+            name="model",
+            status=GateStatus.UNVERIFIED,
+            detail=f"OpenAI is configured with model {settings.openai_model}.",
+            next_step=(
+                "Run the evaluation against the live model and record a baseline: "
+                "uv run python -m cairn_api.evaluation.runner --pipeline real. "
+                "Groundedness and citation accuracy must be measured against a "
+                "model, not against the scripted stand-in."
+            ),
+        )
+
     if not settings.gcp_project_id:
         return Gate(
             name="model",

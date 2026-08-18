@@ -364,6 +364,82 @@
           "certainty": "verified"
         }
       ]
+    },
+    {
+      "id": "attribution-across-two-sources",
+      "rationale": "One person's work arriving through two connectors must credit them once, not twice and not zero times. Without a case whose expected claims carry credits, attribution accuracy is measured over an empty denominator and reads 100% while measuring nothing.",
+      "targets": ["misattribution"],
+      "tags": ["source:github", "source:chat", "attribution"],
+      "evidence": [
+        {
+          "id": "ev-attr-commit",
+          "source": "github",
+          "content": "Priya Nair merged PR #311 'Retry the webhook consumer'.",
+          "people": ["priya"],
+          "occurred_at": "2026-08-12T09:00:00Z"
+        },
+        {
+          "id": "ev-attr-chat",
+          "source": "chat",
+          "content": "Priya: retries are in, duplicate deliveries should stop now.",
+          "people": ["priya"],
+          "occurred_at": "2026-08-12T09:30:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "Priya shipped webhook retries.",
+          "must_cite": ["ev-attr-commit"],
+          "credits": ["priya"],
+          "certainty": "verified"
+        }
+      ]
+    },
+    {
+      "id": "attribution-co-authored-commit",
+      "rationale": "A squash merge names a co-author in the trailer. Crediting only the merger erases the pair, which is md/01 §5.1's named failure and the one a pairing culture notices immediately.",
+      "targets": ["misattribution"],
+      "tags": ["source:github", "attribution"],
+      "evidence": [
+        {
+          "id": "ev-attr-pair",
+          "source": "github",
+          "content": "Merged PR #312 'Split the retention sweep'. Co-authored-by: Sara Bennett.",
+          "people": ["ali", "sara"],
+          "occurred_at": "2026-08-12T11:00:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "Ali and Sara split the retention sweep.",
+          "must_cite": ["ev-attr-pair"],
+          "credits": ["ali", "sara"],
+          "certainty": "verified"
+        }
+      ]
+    },
+    {
+      "id": "attribution-ambiguous-actor-credits-nobody",
+      "rationale": "The other direction, and the one that matters more: a statement whose actor is not named must be credited to nobody. A denominator built only from cases that should attribute would reward a system that attributes everything.",
+      "targets": ["misattribution", "fabrication"],
+      "tags": ["source:chat", "attribution", "noisy-input"],
+      "evidence": [
+        {
+          "id": "ev-attr-anon",
+          "source": "chat",
+          "content": "someone bumped the retry ceiling to five before the release.",
+          "people": [],
+          "occurred_at": "2026-08-12T14:00:00Z"
+        }
+      ],
+      "expected_claims": [
+        {
+          "summary": "The retry ceiling was raised to five before the release.",
+          "must_cite": ["ev-attr-anon"],
+          "credits": [],
+          "certainty": "observed"
+        }
+      ]
     }
   ]
 }

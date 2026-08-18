@@ -41,6 +41,13 @@ class EvaluationReport:
         return sum(r.attributable_claims for r in self.results)
 
     @property
+    def cases_expecting_attribution(self) -> int:
+        """Cases whose ground truth credits somebody. When this is non-zero and
+        `attributable_claims` is zero, attribution accuracy is 1.0 over nothing
+        and the gate must not read it as a pass."""
+        return sum(1 for r in self.results if r.attribution_expected)
+
+    @property
     def must_surface_total(self) -> int:
         return sum(r.must_surface for r in self.results)
 

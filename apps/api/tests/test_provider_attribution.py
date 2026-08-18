@@ -145,6 +145,61 @@ class TestTheProviderActorSurvivesToTheEvidence:
 
         assert evidence.actor is None
 
+    def test_commit_evidence_names_the_author_it_came_from(self) -> None:
+        """**The first real end-to-end delivery credited the wrong person.**
+
+        A commit's evidence text was the message and nothing else. The message
+        carries `Co-authored-by:` trailers but never the author, so extraction
+        could see the co-author and not the person who wrote the commit — and
+        the stored fact credited the co-author alone. Crediting one half of a
+        pair and omitting the other is the failure md/01 §5.1 names, arriving
+        from the opposite direction to the one that was guarded against.
+
+        The author still gets no `actor`: `commit.author` carries a login and an
+        address, both of which the account holder can change, and an actor is a
+        stable provider account id. Naming them in the text is a claim the
+        payload made, which is exactly what extraction is for.
+        """
+        delivery = WebhookDelivery(
+            delivery_id=f"gh-{uuid.uuid4().hex[:12]}",
+            event_type="push",
+            payload={
+                "repository": {"full_name": "acme/api"},
+                "commits": [
+                    {
+                        "id": "b" * 40,
+                        "message": (
+                            "Fix the retry ceiling\n\nCo-authored-by: Sara Bennett <s@acme.test>"
+                        ),
+                        "url": None,
+                        "author": {"name": "Ali Rahman", "email": "ali@acme.test"},
+                    }
+                ],
+            },
+        )
+
+        [evidence] = jobs._read_evidence(delivery)
+
+        assert "Ali Rahman" in evidence.text
+        assert "Sara Bennett" in evidence.text, "the trailer must survive"
+        assert "Fix the retry ceiling" in evidence.text
+        assert evidence.actor is None, "a mutable login is not a provider account id"
+
+    def test_a_commit_with_no_author_says_nothing_about_one(self) -> None:
+        """An absent author must stay absent rather than become a label."""
+        delivery = WebhookDelivery(
+            delivery_id=f"gh-{uuid.uuid4().hex[:12]}",
+            event_type="push",
+            payload={
+                "repository": {"full_name": "acme/api"},
+                "commits": [{"id": "c" * 40, "message": "Fix the thing", "url": None}],
+            },
+        )
+
+        [evidence] = jobs._read_evidence(delivery)
+
+        assert evidence.text == "Fix the thing"
+
     def test_a_payload_with_no_author_yields_no_actor(self) -> None:
         """Absent is not an error and must not become a guess."""
         assert jobs._read_evidence(_slack_delivery(user=None))[0].actor is None

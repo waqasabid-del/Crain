@@ -190,7 +190,7 @@ def build_cipher(settings: Settings | None = None) -> CredentialCipher:
     development default is acceptable, and a deployed one never is.
     """
     settings = settings or get_settings()
-    key = settings.connector_encryption_key
+    key = settings.connector_encryption_key.get_secret_value()
 
     if not key:
         if settings.is_deployed:

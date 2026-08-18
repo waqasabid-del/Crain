@@ -179,7 +179,7 @@ def google_meet_api(settings: SettingsDep) -> GoogleMeetApi:
     try:
         return HttpGoogleMeetApi(
             client_id=settings.google_meet_client_id,
-            client_secret=settings.google_meet_client_secret,
+            client_secret=settings.google_meet_client_secret.get_secret_value(),
         )
     except GoogleMeetInstallError as error:
         raise _problem(error, status.HTTP_503_SERVICE_UNAVAILABLE) from error
@@ -212,7 +212,7 @@ def transcript_api(settings: SettingsDep) -> GoogleMeetApi:
     try:
         return HttpGoogleMeetApi(
             client_id=settings.google_meet_transcript_client_id,
-            client_secret=settings.google_meet_transcript_client_secret,
+            client_secret=settings.google_meet_transcript_client_secret.get_secret_value(),
         )
     except GoogleMeetInstallError as error:
         raise _problem(error, status.HTTP_503_SERVICE_UNAVAILABLE) from error

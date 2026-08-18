@@ -670,7 +670,7 @@ def build_client(
 
     resolved = settings or get_settings()
     client_id = resolved.google_chat_client_id
-    client_secret = resolved.google_chat_client_secret
+    client_secret = resolved.google_chat_client_secret.get_secret_value()
     resolved_topic = configured_topic(topic, resolved)
     if not client_id or not client_secret or not resolved_topic:
         return None

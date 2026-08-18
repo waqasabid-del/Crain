@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, ClassVar, Final, Protocol
 
 import httpx
 
@@ -227,4 +227,197 @@ class VertexProvider:
             input_tokens=int(usage.get("promptTokenCount", 0) or 0),
             output_tokens=int(usage.get("candidatesTokenCount", 0) or 0),
             model=self._model,
+        )
+
+
+#: 429 codes that never clear by waiting.
+_QUOTA_CODES: Final = frozenset({"insufficient_quota", "credit_balance_exhausted"})
+
+
+class OpenAIProvider:
+    """OpenAI chat completions over REST.
+
+    `httpx` rather than the `openai` SDK, for the reason `VertexProvider` gives:
+    the client is already here and async, and one HTTP shape is easier to reason
+    about than two SDK lifecycles.
+
+    **Instruction and untrusted data go as two messages and are never joined.**
+    `ModelRequest` keeps them apart because concatenating them is how indirect
+    prompt injection works (md/09 §6.1); this adapter is the last place that
+    separation could be quietly undone, since nothing downstream can see what
+    was actually sent. The system message is ours; the user message is whatever a
+    stranger wrote, delimiters intact.
+    """
+
+    #: Bounded, matching Vertex: synthesis runs on a worker and would hold the
+    #: slot open indefinitely otherwise.
+    TIMEOUT_SECONDS: ClassVar[float] = 120.0
+
+    ENDPOINT: ClassVar[str] = "https://api.openai.com/v1/chat/completions"
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str = "gpt-4o-mini",
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        if not api_key:
+            # An empty key yields a 401 per call rather than one clear failure,
+            # so it is refused here as well as at boot in `config.py`.
+            msg = "OpenAIProvider requires an API key"
+            raise ValueError(msg)
+        self._api_key = api_key
+        self._model = model
+        self._client = client
+        self._owns_client = client is None
+
+    async def complete(self, request: ModelRequest) -> ModelResponse:
+        client = self._client or httpx.AsyncClient(timeout=self.TIMEOUT_SECONDS)
+        try:
+            response = await client.post(
+                self.ENDPOINT,
+                json=self._payload(request),
+                headers={"Authorization": f"Bearer {self._api_key}"},
+            )
+        except httpx.TimeoutException as exc:
+            # Named separately from other transport errors: a timeout is the one
+            # an operator retries rather than investigates.
+            msg = "OpenAI request timed out"
+            raise ModelError(msg) from exc
+        except httpx.HTTPError as exc:
+            # `exc` carries the URL and the failure class, never a body.
+            msg = f"OpenAI request failed: {type(exc).__name__}"
+            raise ModelError(msg) from exc
+        finally:
+            if self._owns_client:
+                await client.aclose()
+
+        self._raise_for_status(response)
+        return self._parse(response)
+
+    def _payload(self, request: ModelRequest) -> dict[str, Any]:
+        """The request body. **Two messages, never one.**
+
+        There is no branch here that merges `instruction` and `untrusted_data`,
+        and no field on `ModelRequest` that would let a caller ask for one.
+        """
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": request.instruction},
+                {"role": "user", "content": request.untrusted_data},
+            ],
+            # Not read from the request: extraction is transcription, not
+            # creation, and a per-call temperature would make one workspace's
+            # facts less reproducible than another's.
+            "temperature": 0.0,
+            "max_tokens": request.max_output_tokens,
+        }
+        if request.response_schema is not None:
+            # Enforced by the API rather than requested in the prompt. `strict`
+            # is the difference between a schema the model is encouraged to
+            # follow and one it cannot violate — the same guarantee Vertex gives
+            # through `responseSchema`.
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "cairn_extraction",
+                    "strict": True,
+                    "schema": request.response_schema,
+                },
+            }
+        return payload
+
+    def _raise_for_status(self, response: httpx.Response) -> None:
+        """Turn a non-200 into a `ModelError` that carries no customer content.
+
+        **Deliberately unlike `VertexProvider`, which includes its response
+        body.** Vertex explains refusals there and the explanation is worth
+        having; OpenAI's error body adds nothing a status code does not, and it
+        can echo the prompt — which is a customer's words, on their way to a log
+        store that sits outside the erasure path.
+        """
+        if response.status_code == httpx.codes.OK:
+            return
+
+        if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+            # **429 means two different things and only one of them clears.**
+            # OpenAI returns it both for "you are going too fast" and for "this
+            # account has no credit left". Telling a worker to retry the second
+            # burns the retry budget forever and dead-letters the job with a
+            # cause nobody can act on from the message. `error.type` and
+            # `error.code` are OpenAI's own bounded vocabulary rather than
+            # customer text, so reading them keeps the no-bodies rule intact.
+            if self._error_code(response) in _QUOTA_CODES:
+                msg = "OpenAI refused the request: the account's quota is exhausted"
+                raise ModelError(msg)
+
+            retry_after = response.headers.get("Retry-After")
+            # The number is the only part of a rate limit worth keeping: it tells
+            # the worker when to come back and it identifies nobody.
+            msg = (
+                f"OpenAI rate limited the request; retry after {retry_after}s"
+                if retry_after
+                else "OpenAI rate limited the request"
+            )
+            raise ModelError(msg)
+
+        msg = f"OpenAI returned {response.status_code}"
+        raise ModelError(msg)
+
+    @staticmethod
+    def _error_code(response: httpx.Response) -> str:
+        """OpenAI's machine-readable classification, or an empty string.
+
+        Reads `error.type` and `error.code` only — never `error.message`, which
+        can quote the prompt. Any failure to parse yields "", so a malformed
+        body falls through to the generic path rather than raising inside the
+        error handler.
+        """
+        try:
+            error = (response.json() or {}).get("error") or {}
+        except ValueError:
+            return ""
+        # Not `field`: that name is `dataclasses.field`, imported above.
+        for name in ("type", "code"):
+            value = error.get(name)
+            if isinstance(value, str) and value:
+                return value
+        return ""
+
+    def _parse(self, response: httpx.Response) -> ModelResponse:
+        """Read the completion, and refuse anything that only looks like one."""
+        try:
+            body = response.json()
+        except ValueError as exc:
+            msg = "OpenAI returned a body that is not JSON"
+            raise ModelError(msg) from exc
+
+        choices = body.get("choices") or []
+        if not choices:
+            # **Not empty text.** Vertex returns empty text for a blocked
+            # response because a safety refusal is a legitimate answer; an
+            # OpenAI response with no choices is a shape nothing should produce,
+            # and reading it as empty would file "the model returned nothing" as
+            # "there was nothing to find".
+            msg = "OpenAI returned no choices"
+            raise ModelError(msg)
+
+        message = choices[0].get("message") or {}
+        text = message.get("content") or ""
+
+        usage = body.get("usage")
+        if not isinstance(usage, dict) or "prompt_tokens" not in usage:
+            # A silently-zero token count would add nothing to the ledger, so
+            # the token ceiling would never be reached and the call-count
+            # ceiling — a backstop — would become the only control.
+            msg = "OpenAI response carried no usage; refusing to record zero cost"
+            raise ModelError(msg)
+
+        return ModelResponse(
+            text=text,
+            input_tokens=int(usage.get("prompt_tokens", 0) or 0),
+            output_tokens=int(usage.get("completion_tokens", 0) or 0),
+            model=str(body.get("model") or self._model),
         )

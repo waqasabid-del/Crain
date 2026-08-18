@@ -72,6 +72,7 @@ from cairn_api.gchat.oauth import (
 from cairn_api.gchat.spaces import AvailableSpace
 from cairn_api.gchat.subscriptions import SubscriptionClient, SubscriptionError, SubscriptionFailure
 from fastapi import FastAPI
+from pydantic import SecretStr
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 from test_api_workspaces import Actor, join_as, new_actor
@@ -211,7 +212,7 @@ async def gchat_app(engine: AsyncEngine) -> AsyncIterator[FastAPI]:
             cors_allowed_origins=(TEST_ORIGIN,),
             public_app_url=APP_URL,
             google_chat_client_id="1234.apps.googleusercontent.com",
-            google_chat_client_secret="not-a-real-client-secret",  # noqa: S106
+            google_chat_client_secret=SecretStr("not-a-real-client-secret"),
             google_chat_redirect_uri=CALLBACK,
             google_chat_project_id="cairn-test",
             google_chat_pubsub_topic=TOPIC,

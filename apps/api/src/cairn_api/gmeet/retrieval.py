@@ -250,7 +250,7 @@ def build_client(settings: Settings | None = None) -> RetrievalClient | None:
 
     resolved = settings or get_settings()
     client_id = resolved.google_meet_transcript_client_id
-    client_secret = resolved.google_meet_transcript_client_secret
+    client_secret = resolved.google_meet_transcript_client_secret.get_secret_value()
     if not client_id or not client_secret:
         return None
     return RetrievalClient(

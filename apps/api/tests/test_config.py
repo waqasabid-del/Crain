@@ -263,3 +263,89 @@ class TestPipelineTuningMirrorsTheConstants:
         source = pathlib.Path(cairn_api.config.__file__).read_text(encoding="utf-8")
         assert "from cairn_api.pipeline" not in source
         assert "import cairn_api.pipeline" not in source
+
+
+class TestOpenAIBackend:
+    """The key must be present at boot, not discovered at the first model call.
+
+    A missing key is not a transient failure. It is a deployment that cannot do
+    the one thing the backend was selected for, and the difference between
+    finding out at boot and finding out at the first customer request is the
+    difference between a revision that never serves traffic and a workspace whose
+    briefs are quietly empty.
+    """
+
+    @pytest.mark.parametrize("environment", ["local", "test", "staging", "production"])
+    def test_the_backend_without_a_key_refuses_to_start(self, environment: str) -> None:
+        """**Every environment, including local.**
+
+        The other development guards are about deployed environments holding
+        customer data; this one is about a setting that cannot work anywhere. A
+        local developer who selects the OpenAI backend and forgets the key should
+        be told at boot rather than reading an empty brief and wondering which
+        layer swallowed it.
+        """
+        with pytest.raises(ValidationError, match="CAIRN_OPENAI_API_KEY"):
+            _settings(
+                environment=environment,
+                database_url=REMOTE_URL if environment in DEPLOYED else LOCAL_URL,
+                platform_database_url=REMOTE_URL if environment in DEPLOYED else LOCAL_URL,
+                model_backend="openai",
+                openai_api_key="",
+            )
+
+    def test_the_backend_with_a_key_is_accepted(self) -> None:
+        settings = _settings(model_backend="openai", openai_api_key="sk-not-a-real-key")
+
+        assert settings.model_backend == "openai"
+
+    def test_a_key_without_the_backend_is_not_required_to_do_anything(self) -> None:
+        """Holding a key is not selecting the backend.
+
+        Someone may set the key in a shared environment file long before
+        switching the pipeline over, and refusing that would make the safe
+        preparation step the thing that breaks boot.
+        """
+        settings = _settings(openai_api_key="sk-not-a-real-key")
+
+        assert settings.model_backend == "auto"
+
+    def test_the_defaults_name_the_cheap_models(self) -> None:
+        """Pinned, because an unpinned default is a silent cost and quality
+        change on somebody else's release day."""
+        settings = _settings()
+
+        assert settings.openai_model == "gpt-4o-mini"
+        assert settings.openai_embedding_model == "text-embedding-3-small"
+        # A `SecretStr`, so the comparison goes through `get_secret_value`.
+        # The type is the point: an equality test that passed against a bare
+        # string would mean the key could be interpolated into one.
+        assert settings.openai_api_key.get_secret_value() == ""
+
+    def test_the_key_never_appears_in_a_repr(self) -> None:
+        """`Settings` is logged at startup and appears in tracebacks.
+
+        A key that reaches either is a key in the log store, which sits outside
+        the erasure path and is read by more people than the secret manager is.
+        """
+        settings = _settings(openai_api_key="sk-super-secret-value")
+
+        assert "sk-super-secret-value" not in repr(settings)
+        assert "sk-super-secret-value" not in str(settings)
+
+    def test_the_existing_backends_are_still_accepted(self) -> None:
+        """The new member widens the union; it must not narrow it."""
+        for backend in ("auto", "vertex", "offline"):
+            assert _settings(model_backend=backend).model_backend == backend
+
+    def test_scripted_is_still_refused_when_deployed(self) -> None:
+        """Untouched by this change, and asserted so that adding a backend
+        cannot quietly relax the rule that guards the others."""
+        with pytest.raises(ValidationError, match="scripted"):
+            _settings(
+                environment="production",
+                database_url=REMOTE_URL,
+                platform_database_url=REMOTE_URL,
+                cors_allowed_origins=(SECURE_ORIGIN,),
+                model_backend="scripted",
+            )

@@ -72,6 +72,7 @@ from cairn_api.gmeet.artifacts import ArtifactError, ArtifactFailure, RemoteTran
 from cairn_api.gmeet.oauth import GoogleAccessToken, GoogleTokenGrant
 from cairn_api.meetings.guard import CollectionPermit, permit_collection
 from cairn_api.sources import Source
+from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -447,7 +448,7 @@ class TestTheTranscriptScopeIsSeparateAndExplicit:
             cors_allowed_origins=("http://localhost:3000",),
             google_meet_client_id="meet-1234.apps.googleusercontent.com",
             google_meet_transcript_client_id="transcripts-5678.apps.googleusercontent.com",
-            google_meet_transcript_client_secret="not-a-real-secret",  # noqa: S106
+            google_meet_transcript_client_secret=SecretStr("not-a-real-secret"),
             google_meet_transcript_redirect_uri=(
                 "https://cairn.test/v1/integrations/google-meet/transcript-callback"
             ),

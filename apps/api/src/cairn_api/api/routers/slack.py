@@ -94,7 +94,7 @@ def slack_api(settings: SettingsDep) -> SlackApi:
     try:
         return HttpSlackApi(
             client_id=settings.slack_client_id,
-            client_secret=settings.slack_client_secret,
+            client_secret=settings.slack_client_secret.get_secret_value(),
         )
     except SlackInstallError as error:
         raise _problem(error, status.HTTP_503_SERVICE_UNAVAILABLE) from error

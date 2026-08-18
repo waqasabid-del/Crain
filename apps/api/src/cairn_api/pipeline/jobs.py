@@ -6,13 +6,14 @@ Ties `classify`, `extract`, `resolve`, `store` and `graph` to the GitHub webhook
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
 import structlog
+from opentelemetry import metrics
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,26 +28,66 @@ from cairn_api.jobs.runner import JobHandler, JobRegistry, registry
 from cairn_api.pipeline import graph, store
 from cairn_api.pipeline.classify import classify
 from cairn_api.pipeline.embeddings import (
-    DEFAULT_EMBEDDING_MODEL,
     EmbeddingProvider,
     HashingEmbedder,
+    OpenAIEmbeddingProvider,
     VertexEmbeddingProvider,
 )
 from cairn_api.pipeline.extract import extract
 from cairn_api.pipeline.facts import Fact, SourceRef
 from cairn_api.pipeline.mentions import ProviderActor
-from cairn_api.pipeline.provider import ModelProvider, ScriptedProvider, VertexProvider
+from cairn_api.pipeline.provider import (
+    ModelProvider,
+    OpenAIProvider,
+    ScriptedProvider,
+    VertexProvider,
+)
 from cairn_api.pipeline.spend import BudgetedProvider, ledger_for
+from cairn_api.telemetry.attributes import safe
 
 logger = structlog.get_logger(__name__)
 
+meter = metrics.get_meter("cairn.pipeline")
+
+#: Every time a cap changes what the pipeline would otherwise have done.
+#:
+#: One counter with an `outcome`, rather than one per cap, so "is anything being
+#: capped anywhere" is a single query. `chunked` means a delivery needed more
+#: than one model round and got them; `chars_truncated` means a message was cut
+#: and marked. Neither is an error, and both are things somebody reading a thin
+#: brief needs to be able to check.
+evidence_capped = meter.create_counter(
+    "cairn.pipeline.evidence_capped",
+    description="Deliveries whose evidence hit a size cap",
+)
+
 UNDERSTAND_JOB = "pipeline.understand"
 
-#: Ceiling on evidence items per delivery — caps model spend and attacker-controlled input.
+#: Evidence items per *model round* — caps prompt size, model spend and how much
+#: attacker-controlled input reaches one call.
+#:
+#: **A batch size, not a limit on what is read.** It used to be
+#: `found[:MAX_EVIDENCE_ITEMS]`, which silently discarded everything past the
+#: twentieth item: a real 26-commit push produced facts for 20 commits, and the
+#: six that vanished included a co-authored one, so two people's work
+#: disappeared with no log line, no counter and no marker anywhere. Raising the
+#: number would only have moved the cliff.
 MAX_EVIDENCE_ITEMS = 20
 
-#: Characters kept per evidence item; safe to truncate since this is extraction input, not a stored fact.
+#: Characters kept per evidence item; safe to truncate since this is extraction
+#: input, not a stored fact.
+#:
+#: Unlike the item cap this one cannot be chunked away. A commit message is one
+#: piece of evidence under one id, and splitting it would either duplicate that
+#: id — breaking the idempotency check, which is set containment over ids — or
+#: invent one that cites nothing real. So it stays a cap and becomes an honest
+#: one: counted, logged, and marked in the text.
 MAX_EVIDENCE_CHARS = 4_000
+
+#: Appended when the cap above bites, so the *model* is told it is reading a
+#: fragment. Without it, extraction summarises a message that stops mid-word and
+#: states the result with the confidence of a complete one.
+TRUNCATION_MARKER = "\n[truncated]"
 
 
 class DeliveryNotFoundError(LookupError):
@@ -70,10 +111,22 @@ class Providers:
 
 @lru_cache(maxsize=1)
 def build_providers() -> Providers:
-    """Model adapters by `CAIRN_MODEL_BACKEND` (`vertex`/`scripted`/`offline`).
-    Offline is a refusal, not a degraded mode: incompleteness, not confident
-    wrongness (md/09 §8). Cached to run once per process."""
-    settings: Settings = get_settings()
+    """The process's model adapters, built once.
+
+    Cached, and therefore parameterless: `Settings` is not hashable, so an
+    injectable argument would have to be excluded from the cache key — which is
+    the kind of cache that returns one caller's providers to another. The
+    selection itself lives in `select_providers`, which takes settings and
+    caches nothing, so a test can exercise every branch without reaching into
+    the cache or the environment.
+    """
+    return select_providers(get_settings())
+
+
+def select_providers(settings: Settings) -> Providers:
+    """Model adapters by `CAIRN_MODEL_BACKEND`
+    (`openai`/`vertex`/`scripted`/`offline`). Offline is a refusal, not a
+    degraded mode: incompleteness, not confident wrongness (md/09 §8)."""
     project = settings.gcp_project_id
     backend = settings.model_backend
 
@@ -91,6 +144,23 @@ def build_providers() -> Providers:
             ),
         )
         return Providers(model=build_scripted_provider(), embedder=HashingEmbedder(), live=False)
+
+    if backend == "openai":
+        # `config.py` refuses this value without a key, in every environment, so
+        # reaching here means one is present.
+        logger.info(
+            "pipeline.model_backend",
+            backend="openai",
+            model=settings.openai_model,
+        )
+        return Providers(
+            model=OpenAIProvider(
+                api_key=settings.openai_api_key.get_secret_value(),
+                model=settings.openai_model,
+            ),
+            embedder=OpenAIEmbeddingProvider(api_key=settings.openai_api_key.get_secret_value()),
+            live=True,
+        )
 
     if project and backend in {"auto", "vertex"}:
         logger.info(
@@ -313,6 +383,67 @@ def _slack_timestamp(ts: str) -> datetime | None:
         return None
 
 
+def _commit_text(commit: Mapping[str, Any], message: str) -> str:
+    """The commit message, with the author it is credited to named above it.
+
+    **The message alone loses the author.** `Co-authored-by:` trailers are in the
+    message, but the author is not — they live in `commit.author`, which nothing
+    rendered. The first real delivery produced a fact crediting the co-author and
+    omitting the person who wrote the commit: one half of a pair credited, which
+    is md/01 §5.1's failure arriving from the side nobody guarded.
+
+    Not an `actor`, deliberately. An actor is a stable provider account id, and
+    `commit.author` offers a login and an address that the account holder can
+    change at will. Naming them in the text keeps this a claim the payload made,
+    which extraction weighs and a person can correct, rather than provenance the
+    system asserts.
+    """
+    author = commit.get("author")
+    name = _text(author.get("name")) if isinstance(author, dict) else ""
+    if not name:
+        # Absent stays absent. A commit with no author named is a commit with no
+        # author named, and inventing a label for it is the guess this avoids.
+        return message
+    return f"Author: {name}" + chr(10) + message
+
+
+def _bounded(text: str, *, delivery_id: str) -> str:
+    """Apply the per-item character cap, visibly.
+
+    Returns the text unchanged when it fits. When it does not, the cut is
+    marked, logged and counted — the same treatment the item cap gets, for the
+    same reason: a cap nobody can see is indistinguishable from a short commit
+    message, and the person who notices is the one whose work was summarised
+    from half a sentence.
+    """
+    if len(text) <= MAX_EVIDENCE_CHARS:
+        return text
+
+    logger.info(
+        "evidence.truncated",
+        delivery_id=delivery_id,
+        # Lengths, never the text: this is a commit message, which is customer
+        # content and stays out of the log store.
+        original_chars=len(text),
+        kept_chars=MAX_EVIDENCE_CHARS,
+    )
+    evidence_capped.add(1, safe({"outcome": "chars_truncated"}))
+    return text[:MAX_EVIDENCE_CHARS] + TRUNCATION_MARKER
+
+
+def _chunks(evidence: list[_Evidence]) -> Iterator[list[_Evidence]]:
+    """The delivery's evidence, in model-sized batches, losing nothing.
+
+    Order is preserved and every item appears in exactly one chunk, so the
+    chunk boundaries are a function of the stored payload alone. That is what
+    makes a redelivery land on the same boundaries as the first attempt, and
+    therefore what lets each chunk's idempotency check answer for the same set
+    of evidence ids twice.
+    """
+    for start in range(0, len(evidence), MAX_EVIDENCE_ITEMS):
+        yield evidence[start : start + MAX_EVIDENCE_ITEMS]
+
+
 def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
     """Everything in a payload a fact could legitimately cite. Evidence ids
     are stable across redelivery (commit SHA; PR/issue number), which is
@@ -342,7 +473,7 @@ def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
         found.append(
             _Evidence(
                 evidence_id=f"github:commit:{sha}",
-                text=message,
+                text=_commit_text(commit, message),
                 url=_text(commit.get("url")),
                 occurred_at=_timestamp(commit.get("timestamp")),
             )
@@ -402,13 +533,13 @@ def _read_evidence(delivery: WebhookDelivery) -> list[_Evidence]:
     return [
         _Evidence(
             evidence_id=item.evidence_id,
-            text=item.text[:MAX_EVIDENCE_CHARS],
+            text=_bounded(item.text, delivery_id=delivery.delivery_id),
             url=item.url,
             occurred_at=item.occurred_at,
             project=project,
             actor=item.actor,
         )
-        for item in found[:MAX_EVIDENCE_ITEMS]
+        for item in found
     ]
 
 
@@ -521,7 +652,7 @@ def _enrich(ref: SourceRef, item: _Evidence | None) -> SourceRef:
 def make_handler(
     *,
     providers: Providers | None = None,
-    model_name: str = DEFAULT_EMBEDDING_MODEL,
+    model_name: str | None = None,
 ) -> JobHandler:
     """Build the handler, bound to the model adapters it will use.
 
@@ -531,6 +662,13 @@ def make_handler(
     scripted model.
     """
     resolved = providers or build_providers()
+    # **Taken from the embedder, not defaulted.** This defaulted to the hashing
+    # name whichever embedder it was handed, so selecting a real one wrote
+    # OpenAI or Vertex vectors into the `hashing-v1` partition — two
+    # incomparable geometries under one label, with nothing raised and nothing
+    # logged. The only repair afterwards is to re-embed everything, because the
+    # rows cannot be told apart.
+    stored_under = model_name or resolved.embedder.model_name
 
     async def handle_understanding(session: AsyncSession, envelope: JobEnvelope) -> None:
         delivery_id = envelope.payload.get("delivery_id")
@@ -551,7 +689,7 @@ def make_handler(
             delivery,
             tenant_id=envelope.tenant_id,
             providers=resolved,
-            model_name=model_name,
+            model_name=stored_under,
         )
 
     return handle_understanding
@@ -577,10 +715,74 @@ async def _understand(
         )
         return
 
+    batches = list(_chunks(evidence))
+    if len(batches) > 1:
+        # Said out loud, once, before any of it runs. The number that matters to
+        # a reader is how many rounds this delivery takes, because that is the
+        # difference between "the brief is thin" and "the brief is still being
+        # written".
+        await logger.ainfo(
+            "understand.chunked",
+            delivery_id=delivery.delivery_id,
+            event_type=delivery.event_type,
+            evidence=len(evidence),
+            chunks=len(batches),
+            chunk_size=MAX_EVIDENCE_ITEMS,
+        )
+        evidence_capped.add(1, safe({"outcome": "chunked"}))
+
+    for number, batch in enumerate(batches, start=1):
+        await _understand_chunk(
+            session,
+            delivery,
+            batch,
+            tenant_id=tenant_id,
+            providers=providers,
+            model_name=model_name,
+            chunk=number,
+            chunks=len(batches),
+        )
+
+
+async def _understand_chunk(
+    session: AsyncSession,
+    delivery: WebhookDelivery,
+    evidence: list[_Evidence],
+    *,
+    tenant_id: uuid.UUID,
+    providers: Providers,
+    model_name: str,
+    chunk: int,
+    chunks: int,
+) -> None:
+    """One model round over one batch of a delivery's evidence.
+
+    **Sequential in this job rather than one queued job per chunk.** The
+    alternative was re-enqueuing, which is this repository's idiom elsewhere
+    (`github/jobs.py` re-enqueues a backfill batch rather than looping) and
+    keeps every job inside its five-minute lease. It was rejected here for one
+    reason: it needs a queue threaded into this handler, and this handler is
+    wired in two places without one. A wiring gap would then drop the tail of a
+    push exactly as the old slice did — the same defect, arrived at by a longer
+    route, and just as quiet.
+
+    The cost is honest: a very large push holds a worker for several rounds, and
+    if it outlives the lease another worker reclaims it and repeats work. That
+    is waste, not corruption — every chunk is idempotent and Stage 3 merges
+    repeats — and waste is recoverable in a way a missing fact is not.
+    """
     index = {item.evidence_id: item for item in evidence}
 
+    # Asked per chunk, not per delivery. Over the whole delivery this would
+    # answer "no" while any chunk was outstanding and re-run every chunk on
+    # every redelivery; over one chunk it skips exactly the work already done.
     if await _already_understood(session, tenant_id=tenant_id, evidence_ids=list(index)):
-        await logger.adebug("understand.already_applied", delivery_id=delivery.delivery_id)
+        await logger.adebug(
+            "understand.already_applied",
+            delivery_id=delivery.delivery_id,
+            chunk=chunk,
+            chunks=chunks,
+        )
         return
 
     # Per-tenant ledger so one workspace's runaway backfill can't deny the model to others (spend.py).
@@ -595,6 +797,8 @@ async def _understand(
             "understand.skipped",
             delivery_id=delivery.delivery_id,
             event_class=classification.event_class.value,
+            chunk=chunk,
+            chunks=chunks,
         )
         return
 
@@ -611,6 +815,8 @@ async def _understand(
         await logger.ainfo(
             "understand.nothing_extracted",
             delivery_id=delivery.delivery_id,
+            chunk=chunk,
+            chunks=chunks,
             abstained=result.abstained,
             live_model=providers.live,  # distinguishes "extracted nothing" from "no model" (an outage)
             spend_exceeded=ledger.exceeded,
@@ -638,6 +844,8 @@ async def _understand(
         delivery_id=delivery.delivery_id,
         event_type=delivery.event_type,
         evidence=len(evidence),
+        chunk=chunk,
+        chunks=chunks,
         facts=len(plan.decisions),
         edges=update.edges_written,
         embeddings=update.embeddings_written,
