@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-import { capturedMessages, clearMail, linkIn, messageBody } from "./stack.js";
+import {
+  ACME_OWNER,
+  API_ORIGIN,
+  capturedMessages,
+  clearMail,
+  linkIn,
+  messageBody,
+} from "./stack.js";
 
 /**
  * Mail-dependent journeys, against a real SMTP sender and a real inbox.
@@ -57,22 +64,23 @@ test("an invitation link reaches a screen the invited person can use", async ({
   request,
 }) => {
   await clearMail(request);
-  const owner = newAddress();
   const invited = newAddress();
 
-  await page.goto("/signup");
-  await page.getByLabel("Work email").fill(owner);
-  await page.getByLabel("Password", { exact: true }).fill("correct-horse-battery");
-  await page.getByLabel("Company or team name").fill("E2E Invite");
-  await page.getByRole("button", { name: "Create workspace" }).click();
-  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  // Sent through the real API over real HTTP - there is no invite form in the
+  // web app yet, so the browser cannot originate this one. The half under test
+  // is unchanged either way: a real SMTP capture, and a link that resolves.
+  const login = await request.post(`${API_ORIGIN}/v1/auth/login`, { data: ACME_OWNER });
+  expect(login.status()).toBe(200);
+  const session = (await login.json()) as { workspaces: { workspace: { id: string } }[] };
+  const workspaceId = session.workspaces[0]?.workspace.id;
+  if (workspaceId === undefined) {
+    throw new Error("the seeded owner has no workspace");
+  }
 
-  await page.goto("/settings");
-  await page.getByLabel(/email/i).first().fill(invited);
-  await page
-    .getByRole("button", { name: /invite/i })
-    .first()
-    .click();
+  const sent = await request.post(`${API_ORIGIN}/v1/workspaces/${workspaceId}/invitations`, {
+    data: { email: invited, role: "member" },
+  });
+  expect(sent.status()).toBe(201);
 
   await expect
     .poll(
@@ -93,9 +101,6 @@ test("an invitation link reaches a screen the invited person can use", async ({
   const link = linkIn(await messageBody(request, invitation.ID));
   expect(link).toContain("/invite?token=");
 
-  // A separate context would be more faithful, but the assertion that matters
-  // is the same either way: the link resolves to the redemption screen rather
-  // than to a 404 or a sign-in page that discards the token.
   const response = await page.goto(link);
   expect(response?.status()).toBe(200);
   await expect(page.getByRole("heading", { name: /invited to cairn/i })).toBeVisible();
