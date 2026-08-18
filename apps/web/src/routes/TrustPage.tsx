@@ -34,6 +34,7 @@ import {
   SLACK_REFUSALS,
   SLACK_SCOPES,
 } from "../components/ConnectionCard.js";
+import { MEETING_BOUNDARY } from "../components/MeetingConsent.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { Section } from "../components/Section.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
@@ -152,6 +153,54 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
             <li key={refusal}>{refusal}</li>
           ))}
         </ul>
+      </TrustSection>
+
+      {/*
+        Meetings, on the page whose whole claim is that what it says can be
+        checked.
+
+        Stated here rather than left to the consent screens because the reader
+        who needs it is the one who has *not* been asked about a meeting: a
+        person who has heard "CAIRN can do meetings" and wants to know whether
+        something has been sitting in their calls. The answer is no, and it is a
+        product boundary rather than a setting — CAIRN has no meeting connector
+        at all, and the permission below exists so that one cannot be built
+        without it.
+
+        **Agreeing is not what makes CAIRN lawful, and this section must never
+        say it is.** md/03 §3.3 records that consent is not a valid basis in an
+        employment context because of the power imbalance; the EU basis is
+        legitimate interest with a documented assessment, and opt-in controls
+        keep that interest proportionate rather than replacing it. The paragraph
+        below says exactly that, in the reader's words, because a trust page that
+        claimed consent as the basis would be both wrong and a promise nobody
+        could keep.
+
+        The list itself is `MEETING_BOUNDARY`, shared with the two consent
+        screens. Three hand-maintained copies of a promise is three chances for
+        the product to promise different things in different rooms.
+      */}
+      <TrustSection
+        title="Meetings"
+        description="CAIRN records no meeting, and no meeting platform connector exists in it. If one is ever built, this is the permission it will have to hold first."
+      >
+        <ul className={styles.refusals}>
+          {MEETING_BOUNDARY.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+
+        <p className={styles.aside}>
+          Being asked, and being able to refuse, is a safeguard CAIRN applies on top of its lawful
+          basis — it is not the basis itself. In the EU that basis is legitimate interest, with a
+          documented assessment; controls like this one are what keep it proportionate. Your answer
+          is yours either way: nobody in your workspace can give it for you, and nobody is told how
+          you answered.{" "}
+          <Link className={styles.link} href="/settings">
+            Meetings you have been asked about
+          </Link>
+          .
+        </p>
       </TrustSection>
 
       <TrustSection title="How CAIRN works, in practice">

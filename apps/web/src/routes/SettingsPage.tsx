@@ -6,6 +6,7 @@ import { useId, type ReactNode } from "react";
 
 import { useAuth } from "../auth/context.js";
 import { ConnectedIdentities } from "../components/ConnectedIdentities.js";
+import { MyMeetingRequests } from "../components/MeetingConsent.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { RoleChoice } from "../components/RoleChoice.js";
 import { Section } from "../components/Section.js";
@@ -81,7 +82,19 @@ export function SettingsPage(): ReactNode {
         works would suggest an administrator has a say in it. Nobody does.
       */}
       {activeWorkspace !== null && (
-        <ConnectedIdentities className={SECTION} workspaceId={activeWorkspace.id} />
+        <>
+          <ConnectedIdentities className={SECTION} workspaceId={activeWorkspace.id} />
+
+          {/*
+            The reader's own meeting answers, in the personal area for the same
+            reason: a consent an Owner could give is worth nothing (md/03 §3.1),
+            so the only place to answer is the one place an administrator has no
+            reach into. There is no route by which anybody could answer for
+            somebody else, and no screen in Workspace settings that shows how
+            anybody answered.
+          */}
+          <MyMeetingRequests className={SECTION} workspaceId={activeWorkspace.id} />
+        </>
       )}
 
       <Section className={SECTION} title="Account">

@@ -96,7 +96,21 @@ export function createStubClient(overrides: Partial<CairnClient> = {}): CairnCli
     revokeMyIdentity: vi.fn(unexpected("revokeMyIdentity")),
     getAttributionHealth: vi.fn(unexpected("getAttributionHealth")),
     createMeetingCaptureRequest: vi.fn(unexpected("createMeetingCaptureRequest")),
-    listMeetingCaptureRequests: vi.fn(unexpected("listMeetingCaptureRequests")),
+    // A benign default, for the same reason as `getMyIdentities` above and
+    // `listMyMeetingRequests` below: the workspace's capture requests render on
+    // the Workspace settings screen, whose tests are about members, connectors
+    // and retention, and failing those on an unstubbed call would move the cost
+    // of this feature onto every one of them — as a second `role="alert"` on a
+    // screen whose tests assert there is one. An empty list is also the honest
+    // default: nobody has asked about a meeting, and no connector exists that
+    // could act on it if they had.
+    listMeetingCaptureRequests: vi.fn(() =>
+      Promise.resolve({
+        requests: [],
+        totals: { pending: 0, eligible: 0, refused: 0, expired: 0, cancelled: 0, completed: 0 },
+        notice: "",
+      }),
+    ),
     cancelMeetingCaptureRequest: vi.fn(unexpected("cancelMeetingCaptureRequest")),
     // A benign default, like `listSupportSessions` and `getMyIdentities` above:
     // the meetings a person has been asked about are shown alongside screens

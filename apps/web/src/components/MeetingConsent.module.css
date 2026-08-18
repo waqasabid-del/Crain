@@ -1,0 +1,173 @@
+/*
+ * Meeting consent.
+ *
+ * Tokens only — no literal colour, radius or spacing anywhere in this file, so
+ * both sections inherit both themes and the contrast work already done in
+ * @cairn/ui rather than starting a third palette.
+ *
+ * Nothing here animates, pulses, or draws attention to one answer over another.
+ * The two answers share every visual property they have; the only reason this
+ * file knows which is which is that they have different words in them.
+ */
+
+.rule {
+  margin-bottom: var(--space-5);
+}
+
+/* The boundary, stated before anything else ---------------------------------- */
+
+.boundary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: var(--prose-max-width);
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4);
+  color: var(--fg-muted);
+  line-height: var(--leading-relaxed);
+  list-style: none;
+  background: var(--bg-muted);
+  border-radius: var(--radius-md);
+}
+
+/* Rows ----------------------------------------------------------------------- */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  padding: var(--space-4);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.rowTitle {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.when {
+  margin: 0 0 var(--space-3);
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+}
+
+.purpose {
+  max-width: var(--prose-max-width);
+  margin: 0 0 var(--space-3);
+  line-height: var(--leading-relaxed);
+}
+
+/* The lead-in on a line whose value was written by somebody else. Quiet rather
+ * than bold: it is a label, and the sentence after it is the content. */
+.label {
+  color: var(--fg-subtle);
+}
+
+.answer {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+/* The server's shared explanation, which is written to name nobody. */
+.shared {
+  max-width: var(--prose-max-width);
+  margin: 0 0 var(--space-3);
+  color: var(--fg-muted);
+  line-height: var(--leading-relaxed);
+}
+
+.invited {
+  max-width: var(--prose-max-width);
+  margin: 0 0 var(--space-3);
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/* What agreeing means, as terms rather than as prose ------------------------- */
+
+.terms {
+  max-width: var(--prose-max-width);
+  margin: 0 0 var(--space-4);
+}
+
+.terms dt {
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.terms dd {
+  margin: 0 0 var(--space-3);
+  color: var(--fg-muted);
+  line-height: var(--leading-relaxed);
+}
+
+.terms dd:last-child {
+  margin-bottom: 0;
+}
+
+/* Controls -------------------------------------------------------------------
+ *
+ * One row, wrapping, with a single gap. Every button in it is the same variant
+ * and the same size, so there is no styling hook here that could make one answer
+ * heavier than another — the equal weight is a property of the markup, not a
+ * rule this file could quietly relax later.
+ */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.problem {
+  margin-top: var(--space-3);
+}
+
+.closed {
+  max-width: var(--prose-max-width);
+  margin: var(--space-3) 0 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/* Calling a request off ------------------------------------------------------ */
+
+.confirm {
+  margin-top: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-muted);
+  border-radius: var(--radius-md);
+}
+
+.confirmBody {
+  max-width: var(--prose-max-width);
+  margin: 0;
+  color: var(--fg-muted);
+  line-height: var(--leading-relaxed);
+}
+
+/* Narrow ---------------------------------------------------------------------
+ *
+ * At 320px the answer row is what overflows first, so the buttons take the full
+ * width rather than being squeezed under their minimum target size. They stay
+ * identical to each other, which is the point of the row.
+ */
+@media (width <= 30rem) {
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

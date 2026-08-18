@@ -44,6 +44,7 @@ import {
 import { AttributionHealthSummary } from "../components/ConnectedIdentities.js";
 import { formatDayAndTime } from "../components/dates.js";
 import { InlineProblem } from "../components/InlineProblem.js";
+import { MeetingCaptureRequests } from "../components/MeetingConsent.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { Section } from "../components/Section.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
@@ -123,6 +124,18 @@ export function AdminPage(): ReactNode {
         There is deliberately no control here to reassign anybody's account.
       */}
       {administers(activeRole) && <AttributionHealthSummary workspaceId={activeWorkspace.id} />}
+      {/*
+        Asking whether CAIRN may ever receive a meeting's transcript. **Nothing
+        here starts a recording** — CAIRN never joins a meeting and no provider
+        connector exists — and the section says so before it says anything else.
+
+        Gated like the aggregate above, and for the same reason: what it holds is
+        counts and states. There is deliberately no control on it that answers
+        for a participant, because md/03 §3.1 makes a consent an employer could
+        write worth nothing. Every member answers their own in Preferences,
+        whatever their role.
+      */}
+      {administers(activeRole) && <MeetingCaptureRequests workspaceId={activeWorkspace.id} />}
       <PrivacySection workspaceId={activeWorkspace.id} role={activeRole} />
       {administers(activeRole) && <NotificationSection workspaceId={activeWorkspace.id} />}
     </>
