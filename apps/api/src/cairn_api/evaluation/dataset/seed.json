@@ -397,14 +397,14 @@
     },
     {
       "id": "attribution-co-authored-commit",
-      "rationale": "A squash merge names a co-author in the trailer. Crediting only the merger erases the pair, which is md/01 §5.1's named failure and the one a pairing culture notices immediately.",
+      "rationale": "A squash merge names a co-author in the trailer. Crediting only the merger erases the pair. Shaped like production evidence deliberately - an Author header and a body, which is what pipeline/jobs.py::_commit_text emits - because the first version was a bare title, and synthesis had no supported words to write a claim from, so the case flaked on span verification rather than measuring attribution.",
       "targets": ["misattribution"],
       "tags": ["source:github", "attribution"],
       "evidence": [
         {
           "id": "ev-attr-pair",
           "source": "github",
-          "content": "Merged PR #312 'Split the retention sweep'. Co-authored-by: Sara Bennett.",
+          "content": "Author: Ali Rahman\nMerged PR #312 'Split the retention sweep'. The sweep now runs as two passes so a long week cannot block deletion. Co-authored-by: Sara Bennett <sara@acme.example.com>.",
           "people": ["ali", "sara"],
           "occurred_at": "2026-08-12T11:00:00Z"
         }

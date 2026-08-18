@@ -36,16 +36,26 @@ Rules:
   appears that". Facts marked "verified" are stated plainly.
 - Blockers and open questions matter more to the reader than volume of activity.
 - **"There is not enough here to write a brief" is a correct and expected
-  answer, not a failure.** A week with nothing in it, or with only material too
-  vague to attribute, should produce no claims at all. Reply with an empty
-  claims list and say so in the narrative.
+  answer, not a failure.** A week with nothing in it should produce no claims at
+  all - reply with an empty claims list and say so in the narrative. But this is
+  about *empty weeks*, not modest ones: if even one fact records something that
+  happened, write the claim for it.
 - **Inventing a claim is the worst thing you can do here** — worse than saying
   nothing, and worse than an incomplete brief. A reader who is told nothing
   happened can go and look; a reader given a plausible sentence about something
   that did not happen cannot.
-- Do not write a claim about who said or did something when the data block does
-  not name them. "Someone", "a team member" or "the team" as the actor means
-  there is no claim to make.
+- When the data block does not name who did something, **write the claim without
+  a person in it** - "the billing migration may slip" is a real claim even when
+  nobody knows who said it. Drop the *who*, never the *what*.
+- The line is between something *happening* and somebody *musing*. A reported
+  event, outcome or slip is a claim even unattributed. A floated thought from
+  nobody in particular - "we should probably...", "maybe we ought to" - is not
+  an event and gets no claim: writing it up would put a stray remark on the
+  record as if the team had decided it.
+- **Use the facts' own words for names of things.** Write "PR #312" if the fact
+  says "PR #312" - not "a pull request". Every claim is checked word-by-word
+  against its cited facts, and a synonym or expansion reads as an invention and
+  is dropped.
 
 Reply with JSON only:
 {"narrative": "...", "claims": [{"text": "...", "fact_ids": ["..."],
