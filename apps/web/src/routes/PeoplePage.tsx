@@ -9,6 +9,8 @@ import { useAuth } from "../auth/context.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { StatusNote } from "../components/StatusNote.js";
+import { CapacityChip } from "../components/CapacityChip.js";
+import { RelatedWorkFinder } from "../components/RelatedWorkFinder.js";
 import { useAsync } from "../hooks/useAsync.js";
 import utility from "../styles/utility.module.css";
 import styles from "./PeoplePage.module.css";
@@ -128,6 +130,10 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
                 </Link>
               </StatusNote>
             </div>
+            {/* Below the list, deliberately: the finder is a question about
+              WORK, and putting it above a list of PEOPLE would read as a
+              directory search over colleagues. */}
+            <RelatedWorkFinder workspaceId={workspaceId} />
           </>
         ))}
     </>
@@ -148,6 +154,9 @@ function MembersTable({ members }: { members: Member[] }): ReactNode {
             <th scope="col">Name</th>
             <th scope="col">Email</th>
             <th scope="col">Role</th>
+            {/* Self-declared, and the header says so - the one word that keeps
+              this column from reading as CAIRN's judgement. */}
+            <th scope="col">Availability (self-reported)</th>
             <th scope="col">Joined</th>
           </tr>
         </thead>
@@ -162,6 +171,9 @@ function MembersTable({ members }: { members: Member[] }): ReactNode {
               <td className={styles.muted}>{member.email}</td>
               <td>
                 <span className={styles.role}>{member.role}</span>
+              </td>
+              <td>
+                <CapacityChip capacity={member.capacity} />
               </td>
               <td className={styles.muted}>
                 {/* Machine-readable in `dateTime`, the reader's own locale in

@@ -60,6 +60,76 @@ services:
       timeout: 3s
       retries: 20
 
+  # Mail sink - every message the application sends, locally, in a real inbox.
+  #
+  # Local development sends over SMTP through the same `SmtpSender` a deployment
+  # uses, rather than through the console backend. The console backend writes the
+  # message to the log and reports success, which means a sender bug - a malformed
+  # header, an address the relay rejects, a link built from the wrong base URL -
+  # cannot be observed locally at all. It stays available as a fallback; it is not
+  # the documented default.
+  #
+  # Mailpit accepts anything and delivers nowhere, so no address in it is real and
+  # nothing can escape to a person. Nothing in the application knows it exists:
+  # it is an SMTP host and a port, and swapping it for a relay is configuration.
+  mailpit:
+    image: axllent/mailpit:v1.21
+    container_name: cairn-mailpit
+    restart: unless-stopped
+    environment:
+      # Messages are held in memory and vanish with the container. Deliberate:
+      # a mail sink that accumulates is a store of tokens and addresses on a
+      # developer machine, and every one of them is a live credential until it
+      # expires.
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      # SMTP, for CAIRN_SMTP_HOST/CAIRN_SMTP_PORT.
+      - "1025:1025"
+      # The web UI, and the API the browser tests read.
+      - "8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # The audit sink - the second trust domain.
+  #
+  # A separate PostgreSQL instance holding a byte-faithful mirror of the
+  # internal audit chain, under credentials the application database's owner
+  # does not hold. The primary chain is tamper-evident inside one trust domain;
+  # the mirror makes erasure detectable across two: deleting the primary's
+  # history leaves a sink that still names every sequence, and the application
+  # role at the sink can INSERT and SELECT and nothing else (see
+  # infra/audit-sink-init.sql, which is this instance's whole schema).
+  #
+  # In production this is the host's second managed instance; nothing in the
+  # code changes but CAIRN_AUDIT_SINK_URL. See docs/AUDIT-SINK-OPTIONS.md.
+  audit-sink:
+    image: pgvector/pgvector:pg16
+    container_name: cairn-audit-sink
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: audit_owner
+      POSTGRES_PASSWORD: audit_owner_local_dev
+      POSTGRES_DB: cairn_audit
+      LANG: C
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports:
+      - "5433:5432"
+    volumes:
+      - audit_sink_data:/var/lib/postgresql/data
+      - ./infra/audit-sink-init.sql:/docker-entrypoint-initdb.d/audit-sink-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audit_owner -d cairn_audit"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
 volumes:
   postgres_data:
     name: cairn_postgres_data
+  audit_sink_data:
+    name: cairn_audit_sink_data

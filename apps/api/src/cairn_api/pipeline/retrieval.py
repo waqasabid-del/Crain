@@ -159,6 +159,53 @@ async def retrieve(
         return retrieval
 
 
+async def retrieve_window(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    since: datetime,
+    until: datetime,
+    limit: int,
+) -> Retrieval:
+    """A time slice: the window's newest facts, no question asked.
+
+    **This exists because a brief is not a question.** `retrieve` starts from
+    the facts nearest a query vector and walks the graph outward — right for
+    "what do we know about X", and structurally wrong for "what happened this
+    week": eight entry points nearest one generic question meant seed facts
+    with dense delivered/decided vocabulary occupied every seat forever, and a
+    commit pushed yesterday never ranked. A daily brief that prefers last
+    week's familiar phrasing over yesterday's real work is failing at its one
+    job, so the brief path is recency-bounded before anything else gets a vote.
+
+    When candidates exceed `limit`, the *oldest* are dropped — never the least
+    similar. Survivors come back oldest-first, so the narrative reads in order
+    and the freshest work sits nearest the request, where attention
+    concentrates (md/09 §4.3). Undated facts cannot compete on recency and are
+    admitted only after every dated fact, which keeps a seed row from outliving
+    its week. Superseded facts are excluded by the same validity condition
+    every retrieval query shares.
+    """
+    statement = (
+        select(FactRow)
+        .where(FactRow.tenant_id == tenant_id)
+        .where(*_temporal_conditions(since=since, until=until, as_of=None))
+        .order_by(FactRow.occurred_at.desc().nulls_last(), FactRow.created_at.desc())
+        .limit(limit + 1)
+    )
+    rows = list(await session.scalars(statement))
+    truncated = len(rows) > limit
+    newest_first = rows[:limit]
+
+    # Oldest first for the prompt; `for_context` sorts by -hops, so equal hops
+    # preserve this order.
+    ordered = list(reversed(newest_first))
+    return Retrieval(
+        facts=[RetrievedFact(fact=row, hops=0) for row in ordered],
+        truncated=truncated,
+    )
+
+
 async def _entry_points(
     session: AsyncSession,
     *,

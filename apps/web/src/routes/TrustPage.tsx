@@ -137,6 +137,17 @@ function WorkspaceTrust({ workspaceId }: { workspaceId: string }): ReactNode {
           ))}
         </ul>
 
+        {/* The related-work finder and self-declared capacity, explained to
+          employees in the same breath they ship - mirroring the boundary
+          docstring in api/routers/related_work.py. */}
+        <p className={styles.aside}>
+          The &ldquo;Find related work&rdquo; search on the Team page shows cited facts grouped by
+          the person they credit - never a score, a rank, or a recommendation. It is not a
+          performance view: people appear only through work that cites them, your opt-outs apply to
+          it exactly as they do everywhere else, and absence from a result says nothing about
+          anyone. Availability shown next to names is what each person stated about themselves;
+          nobody - no role, and not CAIRN - can set it for them or infer it from activity.
+        </p>
         <p className={styles.aside}>
           You can switch off any source for yourself, and it applies to what CAIRN has already
           attributed to you as well as to anything new.{" "}

@@ -373,6 +373,44 @@
         "title": "BriefSummary",
         "type": "object"
       },
+      "CapacityResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "string"
+          },
+          "capacityStatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacitystatedat"
+          }
+        },
+        "required": ["capacity"],
+        "title": "CapacityResponse",
+        "type": "object"
+      },
+      "CapacityUpdate": {
+        "additionalProperties": false,
+        "description": "The person's own statement about their availability. Only theirs.",
+        "properties": {
+          "capacity": {
+            "pattern": "^(open_to_work|at_capacity|not_stated)$",
+            "title": "Capacity",
+            "type": "string"
+          }
+        },
+        "required": ["capacity"],
+        "title": "CapacityUpdate",
+        "type": "object"
+      },
       "CaptureState": {
         "description": "Where a capture request stands.\n\n`ELIGIBLE` is computed, never asserted: it is written only by the gate, and\nonly when every currently expected participant holds a live acceptance for\nthe current policy version. Nothing else in the product may set it.",
         "enum": ["pending", "eligible", "refused", "expired", "cancelled", "completed"],
@@ -2101,6 +2139,23 @@
         "additionalProperties": false,
         "description": "A person's place in a workspace.\n\nCarries role and join date and nothing else \u2014 no activity counts, no last\nseen, no \"engagement\". Roles govern configuration; they do not govern how\nmuch is visible about a person (md/15 \u00a72.2), and a members list is exactly\nwhere a visibility field would first appear.",
         "properties": {
+          "capacity": {
+            "default": "not_stated",
+            "title": "Capacity",
+            "type": "string"
+          },
+          "capacityStatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacitystatedat"
+          },
           "displayName": {
             "anyOf": [
               {
@@ -2667,6 +2722,130 @@
         "enum": ["us-central1", "europe-west1"],
         "title": "Region",
         "type": "string"
+      },
+      "RelatedFact": {
+        "additionalProperties": false,
+        "description": "One piece of evidence: a fact, its certainty tier, its citations.",
+        "properties": {
+          "certainty": {
+            "title": "Certainty",
+            "type": "string"
+          },
+          "occurredAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurredat"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/RelatedFactSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": ["statement", "certainty", "sources"],
+        "title": "RelatedFact",
+        "type": "object"
+      },
+      "RelatedFactSource": {
+        "additionalProperties": false,
+        "description": "One citation on a related fact, resolvable to the thing itself.",
+        "properties": {
+          "evidenceId": {
+            "title": "Evidenceid",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": ["evidenceId", "source"],
+        "title": "RelatedFactSource",
+        "type": "object"
+      },
+      "RelatedPersonGroup": {
+        "additionalProperties": false,
+        "description": "One person's related work, as evidence.\n\n**No score, no rank, no relevance - not hidden: absent.** A field that\nexists gets displayed eventually, and a number between people is a ranking\nwhatever the label says (md/05 B.2.2). Groups order by most recent related\nfact, a property of the evidence. Capacity is the person's own statement,\ncarried verbatim with when they said it.",
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "string"
+          },
+          "capacityStatedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacitystatedat"
+          },
+          "displayName": {
+            "title": "Displayname",
+            "type": "string"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/RelatedFact"
+            },
+            "title": "Facts",
+            "type": "array"
+          },
+          "personId": {
+            "format": "uuid",
+            "title": "Personid",
+            "type": "string"
+          }
+        },
+        "required": ["personId", "displayName", "capacity", "facts"],
+        "title": "RelatedPersonGroup",
+        "type": "object"
+      },
+      "RelatedWorkResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/RelatedPersonGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": ["topic", "groups"],
+        "title": "RelatedWorkResponse",
+        "type": "object"
       },
       "RepositoryProgress": {
         "additionalProperties": false,
@@ -4937,7 +5116,7 @@
     },
     "/v1/internal/operations/spend": {
       "get": {
-        "description": "The process's own spend counters, and the ceiling signals.\n\nIn-process, so this is one replica's view \u2014 stated rather than implied,\nbecause a spend figure that looks global and is not is how a cost incident\ngets missed. The durable version arrives with the metrics exporter.\n\nRead from `SPEND_SIGNALS` rather than from a ledger. A ledger belongs to one\nunit of work and is discarded with it, so building a fresh one here \u2014 which\nis what this endpoint used to do \u2014 reported zero however much the process\nhad spent, and the screen could not have shown a cost incident if one had\nbeen happening while it was open.",
+        "description": "The spend counters and the ceiling signals.\n\n**The ceiling numbers are now cluster-wide, not per-replica**: enforcement\nreads and writes the durable `spend_counters` rows, so what refuses work on\nany replica is the same total this screen would show. The *signal* counters\nbelow (warnings, refusals, closest approach) remain this replica's own view\n\u2014 they count log-worthy moments, which are per-process by nature \u2014 and the\nresponse shape is unchanged so the dashboards reading it keep working.\n\nRead from `SPEND_SIGNALS` rather than from a ledger. A ledger belongs to one\nunit of work and is discarded with it, so building a fresh one here \u2014 which\nis what this endpoint used to do \u2014 reported zero however much the process\nhad spent, and the screen could not have shown a cost incident if one had\nbeen happening while it was open.",
         "operationId": "model_spend_v1_internal_operations_spend_get",
         "parameters": [
           {
@@ -7663,6 +7842,77 @@
         "tags": ["workspaces"]
       }
     },
+    "/v1/workspaces/{workspace_id}/me/capacity": {
+      "put": {
+        "description": "Self-declared capacity: the person states it, everybody sees it.\n\n**Self only, by construction rather than by a check** - the same shape as\nthe work-role endpoint above. The person is resolved from the caller's own\nsession; no parameter exists through which a target could be named, so an\nOwner with every permission still cannot set a colleague's capacity.\nNothing anywhere computes this value: availability inferred from activity\nwould be monitoring wearing a helpful face, and `PersonCapacity`'s\ndocstring records why there is no history table either.",
+        "operationId": "set_my_capacity_v1_workspaces__workspace_id__me_capacity_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapacityUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or no record to state it on."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "State your own availability, or withdraw the statement",
+        "tags": ["me"]
+      }
+    },
     "/v1/workspaces/{workspace_id}/me/identities": {
       "get": {
         "description": "The caller's own links, the caller's own proposals, and the rule.\n\n**`proposals` is not a menu of unclaimed accounts, and must never become\none.** It returns only the `PROPOSED` rows of the existing `identities`\ntable that are *already attached to the caller's own `Person`* \u2014 identifiers\nCAIRN inferred were theirs and is showing them so they can correct it.\n\nListing the workspace's *unresolved* provider accounts here is the thing\nthis whole step exists to prevent. Handing every member a list of\ncolleagues' unclaimed accounts next to a \"that's me\" button is the\nclaim-a-colleague attack served as a feature: the second person to look at\nthe list takes whatever the first has not claimed, the link is recorded as\n`SELF_CONFIRMED`, and from then on somebody else's work is in their record\nwith CAIRN's own evidence field vouching for it. The exclusive index would\nnot stop it \u2014 it only decides who gets there first. So the query is scoped\nto `Person.user_id == caller` and there is no parameter, no filter and no\nflag that widens it.\n\n**Ended links are shown.** A person is entitled to see that an account was\nonce attributed to them and no longer is \u2014 hiding it makes the record less\ncheckable at exactly the moment somebody is checking it.",
@@ -9035,6 +9285,75 @@
         },
         "summary": "Change how long raw activity is kept",
         "tags": ["administration"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/related-work": {
+      "get": {
+        "description": "See the module docstring for everything this refuses to be.\n\nThe topic is deliberately not logged: it is free text about somebody's\nwork, and the telemetry allow-list has no slot for it. The count is\nobservable; the words are not.",
+        "operationId": "find_related_work_v1_workspaces__workspace_id__related_work_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "topic",
+            "required": true,
+            "schema": {
+              "maxLength": 500,
+              "minLength": 2,
+              "title": "Topic",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelatedWorkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Find who has worked on related things, with evidence",
+        "tags": ["related-work"]
       }
     },
     "/v1/workspaces/{workspace_id}/search": {

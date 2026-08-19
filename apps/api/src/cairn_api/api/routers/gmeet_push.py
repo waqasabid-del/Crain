@@ -113,6 +113,13 @@ def install(app: FastAPI, *, prefix: str) -> None:
     `gchat_push.install`: Step 36A publishes no work. A job here would be a
     worker with a transcript resource name in its payload, which is the one thing
     this step is built not to hold.
+
+    That reasoning survived the gap being closed. Transcripts now become facts -
+    `gmeet/understanding.py`, on the worker's maintenance loop, consent
+    re-checked inside the reading transaction - and still nothing is published
+    from here, because the raw table grants the application role nothing and the
+    property above (no transcript identifier in any broker payload) holds
+    structurally when there is no payload at all.
     """
     from cairn_api.gchat.pubsub import RecentMessageIds
 

@@ -126,3 +126,123 @@ describe("the team list", () => {
     await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
   });
 });
+
+describe("self-declared capacity on the list", () => {
+  it("wears the person's own words, labelled self-reported", async () => {
+    renderPeople();
+
+    // MEMBERS in the harness: one open_to_work, one not_stated.
+    expect(await screen.findByText("Open to new work — self-reported")).toBeVisible();
+    // The column header says whose words these are before any chip does.
+    expect(
+      screen.getByRole("columnheader", { name: /availability \(self-reported\)/i }),
+    ).toBeVisible();
+  });
+
+  it("renders no chip for a person who stated nothing", async () => {
+    renderPeople();
+
+    // Absence of a declaration is not information: a dash, not a state.
+    expect(await screen.findAllByLabelText("No availability stated")).not.toHaveLength(0);
+  });
+});
+
+describe("the related-work finder", () => {
+  const RESULTS = {
+    topic: "rate limiting",
+    groups: [
+      {
+        personId: "22222222-2222-2222-2222-222222222222",
+        displayName: "Priya Nair",
+        capacity: "open_to_work",
+        capacityStatedAt: "2026-08-18T09:00:00Z",
+        facts: [
+          {
+            statement: "Priya shipped rate limiting to the public API.",
+            certainty: "verified",
+            occurredAt: "2026-08-14T09:30:00Z",
+            sources: [
+              {
+                evidenceId: "github:commit:a1b2c3",
+                source: "github",
+                url: "https://github.com/acme/api/commit/a1b2c3",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("shows evidence cards grouped by person, with no score anywhere", async () => {
+    const findRelatedWork = vi.fn(() => Promise.resolve(RESULTS));
+    const { container } = renderPeople(client({ findRelatedWork }));
+    const user = (await import("@testing-library/user-event")).default.setup();
+
+    await user.type(
+      await screen.findByLabelText(/task or topic to find related work/i),
+      "rate limiting",
+    );
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(await screen.findByText("Priya Nair")).toBeVisible();
+    expect(screen.getByText("Priya shipped rate limiting to the public API.")).toBeVisible();
+    expect(screen.getByRole("link", { name: /github:commit:a1b2c3/i })).toHaveAttribute(
+      "href",
+      "https://github.com/acme/api/commit/a1b2c3",
+    );
+    // The ordering statement is on the screen in words, because the order is
+    // a property of the evidence and the reader deserves to know the rule -
+    // worded without ranking vocabulary, because the page's own guard test
+    // (correctly) rejects even a negated "no scores" on this screen.
+    expect(screen.getByText(/newest related work first/i)).toBeVisible();
+    // No score, no percentage, no rank - asserted over the whole rendered
+    // output, so a "93% match" can never sneak in through any child.
+    expect(container.textContent).not.toMatch(/\d+\s*%/);
+    expect(container.textContent.toLowerCase()).not.toContain("match strength");
+    expect(findRelatedWork).toHaveBeenCalledWith(
+      "22222222-2222-2222-2222-222222222222",
+      "rate limiting",
+    );
+  });
+
+  it("says that absence is not a fact about anyone", async () => {
+    const findRelatedWork = vi.fn(() => Promise.resolve({ topic: "x", groups: [] }));
+    renderPeople(client({ findRelatedWork }));
+    const user = (await import("@testing-library/user-event")).default.setup();
+
+    await user.type(await screen.findByLabelText(/task or topic to find related work/i), "quantum");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(await screen.findByText(/absence here is not a fact about anyone/i)).toBeVisible();
+  });
+
+  it("reports a failed search without inventing anything", async () => {
+    const findRelatedWork = vi.fn(() => Promise.reject(new Error("offline")));
+    renderPeople(client({ findRelatedWork }));
+    const user = (await import("@testing-library/user-event")).default.setup();
+
+    await user.type(
+      await screen.findByLabelText(/task or topic to find related work/i),
+      "rate limiting",
+    );
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(await screen.findByRole("alert")).toBeVisible();
+  });
+
+  it("has no accessibility violations with results shown", async () => {
+    const findRelatedWork = vi.fn(() => Promise.resolve(RESULTS));
+    const { container } = renderPeople(client({ findRelatedWork }));
+    const user = (await import("@testing-library/user-event")).default.setup();
+
+    await user.type(
+      await screen.findByLabelText(/task or topic to find related work/i),
+      "rate limiting",
+    );
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByText("Priya Nair");
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+  });
+});

@@ -10,6 +10,7 @@ import { useAuth } from "../auth/context.js";
 import { recordLeadFor } from "../roles.js";
 import type { Fact } from "../brief/types.js";
 import { AttributionNote } from "../components/ClaimList.js";
+import { CapacityControl } from "../components/CapacityControl.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { describeError, type DescribedError } from "../errors.js";
@@ -87,7 +88,13 @@ function WorkspaceWeek({ workspaceId }: { workspaceId: string }): ReactNode {
       )}
 
       {state.status === "ready" && (
-        <MyFacts workspaceId={workspaceId} facts={state.data.items ?? []} onChanged={reload} />
+        <>
+          <MyFacts workspaceId={workspaceId} facts={state.data.items ?? []} onChanged={reload} />
+          {/* On the person's own record because it IS their record: a
+            statement they make about themselves, beside the facts they can
+            correct. Nowhere else offers a control that writes it. */}
+          <CapacityControl workspaceId={workspaceId} />
+        </>
       )}
     </>
   );

@@ -525,3 +525,48 @@ class TestTheNarrativeDoesNotLeakIdentifiers:
         """Stripping everything leaves nothing to say, and an empty narrative
         must fall back rather than render as a blank screen."""
         assert self._brief("a4956a67-7998-4422-a12b-ddd66d436503") == ""
+
+
+class TestTheClaimBudgetIsExplicit:
+    """The editorial lottery: forty candidates, "a short brief", ~6 claims of
+    the model's choosing. Six consecutive generations missed the newest commit
+    while repeating the same vivid stories, because nothing said how many
+    claims to write or what must not be omitted."""
+
+    def test_the_target_scales_with_candidates(self) -> None:
+        from cairn_api.pipeline.synthesize import claim_target
+
+        assert claim_target(3) == 4, "a quiet day is floored, not padded"
+        assert claim_target(12) == 4
+        assert claim_target(24) == 8
+        assert claim_target(40) == 14, "a dense week gets coverage, not six"
+
+    def test_the_target_never_exceeds_what_could_be_cited(self) -> None:
+        from cairn_api.pipeline.synthesize import MAX_FACTS, claim_target
+
+        assert claim_target(10_000) <= 15 < MAX_FACTS
+
+    def test_the_instruction_names_the_three_sections(self) -> None:
+        """The screen groups claims by certainty into Shipped / In motion /
+        Worth a look (md/05 A.2.2). A model that does not know the sections
+        exist can spend every claim on one of them, hiding the hedged tiers -
+        which are where correction happens."""
+        from cairn_api.pipeline.synthesize import INSTRUCTION
+
+        for section in ("Shipped", "In motion", "Worth a look"):
+            assert section in INSTRUCTION
+        assert "Cover every tier" in INSTRUCTION
+
+    async def test_the_built_request_carries_the_computed_budget(self) -> None:
+        """Stated per-request, from the actual candidate count - a constant in
+        the instruction would drift from what was retrieved."""
+        from cairn_api.pipeline.provider import ScriptedProvider
+        from cairn_api.pipeline.synthesize import synthesize
+
+        provider = ScriptedProvider(default='{"narrative": "", "claims": []}')
+        facts = [fact(statement=f"Delivered change number {i}.") for i in range(24)]
+        await synthesize(provider, facts=facts)
+
+        request = provider.calls[-1]
+        assert "There are 24 facts" in request.instruction
+        assert "about 8 claims" in request.instruction

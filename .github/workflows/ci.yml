@@ -225,6 +225,18 @@ jobs:
             sleep 1
           done
 
+      - name: Start the audit sink
+        # The second trust domain, as a real second instance. The sink suite
+        # fails loudly in CI when this is missing rather than skipping - a
+        # silently skipped test on the control that guards the audit record
+        # would be the exact false green the mirror exists to prevent.
+        run: |
+          docker run -d --name audit-sink -p 5433:5432             -e POSTGRES_USER=audit_owner -e POSTGRES_PASSWORD=audit_owner_local_dev             -e POSTGRES_DB=cairn_audit             -v $PWD/infra/audit-sink-init.sql:/docker-entrypoint-initdb.d/init.sql:ro             pgvector/pgvector:pg16
+          for _ in $(seq 1 30); do
+            docker exec audit-sink pg_isready -U audit_owner -d cairn_audit && break
+            sleep 1
+          done
+
       - name: Create test databases
         run: |
           export PGPASSWORD=cairn_local_dev
@@ -365,6 +377,20 @@ jobs:
         # (apps/web/e2e/tsconfig.json) with the same strictness.
         run: pnpm --filter @cairn/web exec tsc --noEmit -p e2e/tsconfig.json
 
+      - name: Start the mail sink
+        # The mail journeys assert against Mailpit's API and follow links out
+        # of real captured messages - the layer that caught /verify 404ing in
+        # every inbox. A step rather than a service for the same reason as the
+        # Pub/Sub emulator above it in the Python job: the harness expects it
+        # on fixed ports and a missing sink must fail the journey loudly, not
+        # skip it.
+        run: |
+          docker run -d --name mailpit -p 1025:1025 -p 8025:8025             -e MP_SMTP_AUTH_ACCEPT_ANY=1 -e MP_SMTP_AUTH_ALLOW_INSECURE=1             axllent/mailpit:v1.21
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:8025/api/v1/messages && break
+            sleep 1
+          done
+
       - name: Install the browser
         # Chromium only, matching the single project in playwright.config.ts.
         # `--with-deps` installs the system libraries the runner image lacks.
@@ -460,6 +486,11 @@ jobs:
     permissions:
       contents: read
       security-events: write
+      # gitleaks-action lists the PR's commits through the API on pull_request
+      # events; without this it dies with 'Resource not accessible by
+      # integration' before scanning anything - a failure that reads as a leak
+      # and is actually a 403.
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:

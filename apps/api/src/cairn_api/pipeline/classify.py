@@ -54,9 +54,13 @@ Classify the activity in the data block into exactly one of:
 
   substantive - work delivered, a decision taken, a blocker raised, or a
                 question asked that someone is waiting on
-  routine     - real activity carrying no narrative content: typo fixes,
-                formatting, merge commits, dependency lock updates
-  automated   - produced by a bot or automation rather than a person
+  routine     - mechanical noise only: typo fixes, formatting, merge commits,
+                dependency lock updates. A person's real activity is never
+                routine, however small - one draft pull request, one question,
+                one reported slip is a week someone is entitled to see recorded
+  automated   - produced by a bot or automation acting alone. A person
+                reviewing, merging or building on a bot's work is substantive -
+                the person's judgement is the activity, and the bot is context
 
 Judge the block by its most substantive line, not by its noisiest one. A block
 is "routine" or "automated" only when *everything* in it is. If one line in it

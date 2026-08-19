@@ -272,7 +272,19 @@ class TestAuthorisation:
 
         assert response.status_code == 200
         fields = set(response.json()[0])
-        assert fields == {"userId", "email", "displayName", "role", "joinedAt"}
+        # `capacity` and `capacityStatedAt` joined 2026-08-19: the person's own
+        # statement about availability, symmetric by design - every role sees
+        # the same two fields carrying the same self-reported words. Anything
+        # else appearing here is still the defect this guard exists for.
+        assert fields == {
+            "userId",
+            "email",
+            "displayName",
+            "role",
+            "joinedAt",
+            "capacity",
+            "capacityStatedAt",
+        }
 
 
 class TestInvitationFlow:

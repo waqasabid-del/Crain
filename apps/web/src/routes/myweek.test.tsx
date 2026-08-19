@@ -366,3 +366,28 @@ describe("the shell", () => {
     expect(within(nav).getByRole("link", { name: /your record/i })).toHaveAttribute("href", "/me");
   });
 });
+
+describe("self-declared capacity", () => {
+  it("states the contract and saves only on the explicit act", async () => {
+    const setMyCapacity = vi.fn(() =>
+      Promise.resolve({ capacity: "open_to_work", capacityStatedAt: "2026-08-19T10:00:00Z" }),
+    );
+    render(client({ setMyCapacity }));
+    const user = userEvent.setup();
+
+    // The contract in plain English, on the control itself: who sees it, who
+    // sets it, and that CAIRN never fills it in.
+    expect(await screen.findByText(/only you can set it/i)).toBeVisible();
+    expect(screen.getByText(/never fills it in from your activity/i)).toBeVisible();
+
+    // Choosing does not save - a statement about yourself deserves a
+    // deliberate act, and a radio that saves on focus travel publishes a
+    // misclick to the whole team.
+    await user.click(screen.getByRole("radio", { name: "Open to new work" }));
+    expect(setMyCapacity).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(setMyCapacity).toHaveBeenCalledWith(expect.any(String), "open_to_work");
+    expect(await screen.findByText(/visible to your workspace as self-reported/i)).toBeVisible();
+  });
+});

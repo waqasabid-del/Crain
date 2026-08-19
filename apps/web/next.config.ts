@@ -19,6 +19,20 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
+  /**
+   * A build directory the caller can move.
+   *
+   * `NEXT_PUBLIC_*` values are inlined into compiled chunks, and the compiled
+   * chunks live in this directory. So a dev server started with one API origin
+   * leaves a cache that a differently-configured server can serve back — and
+   * the browser then calls an API nobody pointed it at.
+   *
+   * The browser suite sets this (see `playwright.config.ts`) so its server can
+   * never share a cache with the dev server a developer is already running.
+   * Unset, it is Next's default and nothing changes.
+   */
+  distDir: process.env["NEXT_DIST_DIR"] ?? ".next",
+
   // Fail the build on a type error rather than shipping one. The default is
   // already this; it is written down because the escape hatch
   // (`ignoreBuildErrors`) is exactly the kind of thing that gets added at 2am

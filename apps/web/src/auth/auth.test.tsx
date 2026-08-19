@@ -83,7 +83,15 @@ describe("the session check", () => {
       .fn<() => Promise<typeof SESSION | null>>()
       .mockRejectedValueOnce(apiError(503))
       .mockResolvedValueOnce(SESSION);
-    const client = createStubClient({ getSession });
+    // The brief stays pending on purpose. Once the session recovers, the shell
+    // mounts the protected screen, and an unstubbed getBrief rejects into a
+    // SECOND alert that races the generic queryByRole("alert") below - green
+    // or red depending on machine speed, which is how this passed locally and
+    // failed in CI. This test is about the session check, not the brief.
+    const client = createStubClient({
+      getSession,
+      getBrief: vi.fn(() => new Promise<never>(() => undefined)),
+    });
 
     renderRoute(protectedScreen(), { client, route: "/" });
     await userEvent.click(await screen.findByRole("button", { name: /try again/i }));

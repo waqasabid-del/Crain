@@ -161,6 +161,12 @@ class MembershipResponse(ApiModel):
     role: TenantRole
     joined_at: datetime
 
+    #: The person's own statement about availability, shown identically to
+    #: every role. "not_stated" for a member with no person record yet - the
+    #: absence of a declaration, never an inference.
+    capacity: str = "not_stated"
+    capacity_stated_at: datetime | None = None
+
 
 class SessionResponse(ApiModel):
     """Who the caller is, and where they can go."""
@@ -1358,6 +1364,56 @@ class SourceConsent(ApiModel):
     #: activity" is the sentence that makes people opt out (md/11 §4.1).
     reads: str
     opted_out: bool
+
+
+class RelatedFactSource(ApiModel):
+    """One citation on a related fact, resolvable to the thing itself."""
+
+    evidence_id: str
+    source: str
+    url: str | None = None
+
+
+class RelatedFact(ApiModel):
+    """One piece of evidence: a fact, its certainty tier, its citations."""
+
+    statement: str
+    certainty: str
+    occurred_at: datetime | None = None
+    sources: list[RelatedFactSource]
+
+
+class RelatedPersonGroup(ApiModel):
+    """One person's related work, as evidence.
+
+    **No score, no rank, no relevance - not hidden: absent.** A field that
+    exists gets displayed eventually, and a number between people is a ranking
+    whatever the label says (md/05 B.2.2). Groups order by most recent related
+    fact, a property of the evidence. Capacity is the person's own statement,
+    carried verbatim with when they said it.
+    """
+
+    person_id: uuid.UUID
+    display_name: str
+    capacity: str
+    capacity_stated_at: datetime | None = None
+    facts: list[RelatedFact]
+
+
+class RelatedWorkResponse(ApiModel):
+    topic: str
+    groups: list[RelatedPersonGroup]
+
+
+class CapacityUpdate(ApiModel):
+    """The person's own statement about their availability. Only theirs."""
+
+    capacity: str = Field(pattern="^(open_to_work|at_capacity|not_stated)$")
+
+
+class CapacityResponse(ApiModel):
+    capacity: str
+    capacity_stated_at: datetime | None = None
 
 
 class ConsentResponse(ApiModel):

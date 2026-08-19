@@ -284,7 +284,19 @@ class TestARoleIsNotAPermission:
         assert listed.status_code == 200, listed.text
         assert "designer" not in listed.text
         for entry in listed.json():
-            assert set(entry) == {"userId", "email", "displayName", "role", "joinedAt"}
+            # Capacity is the one self-description that IS on the list - by
+            # design, not by leak: it is shown identically to every role, set
+            # only by its owner, and the work role stays off precisely because
+            # it never got that contract.
+            assert set(entry) == {
+                "userId",
+                "email",
+                "displayName",
+                "role",
+                "joinedAt",
+                "capacity",
+                "capacityStatedAt",
+            }
 
     async def test_nobody_can_set_somebody_else_s_role(
         self, app: FastAPI, platform: AsyncSession

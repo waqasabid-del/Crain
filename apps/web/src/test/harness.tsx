@@ -35,6 +35,7 @@ export const MEMBERS: Member[] = [
     email: "ali@example.com",
     displayName: "Ali Rahman",
     role: "owner",
+    capacity: "not_stated",
     joinedAt: "2026-01-04T09:00:00Z",
   },
   {
@@ -42,6 +43,8 @@ export const MEMBERS: Member[] = [
     email: "jo@example.com",
     displayName: null,
     role: "member",
+    capacity: "open_to_work",
+    capacityStatedAt: "2026-08-18T09:00:00Z",
     joinedAt: "2026-03-19T09:00:00Z",
   },
 ];
@@ -60,6 +63,9 @@ export function createStubClient(overrides: Partial<CairnClient> = {}): CairnCli
   return {
     signUp: vi.fn(unexpected("signUp")),
     logIn: vi.fn(unexpected("logIn")),
+    verifyEmail: vi.fn(unexpected("verifyEmail")),
+    findRelatedWork: vi.fn(unexpected("findRelatedWork")),
+    setMyCapacity: vi.fn(unexpected("setMyCapacity")),
     getSession: vi.fn(() => Promise.resolve(null)),
     logOut: vi.fn(() => Promise.resolve()),
     logOutEverywhere: vi.fn(unexpected("logOutEverywhere")),

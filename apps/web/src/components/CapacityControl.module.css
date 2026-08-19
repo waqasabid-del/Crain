@@ -1,0 +1,81 @@
+.control {
+  margin-top: 2rem;
+  max-width: var(--prose-max-width);
+}
+
+.fieldset {
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.2rem 1.1rem;
+}
+
+.legend {
+  font-weight: var(--weight-medium);
+  padding: 0 0.3rem;
+}
+
+.copy {
+  margin: 0.2rem 0 0.8rem;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.option input:focus-visible {
+  outline: 2px solid var(--fg-default);
+  outline-offset: 2px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.save {
+  padding: 0.45rem 1rem;
+  border: var(--border-thin) solid var(--fg-default);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.save:focus-visible {
+  outline: 2px solid var(--fg-default);
+  outline-offset: 2px;
+}
+
+.outcome {
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

@@ -18,6 +18,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from cairn_api.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 
+def _enum_values(enum_type: type[enum.StrEnum]) -> list[str]:
+    return [member.value for member in enum_type]
+
+
 class PersonKind(enum.StrEnum):
     """Bots get records too: retained as context, excluded from attribution."""
 
@@ -49,6 +53,22 @@ class IdentityStatus(enum.StrEnum):
     REJECTED = "rejected"
 
 
+class PersonCapacity(enum.StrEnum):
+    """What a person says about their own availability. Self-declared only.
+
+    Nobody infers this, computes it, or sets it for somebody else - the one
+    write path is the owner-of-record endpoint, and a test greps that this
+    stays true. There is deliberately NO history table behind it: a capacity
+    timeline is a monitoring log wearing a scarf, and "current state, stated by
+    the person, with when they said it" is the entire schema so that nothing
+    can be trended, compared, or reviewed later.
+    """
+
+    OPEN_TO_WORK = "open_to_work"
+    AT_CAPACITY = "at_capacity"
+    NOT_STATED = "not_stated"
+
+
 class Person(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """A contributor within one workspace."""
 
@@ -67,6 +87,21 @@ class Person(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Enum(PersonKind, name="person_kind", values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=PersonKind.HUMAN,
+    )
+
+    #: Self-declared availability. See `PersonCapacity` - the docstring there
+    #: is load-bearing, especially the sentence about the history table that
+    #: does not exist.
+    capacity: Mapped[PersonCapacity] = mapped_column(
+        Enum(PersonCapacity, native_enum=False, length=16, values_callable=_enum_values),
+        nullable=False,
+        default=PersonCapacity.NOT_STATED,
+        server_default=PersonCapacity.NOT_STATED.value,
+    )
+
+    #: When the person themselves stated it. Null while `not_stated`.
+    capacity_stated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     user_id: Mapped[uuid.UUID | None] = mapped_column(

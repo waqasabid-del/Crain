@@ -35,6 +35,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cairn_api.api.dependencies import CurrentMembership, TenantDb, WorkspaceContext, requires
 from cairn_api.api.errors import ProblemDetailError
 from cairn_api.api.schemas import (
+    CapacityResponse,
+    CapacityUpdate,
     ConsentResponse,
     ConsentUpdate,
     ConsentUpdateResponse,
@@ -49,7 +51,7 @@ from cairn_api.api.schemas import (
 from cairn_api.auth.permissions import Permission
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.fact_models import FactPerson
-from cairn_api.db.identity_models import Person
+from cairn_api.db.identity_models import Person, PersonCapacity
 from cairn_api.pipeline import consent
 from cairn_api.pipeline.corrections import CorrectionError, CorrectionKind, apply_correction
 
@@ -273,6 +275,72 @@ REFUSALS: tuple[str, ...] = (
     "Your record is yours: you can correct anything in it, and opt out of any source.",
     "Everyone in your workspace sees the same things about you that you see.",
 )
+
+
+async def apply_capacity(person: Person, capacity: PersonCapacity) -> None:
+    """The one place `capacity_stated_at` is ever assigned.
+
+    A test greps the codebase for a second writer; if you are adding one, you
+    are either computing capacity (which CAIRN never does - the person states
+    it) or overriding somebody's self-description (which no role may do).
+    """
+    from datetime import UTC, datetime
+
+    from cairn_api.db.identity_models import PersonCapacity as Capacity
+
+    person.capacity = capacity
+    person.capacity_stated_at = None if capacity is Capacity.NOT_STATED else datetime.now(UTC)
+
+
+@router.put(
+    "/{workspace_id}/me/capacity",
+    response_model=CapacityResponse,
+    summary="State your own availability, or withdraw the statement",
+    responses={
+        404: {"description": "No such workspace, or no record to state it on."},
+    },
+)
+async def set_my_capacity(
+    body: CapacityUpdate, context: CurrentMembership, db: TenantDb
+) -> CapacityResponse:
+    """Self-declared capacity: the person states it, everybody sees it.
+
+    **Self only, by construction rather than by a check** - the same shape as
+    the work-role endpoint above. The person is resolved from the caller's own
+    session; no parameter exists through which a target could be named, so an
+    Owner with every permission still cannot set a colleague's capacity.
+    Nothing anywhere computes this value: availability inferred from activity
+    would be monitoring wearing a helpful face, and `PersonCapacity`'s
+    docstring records why there is no history table either.
+    """
+    person = await _person_for(db, context)
+    if person is None:
+        raise ProblemDetailError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            title="No record yet",
+            detail=(
+                "Capacity lives on your record, and this workspace has not "
+                "created one for you yet - it appears with your first "
+                "attributed activity or identity confirmation."
+            ),
+            problem_type="no-person-record",
+        )
+
+    await apply_capacity(person, PersonCapacity(body.capacity))
+    await db.commit()
+
+    await logger.ainfo(
+        "capacity.stated",
+        tenant_id=str(context.tenant_id),
+        # The value is deliberately not logged: it is a statement about a
+        # person, and the log store holds ids and counts only.
+    )
+    return CapacityResponse(
+        capacity=person.capacity.value
+        if hasattr(person.capacity, "value")
+        else str(person.capacity),
+        capacity_stated_at=person.capacity_stated_at,
+    )
 
 
 @router.get(

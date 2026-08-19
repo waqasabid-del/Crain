@@ -1626,6 +1626,34 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/workspaces/{workspace_id}/me/capacity": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * State your own availability, or withdraw the statement
+     * @description Self-declared capacity: the person states it, everybody sees it.
+     *
+     *     **Self only, by construction rather than by a check** - the same shape as
+     *     the work-role endpoint above. The person is resolved from the caller's own
+     *     session; no parameter exists through which a target could be named, so an
+     *     Owner with every permission still cannot set a colleague's capacity.
+     *     Nothing anywhere computes this value: availability inferred from activity
+     *     would be monitoring wearing a helpful face, and `PersonCapacity`'s
+     *     docstring records why there is no history table either.
+     */
+    put: operations["set_my_capacity_v1_workspaces__workspace_id__me_capacity_put"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/workspaces/{workspace_id}/me/identities": {
     parameters: {
       query?: never;
@@ -2167,6 +2195,30 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/workspaces/{workspace_id}/related-work": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Find who has worked on related things, with evidence
+     * @description See the module docstring for everything this refuses to be.
+     *
+     *     The topic is deliberately not logged: it is free text about somebody's
+     *     work, and the telemetry allow-list has no slot for it. The count is
+     *     observable; the words are not.
+     */
+    get: operations["find_related_work_v1_workspaces__workspace_id__related_work_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/workspaces/{workspace_id}/search": {
     parameters: {
       query?: never;
@@ -2511,6 +2563,21 @@ export interface components {
        * Format: date-time
        */
       periodStart: string;
+    };
+    /** CapacityResponse */
+    CapacityResponse: {
+      /** Capacity */
+      capacity: string;
+      /** Capacitystatedat */
+      capacityStatedAt?: string | null;
+    };
+    /**
+     * CapacityUpdate
+     * @description The person's own statement about their availability. Only theirs.
+     */
+    CapacityUpdate: {
+      /** Capacity */
+      capacity: string;
     };
     /**
      * CaptureState
@@ -3504,6 +3571,13 @@ export interface components {
      *     where a visibility field would first appear.
      */
     MembershipResponse: {
+      /**
+       * Capacity
+       * @default not_stated
+       */
+      capacity: string;
+      /** Capacitystatedat */
+      capacityStatedAt?: string | null;
       /** Displayname */
       displayName: string | null;
       /**
@@ -3835,6 +3909,64 @@ export interface components {
      * @enum {string}
      */
     Region: "us-central1" | "europe-west1";
+    /**
+     * RelatedFact
+     * @description One piece of evidence: a fact, its certainty tier, its citations.
+     */
+    RelatedFact: {
+      /** Certainty */
+      certainty: string;
+      /** Occurredat */
+      occurredAt?: string | null;
+      /** Sources */
+      sources: components["schemas"]["RelatedFactSource"][];
+      /** Statement */
+      statement: string;
+    };
+    /**
+     * RelatedFactSource
+     * @description One citation on a related fact, resolvable to the thing itself.
+     */
+    RelatedFactSource: {
+      /** Evidenceid */
+      evidenceId: string;
+      /** Source */
+      source: string;
+      /** Url */
+      url?: string | null;
+    };
+    /**
+     * RelatedPersonGroup
+     * @description One person's related work, as evidence.
+     *
+     *     **No score, no rank, no relevance - not hidden: absent.** A field that
+     *     exists gets displayed eventually, and a number between people is a ranking
+     *     whatever the label says (md/05 B.2.2). Groups order by most recent related
+     *     fact, a property of the evidence. Capacity is the person's own statement,
+     *     carried verbatim with when they said it.
+     */
+    RelatedPersonGroup: {
+      /** Capacity */
+      capacity: string;
+      /** Capacitystatedat */
+      capacityStatedAt?: string | null;
+      /** Displayname */
+      displayName: string;
+      /** Facts */
+      facts: components["schemas"]["RelatedFact"][];
+      /**
+       * Personid
+       * Format: uuid
+       */
+      personId: string;
+    };
+    /** RelatedWorkResponse */
+    RelatedWorkResponse: {
+      /** Groups */
+      groups: components["schemas"]["RelatedPersonGroup"][];
+      /** Topic */
+      topic: string;
+    };
     /**
      * RepositoryProgress
      * @description One repository's import, as the onboarding screen shows it.
@@ -6994,6 +7126,50 @@ export interface operations {
       };
     };
   };
+  set_my_capacity_v1_workspaces__workspace_id__me_capacity_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CapacityUpdate"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CapacityResponse"];
+        };
+      };
+      /** @description No such workspace, or no record to state it on. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   my_identities_v1_workspaces__workspace_id__me_identities_get: {
     parameters: {
       query?: never;
@@ -7896,6 +8072,41 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  find_related_work_v1_workspaces__workspace_id__related_work_get: {
+    parameters: {
+      query: {
+        topic: string;
+      };
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RelatedWorkResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
       };
     };
   };

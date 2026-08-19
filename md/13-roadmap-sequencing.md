@@ -134,6 +134,15 @@ The original proposal's nine-month structure holds. This adds the technical depe
 
 ---
 
+### Follow-up: tests that pass alone and time out under parallel load
+
+Observed twice (`welcome.test.tsx`, `test_pipeline_performance.py`), both on a developer machine
+running the API, a worker, Playwright and Docker at once. Vitest is already capped at four workers
+with the reasoning written in `vitest.config.ts`; the Playwright suite runs one worker by design.
+The remaining contention is machine-level - several full stacks at once - not a config setting, so
+no change was made. If CI ever shows the same shape, that is the moment to revisit; until then,
+re-running a lone timeout in isolation is the check.
+
 ## 5. Sequencing risks
 
 | Risk                                   | Consequence                                                | Control                          |

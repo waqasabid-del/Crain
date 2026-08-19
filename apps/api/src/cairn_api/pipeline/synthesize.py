@@ -22,9 +22,35 @@ logger = structlog.get_logger(__name__)
 
 MAX_FACTS = 40  # item ceiling, on top of retrieval's token budget (md/09 §4.2)
 
+
+def claim_target(fact_count: int) -> int:
+    """How many claims a brief over `fact_count` facts should aim for.
+
+    **The editorial lottery existed because the budget was one adjective.** The
+    instruction said "a short brief" and nothing else, so forty candidates
+    compressed to however many claims the model felt like - about six - and
+    which six was luck. Six generations in a row missed the newest commit while
+    repeating the same vivid mid-week stories.
+
+    Scaled, not fixed: one claim per three facts keeps a quiet day's brief from
+    padding and a dense week's from starving, floored so a brief never dwindles
+    to a headline and capped well inside `MAX_FACTS` so the target can always be
+    met from what was retrieved. A target, stated to the model as one - the
+    gates still drop what fails them, and a short honest brief still beats a
+    padded one.
+    """
+    return max(4, min(15, -(-fact_count // 3)))
+
+
 INSTRUCTION = """\
 Write a short brief for a founder about their team's week, using only the facts
 listed in the data block.
+
+The reader sees three sections, split by the certainty on each claim - facts
+marked "verified" appear under **Shipped**, "observed" under **In motion**,
+"suggested" under **Worth a look** (md/05 A.2.2). Cover every tier that has
+facts: a brief that spends all its claims on one tier hides the other two
+sections entirely, and the hedged tiers are where correction happens.
 
 Rules:
 - Every claim must reference the fact ids it comes from. Reference only ids in
@@ -35,17 +61,32 @@ Rules:
   "suggested" must be written with explicit hedging — "it sounded like", "it
   appears that". Facts marked "verified" are stated plainly.
 - Blockers and open questions matter more to the reader than volume of activity.
+- **The facts are listed newest first, and the newest are the news.** Work top
+  to bottom: your first claim comes from the first fact, and when the budget
+  runs out it is the tail - the oldest facts - that goes unwritten. A brief
+  that repeats last week and omits yesterday is stale on arrival, which is the
+  one failure a daily brief cannot survive.
 - **"There is not enough here to write a brief" is a correct and expected
-  answer, not a failure.** A week with nothing in it, or with only material too
-  vague to attribute, should produce no claims at all. Reply with an empty
-  claims list and say so in the narrative.
+  answer, not a failure.** A week with nothing in it should produce no claims at
+  all - reply with an empty claims list and say so in the narrative. But this is
+  about *empty weeks*, not modest ones: if even one fact records something that
+  happened, write the claim for it.
 - **Inventing a claim is the worst thing you can do here** — worse than saying
   nothing, and worse than an incomplete brief. A reader who is told nothing
   happened can go and look; a reader given a plausible sentence about something
   that did not happen cannot.
-- Do not write a claim about who said or did something when the data block does
-  not name them. "Someone", "a team member" or "the team" as the actor means
-  there is no claim to make.
+- When the data block does not name who did something, **write the claim without
+  a person in it** - "the billing migration may slip" is a real claim even when
+  nobody knows who said it. Drop the *who*, never the *what*.
+- The line is between something *happening* and somebody *musing*. A reported
+  event, outcome or slip is a claim even unattributed. A floated thought from
+  nobody in particular - "we should probably...", "maybe we ought to" - is not
+  an event and gets no claim: writing it up would put a stray remark on the
+  record as if the team had decided it.
+- **Use the facts' own words for names of things.** Write "PR #312" if the fact
+  says "PR #312" - not "a pull request". Every claim is checked word-by-word
+  against its cited facts, and a synonym or expansion reads as an invention and
+  is dropped.
 
 Reply with JSON only:
 {"narrative": "...", "claims": [{"text": "...", "fact_ids": ["..."],
@@ -96,12 +137,27 @@ async def synthesize(
             )
 
         usable = facts[: max_facts if max_facts is not None else MAX_FACTS]
+        # Newest first, in code rather than in prose. The instruction used to
+        # say "work from the end" over an oldest-first list, and the model
+        # reliably ignored it: across twelve generations the same vivid
+        # mid-list fact opened every brief while the newest commit went
+        # unwritten. Salience beats a traversal instruction; primacy beats
+        # salience. Undated facts sort last - they cannot compete on recency.
+        dated = sorted(
+            (fact for fact in usable if fact.occurred_at is not None),
+            key=lambda fact: fact.occurred_at,  # type: ignore[arg-type,return-value]
+            reverse=True,
+        )
+        usable = dated + [fact for fact in usable if fact.occurred_at is None]
         by_id = {fact.id: fact for fact in usable}
 
-        request = prompts.build(
-            INSTRUCTION.replace("their team's week", f"their team's {period}"),
-            _render(usable),
+        instruction = INSTRUCTION.replace("their team's week", f"their team's {period}")
+        # The budget, made explicit and scaled to what arrived. See `claim_target`.
+        instruction += (
+            f"\nThere are {len(usable)} facts. Aim for about {claim_target(len(usable))} "
+            "claims. When trimming, drop the oldest first - the newest facts are the news."
         )
+        request = prompts.build(instruction, _render(usable))
 
         try:
             response = await provider.complete(request)

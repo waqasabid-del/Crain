@@ -136,6 +136,16 @@ incident is gone. For a nightly dump, the worst case is twenty-four hours of
 lost work — for CAIRN that means facts, briefs, corrections and consent
 decisions a customer made and would have to make again.
 
+**It does not cover the audit sink, which is now a second thing to lose.** The
+mirror (`cairn-audit-sink`, `internal_audit_mirror`) exists precisely so the
+primary's backups and the audit record do not share a fate - which means this
+script's dump does not include it, and a sink nobody backs up is a second copy
+only until its disk dies. Its restore story is deliberately simple: an intact
+primary rebuilds the mirror in one shipping pass, so the case a sink backup
+protects against is the double failure (primary tampered AND sink lost). Until
+the sink has its own dump, that double failure falls back to single-domain
+tamper-evidence - worth a line in an incident report, not a silent assumption.
+
 **It does not cover anything outside PostgreSQL.** Not the Pub/Sub backlog, not
 in-flight jobs, not the model provider's state, not secrets. A restored database
 plus an empty queue is a system that has forgotten every job that was waiting.

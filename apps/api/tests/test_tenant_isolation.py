@@ -448,6 +448,15 @@ class TestRowLevelSecurity:
             # to one usefully.
             "google_meet_subscriptions": {"SELECT"},
             "google_meet_artifact_signals": {"SELECT"},
+            # -- Durable spend counters -----------------------------------
+            #
+            # SELECT, INSERT, UPDATE and **no DELETE**: a spend row is billing
+            # evidence, and the retention question (when may an old period's
+            # row go) belongs to the retention sweep, not to a privilege the
+            # application role holds ambiently. The reservation path upserts
+            # (INSERT + UPDATE) and the operations read SELECTs; nothing in
+            # the product ever un-counts a call.
+            "spend_counters": {"SELECT", "INSERT", "UPDATE"},
             # -- Google Meet transcript retrieval (Step 36B) ----------------
             #
             # SELECT only on both, and **no entry at all** for

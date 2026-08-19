@@ -60,7 +60,10 @@ export default defineConfig({
       command: `uv run uvicorn --factory cairn_api.api:create_app --port ${String(API_PORT)}`,
       url: `${API_ORIGIN}/healthz`,
       cwd: "../..",
-      reuseExistingServer: !process.env["CI"],
+      // **Never reuse.** See the web server below: the same argument applies
+      // here, and an API started by hand is one started with whatever backend,
+      // database and CORS origins that shell happened to hold.
+      reuseExistingServer: false,
       timeout: 120_000,
       stdout: "pipe",
       stderr: "pipe",
@@ -72,18 +75,70 @@ export default defineConfig({
         // pydantic-settings parses a tuple-typed field as JSON at the source
         // level, before any `mode="before"` validator is reached.
         CAIRN_CORS_ALLOWED_ORIGINS: JSON.stringify([WEB_ORIGIN]),
+        // The real sender, into the local sink. Not the console backend: a
+        // message written to a log is a message nobody clicked, which is how a
+        // verification link pointing at a route that did not exist survived.
+        CAIRN_EMAIL_BACKEND: "smtp",
+        CAIRN_SMTP_HOST: "localhost",
+        CAIRN_SMTP_PORT: "1025",
+        // The links in captured mail have to point at the app these tests
+        // drive, not at the developer's own dev server on 3000.
+        CAIRN_PUBLIC_APP_URL: WEB_ORIGIN,
       },
     },
     {
-      command: `pnpm exec next dev --port ${String(WEB_PORT)}`,
+      /*
+       * A production build, then serve it — not `next dev`.
+       *
+       * Dev mode compiles each route on its first request, at 60-120 seconds a
+       * route on this codebase, billed to whichever test happens to touch the
+       * route first. That made journeys fail on a timeout when run as a suite
+       * and pass alone — the exact "flaky" shape that erodes trust in the whole
+       * layer. One build up front costs about ninety seconds, is paid once, and
+       * serves every route in milliseconds; it is also what a deployment runs,
+       * where dev mode is a mode nothing else ever exercises.
+       *
+       * `NEXT_PUBLIC_*` is inlined at build time, so the env on this command is
+       * the one that decides which API origin the browser calls.
+       */
+      command: `pnpm exec next build && pnpm exec next start --port ${String(WEB_PORT)}`,
       url: `${WEB_ORIGIN}/login`,
-      reuseExistingServer: !process.env["CI"],
-      // Generous: the first request to a route compiles it.
-      timeout: 180_000,
+      /*
+       * **Never reuse an existing server, locally or in CI.**
+       *
+       * This is the line that made the whole suite prove nothing. Next inlines
+       * `NEXT_PUBLIC_*` into the bundle when it compiles, so the API origin the
+       * browser calls is decided by the environment of whichever server is
+       * running — and `reuseExistingServer` adopts any process already holding
+       * the port without being able to see how it was started. A server started
+       * by hand has no `NEXT_PUBLIC_API_URL`, so its bundle falls back to
+       * `http://localhost:8000` from `src/env.ts`, every call leaves the origin
+       * this suite serves from, and the API on that port refuses it: four
+       * pre-existing specs failing with "CAIRN could not reach the server",
+       * which reads like a product fault and is not one.
+       *
+       * Starting fresh costs about a minute locally. The alternative is a suite
+       * that is fast, green, and pointed at a different API than the one under
+       * test — and `CI` was the only thing standing between that and the build,
+       * which is exactly the local/CI divergence this config is supposed to
+       * prevent.
+       *
+       * A port already in use now fails loudly instead of being adopted
+       * silently, which is the outcome to want.
+       */
+      reuseExistingServer: false,
+      // A cold `next dev` compiles the route on first request, and the
+      // readiness probe *is* that first request. Measured at ~54s to "Ready"
+      // plus the compile on this machine, and 180s was not enough for both.
+      timeout: 300_000,
       stdout: "pipe",
       stderr: "pipe",
       env: {
         NEXT_PUBLIC_API_URL: API_ORIGIN,
+        // Its own build directory, so this server cannot serve chunks that a
+        // developer's own `pnpm dev` compiled with a different API origin baked
+        // into them. See `next.config.ts`.
+        NEXT_DIST_DIR: ".next-e2e",
       },
     },
   ],

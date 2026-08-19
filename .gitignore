@@ -10,6 +10,9 @@ __pycache__/
 dist/
 build/
 .next/
+# The browser suite compiles into its own directory so it cannot share a
+# cache - and therefore a baked-in API origin - with a developer dev server.
+.next-e2e/
 .open-next/
 .turbo/
 *.tsbuildinfo

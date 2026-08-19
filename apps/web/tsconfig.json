@@ -10,9 +10,22 @@
     "noEmit": true,
     "allowJs": true,
     "incremental": true,
-    "plugins": [{ "name": "next" }],
-    "paths": { "@/*": ["./src/*"] }
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
-  "include": ["src/**/*", "*.config.ts", "vitest.setup.ts", "next-env.d.ts", ".next/types/**/*.ts"],
+  "include": [
+    "*.config.ts",
+    ".next/types/**/*.ts",
+    "next-env.d.ts",
+    "src/**/*",
+    "vitest.setup.ts",
+    ".next-e2e/types/**/*.ts"
+  ],
   "exclude": ["node_modules", ".next", ".open-next"]
 }

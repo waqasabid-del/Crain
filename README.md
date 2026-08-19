@@ -57,6 +57,41 @@ alternative is presenting keyword matching as understanding (md/09 §8). The
 scripted backend runs the deterministic provider the evaluation harness grades
 against, and a deployed environment refuses to start on it.
 
+## Email, locally
+
+`docker compose up -d` starts **Mailpit** alongside PostgreSQL. Every message CAIRN sends lands
+there and nowhere else.
+
+```
+Inbox:  http://localhost:8025
+SMTP:   localhost:1025   (CAIRN_SMTP_HOST / CAIRN_SMTP_PORT in .env.example)
+```
+
+Sign up, invite somebody, or resend a verification link, then read it at
+<http://localhost:8025> and click the link in it. To check delivery on its own:
+
+```bash
+uv run python -m cairn_api.email.probe --to you@example.test
+```
+
+**Local development uses `CAIRN_EMAIL_BACKEND=smtp`, not the console backend, and that is the
+point.** The console backend writes each message to the log and reports success, so it exercises
+none of the sender: not the SMTP session, not the headers, not the envelope sender, and not whether
+the link in the body resolves to a page that exists.
+
+That last one is not hypothetical. Every verification email this product ever sent linked to
+`/verify?token=...`, and that route **did not exist** — it returned 404 in every inbox, for the
+whole life of the signup flow. The API endpoint had tests and passed. The message builder had tests
+and passed. The link was printed to a log where nobody clicked it. A real sender and a real inbox
+are what turn that from an invisible defect into a thirty-second one.
+
+`console` remains available for working without Docker. A deployed environment refuses to start on
+it, and that guard is deliberate: an invited colleague would never hear from us, and neither the
+request nor the invitation row would record it.
+
+Mailpit holds messages in memory and forgets them when it stops. That is deliberate too — a mail
+sink that accumulates is a store of live tokens and addresses on a developer machine.
+
 ## Commands
 
 ```bash
