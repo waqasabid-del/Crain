@@ -323,3 +323,58 @@ class TestDivergenceIsASecurityFinding:
         assert verification.broken_at == sequences[-1]
         assert verification.reason is not None and "primary_missing" in verification.reason
         assert "surviving witness" in verification.reason
+
+
+class TestTheOperatorCommand:
+    """`python -m cairn_api.internal.audit_sink` - the round trip the gate
+    closes with, executed rather than trusted (the operator-command rule)."""
+
+    async def test_unconfigured_refuses_with_exit_2(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from cairn_api.config import Settings
+
+        monkeypatch.setattr(
+            "cairn_api.internal.audit_sink.get_settings",
+            lambda: Settings(environment="local"),
+        )
+        assert await audit_sink._main() == 2
+
+    async def test_the_green_round_trip_exits_0(
+        self,
+        platform: AsyncSession,
+        actor: uuid.UUID,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        await record_actions(platform, actor, 1)
+        monkeypatch.setattr("cairn_api.internal.audit_sink.get_settings", lambda: sink_settings())
+
+        code = await audit_sink._main()
+
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "INTACT: both chains agree" in out
+
+    async def test_a_diverged_pair_exits_1_and_names_the_sequence(
+        self,
+        platform: AsyncSession,
+        actor: uuid.UUID,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        sequences = await record_actions(platform, actor, 1)
+        settings = sink_settings()
+        await audit_sink.ship_pending(platform, settings=settings)
+        owner = create_async_engine(SINK_OWNER_URL)
+        async with owner.begin() as conn:
+            await conn.execute(
+                text("UPDATE internal_audit_mirror SET reason = 'edited' WHERE sequence = :s"),
+                {"s": sequences[0]},
+            )
+        await owner.dispose()
+        monkeypatch.setattr("cairn_api.internal.audit_sink.get_settings", lambda: settings)
+
+        code = await audit_sink._main()
+
+        assert code == 1
+        err = capsys.readouterr().err
+        assert f"DIVERGED at sequence {sequences[0]}" in err

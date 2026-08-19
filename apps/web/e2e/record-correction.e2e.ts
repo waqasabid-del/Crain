@@ -14,7 +14,7 @@ import { ACME_OWNER, API_ORIGIN, GLOBEX_OWNER, type SeededAccount } from "./stac
  */
 
 /** Any evidence identifier CAIRN renders, e.g. `github:commit:a1b2c3d4e5f6`. */
-const EVIDENCE_ID = /(?:github|chat|meeting|document):\S+/;
+const EVIDENCE_ID = /(?:github|slack|chat|meeting|document):\S+/;
 
 /** The shape of `SessionResponse` this test reads. Narrower than the generated
  * client's type on purpose: a browser test asserts what the wire carries. */
