@@ -215,3 +215,95 @@ describe("the theme", () => {
     expect(document.documentElement.dataset.theme).toBeUndefined();
   });
 });
+
+/**
+ * The rail beside the brief: system panels, loaded independently. The two
+ * promises here are isolation — a failed panel never takes the brief down —
+ * and the boundary: the rail names sources and quotes statements, and welds no
+ * number to any person.
+ */
+describe("the overview rail", () => {
+  const FACT = {
+    id: "fact-1",
+    kind: "decision",
+    statement: "The team decided to stage the payments cutover.",
+    certainty: "verified" as const,
+    resolvedActors: 0,
+    unresolvedActors: 0,
+    people: [],
+    sources: [{ evidenceId: "ev-1", source: "meeting" }],
+  };
+
+  it("previews the latest activity with its provenance", async () => {
+    renderRoute(
+      <AppLayout>
+        <BriefPage />
+      </AppLayout>,
+      {
+        client: { ...signedIn(), listFacts: vi.fn(() => Promise.resolve({ items: [FACT] })) },
+        route: "/",
+      },
+    );
+
+    const rail = await screen.findByRole("complementary", { name: /around this brief/i });
+    expect(await within(rail).findByText(/stage the payments cutover/i)).toBeVisible();
+    expect(within(rail).getByText("meeting")).toBeVisible();
+    expect(within(rail).getByRole("link", { name: /all activity/i })).toHaveAttribute(
+      "href",
+      "/feed",
+    );
+  });
+
+  it("names the sources the record draws on", async () => {
+    renderRoute(
+      <AppLayout>
+        <BriefPage />
+      </AppLayout>,
+      {
+        client: {
+          ...signedIn(),
+          getFacets: vi.fn(() =>
+            Promise.resolve({ people: [], projects: [], sources: ["github", "meeting"] }),
+          ),
+        },
+        route: "/",
+      },
+    );
+
+    const rail = await screen.findByRole("complementary", { name: /around this brief/i });
+    expect(await within(rail).findByText("github")).toBeVisible();
+    expect(within(rail).getByText(/how cairn treats this data/i)).toHaveAttribute("href", "/trust");
+  });
+
+  it("keeps the brief readable when a panel fails", async () => {
+    renderRoute(
+      <AppLayout>
+        <BriefPage />
+      </AppLayout>,
+      {
+        client: { ...signedIn(), listFacts: vi.fn(() => Promise.reject(apiError(500))) },
+        route: "/",
+      },
+    );
+
+    // The brief itself still renders in full…
+    expect((await screen.findAllByText(/shipped rate limiting/i)).length).toBeGreaterThan(0);
+    // …and the failure is contained to the panel, stated with a retry.
+    const rail = screen.getByRole("complementary", { name: /around this brief/i });
+    expect(await within(rail).findByText(/recent activity could not be loaded/i)).toBeVisible();
+    expect(within(rail).getByRole("button", { name: /try again|retry/i })).toBeVisible();
+  });
+
+  it("says plainly when nothing has been recorded", async () => {
+    renderRoute(
+      <AppLayout>
+        <BriefPage />
+      </AppLayout>,
+      { client: signedIn(), route: "/" },
+    );
+
+    const rail = await screen.findByRole("complementary", { name: /around this brief/i });
+    expect(await within(rail).findByText(/nothing has been recorded yet/i)).toBeVisible();
+    expect(within(rail).getByText(/no source has produced evidence yet/i)).toBeVisible();
+  });
+});

@@ -59,3 +59,100 @@
   margin: 0 0 var(--space-4);
   font-size: var(--text-sm);
 }
+
+/*
+ * The overview's two regions: the brief, and the rail of system panels beside
+ * it. One column until the shell's measure can afford two — the brief is the
+ * product's primary output and its prose measure is never squeezed to make
+ * room for orientation. The rail is orientation, so it goes below on anything
+ * narrow.
+ */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-10);
+  align-items: start;
+}
+
+@media (min-width: 64rem) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) 17rem;
+    gap: var(--space-12);
+  }
+}
+
+.primary {
+  min-width: 0;
+}
+
+/* The rail stacks its panels with the same rhythm at every width. */
+.rail {
+  display: grid;
+  gap: var(--space-6);
+  align-content: start;
+}
+
+/*
+ * A panel is quiet: a hairline and the page background, no elevation. The
+ * brief is the content; the panels are furniture, and furniture that casts
+ * shadows competes with the prose.
+ */
+.panel {
+  padding: var(--space-5);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+/* Panel headings use the same specimen as the brief's own section title, one
+ * size down: the rail is subordinate to the article beside it. */
+.panelTitle {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+.panelList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.panelItem {
+  display: grid;
+  gap: var(--space-1);
+}
+
+/* Two lines of a statement, then the feed. The clamp keeps the rail scannable;
+ * the full sentence lives one click away and is never the only copy. */
+.panelStatement {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.panelMeta {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}
+
+.panelEmpty {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.panelFoot {
+  margin: var(--space-4) 0 0;
+  padding-top: var(--space-4);
+  border-top: var(--border-thin) solid var(--border-subtle);
+  font-size: var(--text-sm);
+}

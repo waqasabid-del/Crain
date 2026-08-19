@@ -5,9 +5,10 @@ import { useCallback, useMemo, type ReactNode } from "react";
 
 import { useApiClient } from "../api/context.js";
 import { useAuth } from "../auth/context.js";
-import { contentSourceFor, IS_SAMPLE_CONTENT } from "../brief/adapter.js";
-import type { Brief } from "../brief/types.js";
+import { contentSourceFor, IS_SAMPLE_CONTENT, type ContentSource } from "../brief/adapter.js";
+import type { Brief, Fact } from "../brief/types.js";
 import { ClaimList } from "../components/ClaimList.js";
+import { Section } from "../components/Section.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { SampleBanner } from "../components/SampleBanner.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
@@ -23,9 +24,15 @@ import styles from "./BriefPage.module.css";
  *
  * Everything on this page comes from the brief the API returned: the period it
  * covers, when it was written, the prose, and the claims underneath. There are
- * no counters, trends or comparisons, and there is nowhere for one to be added
- * — an overview of the week that scores anybody is the exact surface md/05
- * §B.3.3 says would reclassify the product.
+ * no counters, trends or comparisons about people, and there is nowhere for one
+ * to be added — an overview of the week that scores anybody is the exact
+ * surface md/05 §B.3.3 says would reclassify the product.
+ *
+ * Beside the brief sits a rail of *system* panels — the latest recorded facts,
+ * the sources the record currently draws on, and the standing places to go
+ * next. They describe what the system is doing, never how a person is doing:
+ * the one count on this screen belongs to a section heading, and no number is
+ * welded to a name.
  */
 export function BriefPage(): ReactNode {
   const { activeWorkspace } = useAuth();
@@ -94,25 +101,192 @@ function WorkspaceBrief({ workspaceId }: { workspaceId: string }): ReactNode {
 
       {IS_SAMPLE_CONTENT && <SampleBanner />}
 
-      {/* The skeleton is a paragraph of prose followed by claim rows, because
-        that is what arrives. */}
-      {state.status === "loading" && <LoadingState label="today's brief" lines={5} />}
+      <div className={styles.layout}>
+        <div className={styles.primary}>
+          {/* The skeleton is a paragraph of prose followed by claim rows, because
+            that is what arrives. */}
+          {state.status === "loading" && <LoadingState label="today's brief" lines={5} />}
 
+          {state.status === "failed" && (
+            <ErrorState
+              title="Today's brief could not be loaded"
+              error={state.error}
+              onRetry={reload}
+              action={
+                <Link className={utility.actionLink} href="/archive">
+                  Read an earlier brief
+                </Link>
+              }
+            />
+          )}
+
+          {state.status === "ready" && <BriefBody brief={state.data} />}
+        </div>
+
+        {/* `aside`, not a second column of the article: these panels are
+          orientation around the brief, and a screen reader should be able to
+          skip them as one complementary landmark. Each panel loads and fails
+          on its own — a broken feed must not take the brief down with it. */}
+        <aside className={styles.rail} aria-label="Around this brief">
+          <ActivityPanel content={content} workspaceId={workspaceId} />
+          <SourcesPanel content={content} workspaceId={workspaceId} />
+          <GoToPanel />
+        </aside>
+      </div>
+    </>
+  );
+}
+
+/** How many recent facts the rail shows before pointing at the full feed. */
+const ACTIVITY_PREVIEW = 5;
+
+/**
+ * The newest recorded facts, as one-line provenance — statement and source,
+ * never a number against a name. A preview of `/feed`, not a rival to it: it
+ * exists so "is anything reaching CAIRN right now?" is answerable from the
+ * overview without a navigation.
+ */
+function ActivityPanel({
+  content,
+  workspaceId,
+}: {
+  content: ContentSource;
+  workspaceId: string;
+}): ReactNode {
+  const load = useCallback(
+    (signal: AbortSignal) => content.getFacts(workspaceId, { limit: ACTIVITY_PREVIEW }, signal),
+    [content, workspaceId],
+  );
+  const { state, reload } = useAsync(load, "load recent activity");
+
+  return (
+    <Section
+      title="Latest activity"
+      className={styles.panel ?? ""}
+      headingClassName={styles.panelTitle ?? ""}
+    >
+      {state.status === "loading" && (
+        <LoadingState label="recent activity" shape="rows" lines={3} />
+      )}
       {state.status === "failed" && (
         <ErrorState
-          title="Today's brief could not be loaded"
+          title="Recent activity could not be loaded"
           error={state.error}
           onRetry={reload}
-          action={
-            <Link className={utility.actionLink} href="/archive">
-              Read an earlier brief
-            </Link>
-          }
         />
       )}
+      {state.status === "ready" &&
+        (state.data.items.length === 0 ? (
+          <p className={styles.panelEmpty}>
+            Nothing has been recorded yet. Activity appears here the moment a connected source
+            produces something.
+          </p>
+        ) : (
+          <ul className={styles.panelList}>
+            {state.data.items.slice(0, ACTIVITY_PREVIEW).map((fact) => (
+              <li className={styles.panelItem} key={fact.id}>
+                <span className={styles.panelStatement}>{fact.statement}</span>
+                <span className={styles.panelMeta}>{factProvenance(fact)}</span>
+              </li>
+            ))}
+          </ul>
+        ))}
+      <p className={styles.panelFoot}>
+        <Link className={utility.actionLink} href="/feed">
+          All activity
+        </Link>
+      </p>
+    </Section>
+  );
+}
 
-      {state.status === "ready" && <BriefBody brief={state.data} />}
-    </>
+/** "github", or "github and meeting" — where a fact's evidence came from. */
+function factProvenance(fact: Fact): string {
+  const sources = [...new Set((fact.sources ?? []).map((source) => source.source))];
+  if (sources.length === 0) return "unsourced";
+  return sources.join(" and ");
+}
+
+/**
+ * Which sources the record currently draws on — read from the facts themselves
+ * via the facets, not from a configuration screen, so an empty list means "no
+ * evidence" rather than "not set up". System health stated as provenance.
+ */
+function SourcesPanel({
+  content,
+  workspaceId,
+}: {
+  content: ContentSource;
+  workspaceId: string;
+}): ReactNode {
+  const load = useCallback(
+    (signal: AbortSignal) => content.getFacets(workspaceId, signal),
+    [content, workspaceId],
+  );
+  const { state, reload } = useAsync(load, "load the record's sources");
+
+  return (
+    <Section
+      title="Where this comes from"
+      className={styles.panel ?? ""}
+      headingClassName={styles.panelTitle ?? ""}
+    >
+      {state.status === "loading" && (
+        <LoadingState label="the record's sources" shape="rows" lines={2} />
+      )}
+      {state.status === "failed" && (
+        <ErrorState title="Sources could not be read" error={state.error} onRetry={reload} />
+      )}
+      {state.status === "ready" &&
+        ((state.data.sources ?? []).length === 0 ? (
+          <p className={styles.panelEmpty}>
+            No source has produced evidence yet, so today&rsquo;s record rests on nothing. Once a
+            connected tool produces something, it is named here.
+          </p>
+        ) : (
+          <ul className={styles.panelList}>
+            {(state.data.sources ?? []).map((source) => (
+              <li className={styles.panelItem} key={source}>
+                <span className={styles.panelStatement}>{source}</span>
+              </li>
+            ))}
+          </ul>
+        ))}
+      <p className={styles.panelFoot}>
+        <Link className={utility.actionLink} href="/trust">
+          How CAIRN treats this data
+        </Link>
+      </p>
+    </Section>
+  );
+}
+
+/** Standing destinations from the overview. Static, so it has no states. */
+function GoToPanel(): ReactNode {
+  return (
+    <Section
+      title="Go to"
+      className={styles.panel ?? ""}
+      headingClassName={styles.panelTitle ?? ""}
+    >
+      <ul className={styles.panelList}>
+        <li className={styles.panelItem}>
+          <Link className={utility.actionLink} href="/me">
+            Your record and corrections
+          </Link>
+        </li>
+        <li className={styles.panelItem}>
+          <Link className={utility.actionLink} href="/archive">
+            Earlier briefs
+          </Link>
+        </li>
+        <li className={styles.panelItem}>
+          <Link className={utility.actionLink} href="/people">
+            The team
+          </Link>
+        </li>
+      </ul>
+    </Section>
   );
 }
 

@@ -97,8 +97,12 @@ export function createStubClient(overrides: Partial<CairnClient> = {}): CairnCli
     getBrief: vi.fn(unexpected("getBrief")),
     listBriefs: vi.fn(unexpected("listBriefs")),
     getArchivedBrief: vi.fn(unexpected("getArchivedBrief")),
-    listFacts: vi.fn(unexpected("listFacts")),
-    getFacets: vi.fn(unexpected("getFacets")),
+    // Benign defaults, not `unexpected`: the overview's side panels read both
+    // on every render of `/`, so every test that mounts BriefPage for some
+    // other assertion would otherwise flood the page with panel error alerts.
+    // Tests about the panels themselves override these.
+    listFacts: vi.fn(() => Promise.resolve({ items: [] })),
+    getFacets: vi.fn(() => Promise.resolve({ people: [], projects: [], sources: [] })),
     changeRole: vi.fn(unexpected("changeRole")),
     removeMember: vi.fn(unexpected("removeMember")),
     listIntegrations: vi.fn(unexpected("listIntegrations")),
