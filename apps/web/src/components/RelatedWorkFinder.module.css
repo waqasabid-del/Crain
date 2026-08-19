@@ -1,0 +1,145 @@
+.section {
+  margin-top: 2.5rem;
+  max-width: var(--prose-max-width);
+}
+
+.heading {
+  font-size: var(--text-lg, 1.125rem);
+  font-weight: var(--weight-medium);
+  margin: 0 0 0.4rem;
+}
+
+.note {
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  margin: 0 0 1rem;
+}
+
+.form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.input {
+  flex: 1;
+  padding: 0.5rem 0.7rem;
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--fg-default);
+  outline-offset: 1px;
+}
+
+.button {
+  padding: 0.5rem 1rem;
+  border: var(--border-thin) solid var(--fg-default);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--fg-default);
+  outline-offset: 2px;
+}
+
+.error {
+  font-size: var(--text-sm);
+  color: var(--fg-default);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.8rem;
+}
+
+.empty {
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+.groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.group {
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.1rem;
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.7rem;
+}
+
+.personName {
+  font-weight: var(--weight-medium);
+}
+
+.facts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.fact {
+  border-top: var(--border-thin) solid var(--border-default);
+  padding-top: 0.7rem;
+}
+
+.factHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.25rem;
+}
+
+.when {
+  font-size: var(--text-xs);
+  color: var(--fg-subtle);
+}
+
+.statement {
+  margin: 0 0 0.35rem;
+  font-size: var(--text-sm);
+}
+
+.sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.sourceLink,
+.sourcePlain {
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+  word-break: break-all;
+}
+
+.sourceLink {
+  text-decoration: underline;
+}

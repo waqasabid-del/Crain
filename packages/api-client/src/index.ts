@@ -339,6 +339,12 @@ export interface RequestOptions {
 
 type SignUpBody = paths["/v1/auth/signup"]["post"]["requestBody"]["content"]["application/json"];
 type LogInBody = paths["/v1/auth/login"]["post"]["requestBody"]["content"]["application/json"];
+export type Capacity = "open_to_work" | "at_capacity" | "not_stated";
+export type RelatedWork =
+  paths["/v1/workspaces/{workspace_id}/related-work"]["get"]["responses"]["200"]["content"]["application/json"];
+export type CapacityState =
+  paths["/v1/workspaces/{workspace_id}/me/capacity"]["put"]["responses"]["200"]["content"]["application/json"];
+
 type VerifyEmailBody =
   paths["/v1/auth/verify-email"]["post"]["requestBody"]["content"]["application/json"];
 type InviteBody =
@@ -406,6 +412,22 @@ export interface CairnClient {
   /** Create an account and its first workspace. Signs the caller in. */
   signUp(body: SignUpBody, options?: RequestOptions): Promise<Session>;
   logIn(body: LogInBody, options?: RequestOptions): Promise<Session>;
+  /** Evidence of who has worked on related things. Deterministic retrieval
+   * over facts - no score, no rank, no model call; groups order by most recent
+   * related fact and every fact carries its citations. People appear only
+   * through facts that cite them, so opt-outs are inherited structurally. */
+  findRelatedWork(
+    workspaceId: string,
+    topic: string,
+    options?: RequestOptions,
+  ): Promise<RelatedWork>;
+  /** State the caller's own availability. Self only - the person is resolved
+   * from the session, and no parameter can name anybody else. */
+  setMyCapacity(
+    workspaceId: string,
+    capacity: Capacity,
+    options?: RequestOptions,
+  ): Promise<CapacityState>;
   /** Redeem the link from a verification email.
    *
    * Unauthenticated, deliberately: somebody clicking a link in their inbox may
@@ -765,6 +787,22 @@ export function createClient(options: ClientOptions): CairnClient {
       body: paths["/v1/auth/login"]["post"]["requestBody"]["content"]["application/json"],
       options?: RequestOptions,
     ) => request<Session>("POST", "/v1/auth/login", body, options),
+
+    findRelatedWork: (workspaceId: string, topic: string, options?: RequestOptions) =>
+      request<RelatedWork>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/related-work?topic=${encodeURIComponent(topic)}`,
+        undefined,
+        options,
+      ),
+
+    setMyCapacity: (workspaceId: string, capacity: Capacity, options?: RequestOptions) =>
+      request<CapacityState>(
+        "PUT",
+        `/v1/workspaces/${workspaceId}/me/capacity`,
+        { capacity },
+        options,
+      ),
 
     verifyEmail: (
       body: paths["/v1/auth/verify-email"]["post"]["requestBody"]["content"]["application/json"],

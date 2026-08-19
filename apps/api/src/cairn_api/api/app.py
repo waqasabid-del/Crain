@@ -45,6 +45,7 @@ from cairn_api.api.routers import (
     me,
     meetings,
     onboarding,
+    related_work,
     slack,
     slack_webhooks,
     support,
@@ -178,6 +179,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # answering both invites a read endpoint acquiring a permission check
     # written for a mutation.
     app.include_router(facts.router, prefix=API_PREFIX)
+    app.include_router(related_work.router, prefix=API_PREFIX)
     app.include_router(onboarding.router, prefix=API_PREFIX)
     app.include_router(me.router, prefix=API_PREFIX)
     # Its own module rather than more of `me.py`, and mounted under the same

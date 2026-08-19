@@ -21,4 +21,4 @@ export { visuallyHidden } from "./styles/utilities.js";
 export { Button } from "./components/Button.js";
 export type { ButtonProps, ButtonSize, ButtonVariant } from "./components/Button.js";
 export { CertaintyBadge } from "./components/CertaintyBadge.js";
-export type { CertaintyBadgeProps } from "./components/CertaintyBadge.js";
+export type { Certainty, CertaintyBadgeProps } from "./components/CertaintyBadge.js";

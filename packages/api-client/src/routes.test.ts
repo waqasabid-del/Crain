@@ -213,6 +213,18 @@ const ROUTES: [string, (client: CairnClient) => Promise<unknown>, string, string
     `/v1/workspaces/${W}/me/meeting-requests/m-1/decision`,
   ],
   ["setWorkRole", (c) => c.setWorkRole(W, "founder"), "PUT", `/v1/workspaces/${W}/me/role`],
+  [
+    "findRelatedWork",
+    (c) => c.findRelatedWork(W, "rate limiting"),
+    "GET",
+    `/v1/workspaces/${W}/related-work?topic=rate%20limiting`,
+  ],
+  [
+    "setMyCapacity",
+    (c) => c.setMyCapacity(W, "open_to_work"),
+    "PUT",
+    `/v1/workspaces/${W}/me/capacity`,
+  ],
   ["mySources", (c) => c.mySources(W), "GET", `/v1/workspaces/${W}/me/sources`],
   [
     "setSourceConsent",

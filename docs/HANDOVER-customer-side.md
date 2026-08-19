@@ -67,3 +67,14 @@ each side passed alone. This track built the page
 mail proof; the copy and design were written by this track and deserve a
 customer-side pass. Evidence: `apps/web/src/routes/verify.test.tsx`, whose
 module docstring carries the full account.
+
+## 6. Team page and person record now carry two new surfaces (2026-08-19)
+
+The AI track shipped the related-work finder (Team page, below the members
+list) and self-declared capacity (chip on the members table; control on the
+person's own record; explained in the Trust Center's "What CAIRN reads"). If
+your pack's steps touch `PeoplePage.tsx`, `MyWeekPage.tsx` or `TrustPage.tsx`,
+these landed first - the page's own no-ranking-vocabulary guard test rejected
+even a negated "no scores" in the finder's copy, which is worth knowing before
+editing wording there. Evidence: `people.test.tsx` (the finder suite),
+`test_related_work.py` (symmetry, opt-out inheritance, never-computed).

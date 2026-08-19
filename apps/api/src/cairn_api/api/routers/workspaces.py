@@ -51,6 +51,7 @@ from cairn_api.auth.permissions import Permission
 from cairn_api.auth.service import accept_invitation, invite_to_workspace
 from cairn_api.db.auth_models import Invitation
 from cairn_api.db.github_models import GitHubInstallation
+from cairn_api.db.identity_models import Person
 from cairn_api.db.models import Membership, Tenant
 from cairn_api.db.tenancy import tenant_session
 from cairn_api.email import invitation_message, send_best_effort
@@ -115,6 +116,17 @@ async def list_members(context: CurrentMembership, db: TenantDb) -> list[Members
         )
     ).all()
 
+    # Self-declared capacity rides along, identical for every role - carried
+    # verbatim from the person's own statement, never computed. A member with
+    # no linked person record reads "not_stated", which is the absence of a
+    # declaration and not an answer.
+    people = {
+        person.user_id: person
+        for person in await db.scalars(
+            select(Person).where(Person.tenant_id == context.tenant_id, Person.user_id.is_not(None))
+        )
+    }
+
     return [
         MembershipResponse(
             user_id=membership.user_id,
@@ -122,6 +134,19 @@ async def list_members(context: CurrentMembership, db: TenantDb) -> list[Members
             display_name=membership.user.display_name,
             role=membership.role,
             joined_at=membership.created_at,
+            capacity=(
+                people[membership.user_id].capacity.value
+                if membership.user_id in people
+                and hasattr(people[membership.user_id].capacity, "value")
+                else str(people[membership.user_id].capacity)
+                if membership.user_id in people
+                else "not_stated"
+            ),
+            capacity_stated_at=(
+                people[membership.user_id].capacity_stated_at
+                if membership.user_id in people
+                else None
+            ),
         )
         for membership in memberships
     ]
