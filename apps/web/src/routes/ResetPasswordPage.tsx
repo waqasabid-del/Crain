@@ -121,6 +121,10 @@ export function ResetPasswordPage(): ReactNode {
   // from `problem`: retrying the same token can never succeed, so this
   // replaces the form entirely rather than sitting above it.
   const [tokenInvalid, setTokenInvalid] = useState(false);
+  // Set only once the API confirms the password actually changed — the
+  // confirmation below is real, not a permanent illustration, so the reader
+  // sees it exactly when it becomes true rather than being redirected past it.
+  const [succeeded, setSucceeded] = useState(false);
 
   const confirmTouched = confirmPassword !== "";
   const passwordsMatch = password === confirmPassword;
@@ -147,12 +151,7 @@ export function ResetPasswordPage(): ReactNode {
     setProblem(null);
     try {
       await client.resetPassword({ token, password });
-      // No separate success screen: the "Success state" card below is a
-      // permanent, captioned illustration (per the approved design), not
-      // something gated on this request — showing a second, real one here
-      // would just duplicate it. Sign-in is the actual next step, so this
-      // goes straight there.
-      router.replace("/login");
+      setSucceeded(true);
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 409) {
         setTokenInvalid(true);
@@ -168,6 +167,32 @@ export function ResetPasswordPage(): ReactNode {
     event.preventDefault();
     if (!passwordsMatch) return;
     void submit();
+  }
+
+  if (succeeded) {
+    return (
+      <Shell>
+        <div className={styles.innerCard}>
+          <div className={styles.confirmRow}>
+            <span className={styles.confirmIcon}>
+              <SuccessIcon />
+            </span>
+            <div>
+              <p className={styles.confirmTitle}>Password updated</p>
+              <p className={styles.confirmBody}>
+                Your password has been changed. To keep your account safe, all other sessions were
+                signed out — you&rsquo;ll need to sign in again on other devices.
+              </p>
+              <Button variant="primary" asChild>
+                <Link href="/login" className={styles.confirmAction}>
+                  Continue to sign in
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Shell>
+    );
   }
 
   if (tokenInvalid) {
@@ -283,47 +308,6 @@ export function ResetPasswordPage(): ReactNode {
             {submitting ? "Updating…" : "Update password"}
           </Button>
         </form>
-
-        {/* A fixed illustration, not driven by the fields above — the
-          approved design captions it "Mismatch example" precisely because
-          it's a reference for what the error looks like, not a live report
-          on what the reader just typed. */}
-        <div className={styles.cardFoot}>
-          <p className={styles.exampleCaption}>Mismatch example</p>
-          <input
-            className={styles.input}
-            type="password"
-            value="differentvalue"
-            aria-label="Password example that does not match"
-            readOnly
-          />
-          <p className={styles.fieldError}>
-            <ErrorIcon /> Those don&rsquo;t match yet. Re-enter the same password in both fields.
-          </p>
-        </div>
-      </div>
-
-      <hr className={styles.miniDivider} />
-      <p className={styles.cardEyebrow}>Success state</p>
-
-      <div className={styles.innerCard}>
-        <div className={styles.confirmRow}>
-          <span className={styles.confirmIcon}>
-            <SuccessIcon />
-          </span>
-          <div>
-            <p className={styles.confirmTitle}>Password updated</p>
-            <p className={styles.confirmBody}>
-              Your password has been changed. To keep your account safe, all other sessions were
-              signed out — you&rsquo;ll need to sign in again on other devices.
-            </p>
-            <Button variant="primary" asChild>
-              <Link href="/login" className={styles.confirmAction}>
-                Continue to sign in
-              </Link>
-            </Button>
-          </div>
-        </div>
       </div>
 
       <p className={styles.alternate}>
