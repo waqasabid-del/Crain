@@ -18,7 +18,7 @@
  * matters more than it looks: the alternative is every new developer's first
  * experience being a blank screen and a CORS error in the console.
  */
-export const API_BASE_URL: string = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+export const API_BASE_URL: string = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 /**
  * Where the Brief and Feed screens get their content.
