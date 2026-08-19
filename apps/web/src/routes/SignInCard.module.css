@@ -1,0 +1,574 @@
+/*
+ * Sign-in.
+ *
+ * A dedicated stylesheet rather than a change to `LoginPage.module.css`:
+ * `InvitePage.tsx` imports that file directly and reuses its single-column
+ * card look, so restructuring it for the approved split-panel design would
+ * silently redraw a screen nobody asked to change. This file exists only for
+ * `LoginPage` itself.
+ *
+ * Structure mirrors `SignupPage.module.css` deliberately — the two screens
+ * are the same object at two moments — but is not imported from it, for the
+ * same "will diverge, so don't share it" reasoning that file states.
+ */
+
+/* The outer inset (the reference's `.auth` class): both panels sit 24px off
+ * every edge of the viewport, not flush against it. */
+.page {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 100dvh;
+  padding: var(--space-6);
+}
+
+.aside {
+  display: flex;
+  flex-direction: column;
+  /* No `gap` here — the reference's `.auth__aside` has none. `space-between`
+   * alone decides where the middle block sits; adding a gap on top of it
+   * forces extra room after the logo and pushes that block lower than the
+   * reference places it. */
+  justify-content: space-between;
+  padding: var(--space-16) var(--space-12);
+  background: var(--bg-inverse);
+  color: var(--fg-inverse);
+}
+
+/* Matches the approved design's `.logo`/`.logo--inverse`: the mark plus the
+ * wordmark share this element's own typography, rather than the wordmark
+ * being a separately-styled child. */
+.asideBrand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+/* The mark: a solid rounded badge, not a bare icon — `.logo__mark` in the
+ * approved design. Inverted here because the aside itself is the dark panel,
+ * so the badge is light-on-dark like the rest of it. */
+.logoMarkInverse {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--bg-default);
+  color: var(--fg-default);
+}
+
+/* The same badge, for the card on the light panel — dark-on-light. */
+.logoMark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--fg-default);
+  color: var(--bg-default);
+}
+
+/* Not `--fg-muted`: that token is calibrated for muted text on a *light*
+ * background. On this dark aside, the reference derives a muted tone from
+ * `--fg-inverse` itself instead — using the light-mode token directly here
+ * is what makes this text read as too dark to see comfortably. */
+.eyebrow {
+  margin: 0;
+  color: color-mix(in srgb, var(--fg-inverse) 60%, transparent);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.asideHeading {
+  margin: var(--space-4) 0 0;
+  max-width: 16ch;
+  color: var(--fg-inverse);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: -0.02em;
+}
+
+/* Same reasoning as `.eyebrow` above: this is the exact color the reference
+ * paragraph uses, not the light-mode `--fg-muted` token. */
+.asideLead {
+  margin: var(--space-5) 0 0;
+  max-width: 42ch;
+  color: color-mix(in srgb, var(--fg-inverse) 72%, transparent);
+  font-size: var(--text-lg);
+  line-height: var(--leading-relaxed);
+}
+
+.asideFoot {
+  margin: 0;
+  color: color-mix(in srgb, var(--fg-inverse) 55%, transparent);
+  font-size: var(--text-sm);
+}
+
+.panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-12) var(--space-6);
+  background: var(--bg-default);
+}
+
+@media (max-width: 860px) {
+  .page {
+    grid-template-columns: 1fr;
+  }
+
+  .aside {
+    display: none;
+  }
+}
+
+/* Deliberately not a bordered card. The reference's `.auth__card` is a plain
+ * content column — no border, no fill, no padding of its own — sitting
+ * directly on the panel's own white background. A bordered box here would be
+ * a design element the reference does not have. */
+.card {
+  width: 100%;
+  max-width: 400px;
+}
+
+/* Same `.logo` typography as `.asideBrand` — the mark and wordmark share it
+ * directly, matching the approved design rather than a separately-styled
+ * wordmark span. `justify-content: space-between` and full width, per the
+ * reference's own inline style on this specific row, make room for the theme
+ * control at the opposite end. */
+.brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: var(--space-2);
+  margin-bottom: var(--space-8);
+  color: var(--fg-default);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.brandMark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: -0.015em;
+}
+
+.subtitle {
+  margin: var(--space-2) 0 var(--space-8);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/* The two SSO buttons — column, full-width, per the approved design. */
+.oauthGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.oauthGroup button {
+  width: 100%;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-6);
+}
+
+.dividerLine {
+  flex: 1;
+  height: var(--border-thin);
+  background: var(--border-default);
+}
+
+.dividerText {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.labelRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+/* Styled like a quiet link (the approved design's `.link-quiet`), but a
+ * `<button>`: there is no reset-password page or endpoint to navigate to
+ * (md/15 lists sign-in methods; a reset flow isn't among the built ones), so
+ * this states that honestly on click instead of linking to a 404. */
+.forgotButton {
+  padding: 0;
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--border-strong);
+  cursor: pointer;
+}
+
+.forgotButton:hover {
+  color: var(--fg-default);
+}
+
+.input {
+  width: 100%;
+  min-height: var(--min-target);
+  padding: 0 var(--space-3);
+
+  color: var(--fg-default);
+  background: var(--bg-default);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+
+  /*
+   * `border-interactive`, not `border-default`.
+   *
+   * The outline of an input is information required to identify a control, so
+   * WCAG 1.4.11 asks for 3:1 against the background. The decorative hairlines
+   * elsewhere in the app are exempt from that; this is the case the distinction
+   * exists for, and using the wrong token here is the most likely way to fail
+   * the guideline while looking consistent.
+   */
+  border: var(--border-thin) solid var(--border-interactive);
+  border-radius: var(--radius-md);
+}
+
+.input:disabled {
+  background: var(--bg-muted);
+  color: var(--fg-muted);
+}
+
+/* Chrome/Safari paint autofilled fields with their own blue/yellow tint,
+ * overriding `background` outright. The oversized inset shadow is the
+ * standard way to reclaim it without `!important` fighting the UA sheet. */
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-default) inset;
+  -webkit-text-fill-color: var(--fg-default);
+  caret-color: var(--fg-default);
+}
+
+/* The password field plus its show/hide control, as one unit so the button
+ * can be positioned relative to the input rather than the whole field. */
+.passwordGroup {
+  position: relative;
+}
+
+.passwordGroup .input {
+  padding-right: var(--space-10);
+}
+
+.passwordToggle {
+  position: absolute;
+  top: 50%;
+  right: var(--space-1);
+  transform: translateY(-50%);
+  padding: var(--space-1) var(--space-2);
+  color: var(--fg-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.passwordToggle:hover {
+  color: var(--fg-default);
+  background: var(--bg-muted);
+}
+
+.passwordToggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The password rule, stated before it can be broken. Referenced by
+ * ResetPasswordPage but missing until now — it silently rendered as
+ * unstyled black text instead of a small, muted hint. */
+.hint {
+  margin: var(--space-2) 0 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+}
+
+/*
+ * The failure message.
+ *
+ * Bordered rather than filled with a warning colour — the palette has no
+ * semantic red, and inventing one here would be the only colour in the product
+ * arriving at the reader's least confident moment.
+ */
+.problem {
+  margin: 0 0 var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  color: var(--fg-default);
+  background: var(--bg-muted);
+  border: var(--border-thin) solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.submit {
+  margin-top: var(--space-1);
+}
+
+/* The reference design's primary button is literally `--bg-inverse` (black
+ * in light mode) — the shared Button component's "primary" variant uses
+ * `--fg-default` instead, a different token. Pinned here, on every primary
+ * button across this stylesheet (sign in, send reset link, update
+ * password), so it reads unambiguously black whenever it's enabled — same
+ * fix already applied to the Signup page's button. Scoped to
+ * `:not(:disabled)` so the deliberately-different greyed-out look (e.g.
+ * "Update password" before the two fields match) stays distinct on purpose. */
+.submit:not(:disabled) {
+  background: var(--bg-inverse);
+  color: var(--fg-inverse);
+  border-color: var(--bg-inverse);
+}
+
+.alternate {
+  margin: var(--space-6) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+/* The reference's `.link`: the accent colour, not the quiet grey used for
+ * "Forgot password?" — this one goes somewhere real (`/signup`). */
+.link {
+  color: var(--accent-default);
+  font-weight: var(--weight-medium);
+}
+
+.link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Shared by ForgotPasswordPage and ResetPasswordPage below.               */
+/* ---------------------------------------------------------------------- */
+
+/* `reset-password.html`'s shell has no split panel at all — a reset link is
+ * opened from an inbox on whatever device is at hand, and the reference
+ * drops the marketing aside for that screen specifically. A single centred
+ * column, matching the reference's un-split `.auth`. */
+.singlePage {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--space-6);
+}
+
+/* The reference's generic `.card` component — a bordered box nested *inside*
+ * the auth card, used to group the form and, separately, the confirmation
+ * state. Distinct from `.card` above (the outer, now border-less auth
+ * column) — this is the inner one. */
+.innerCard {
+  background: var(--bg-default);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+}
+
+.innerCard + .innerCard {
+  margin-top: var(--space-6);
+}
+
+.miniDivider {
+  height: var(--border-thin);
+  background: var(--border-default);
+  border: none;
+  margin: var(--space-6) 0 var(--space-4);
+}
+
+/* The light-card equivalent of `.eyebrow` — that one is tuned for the dark
+ * aside and would be unreadable here. */
+.cardEyebrow {
+  margin: 0 0 var(--space-4);
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The reference's `.card__foot`: a captioned illustration nested inside the
+ * same card as the real form, set off by a rule rather than a full divider —
+ * that's reserved for separating whole sections, not a note within one. */
+.cardFoot {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: var(--border-thin) solid var(--border-subtle);
+}
+
+/* The reference's plain `.text-xs.subtle` caption — smaller and without the
+ * uppercase treatment `.cardEyebrow` has, since this labels one illustration
+ * inside a card rather than a whole section of the page. */
+.exampleCaption {
+  margin: 0 0 var(--space-2);
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}
+
+/* The reference's small centred `.text-xs.subtle` caption below a card —
+ * e.g. "After accepting you'll sign in." */
+.footnote {
+  margin: var(--space-4) 0 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.confirmRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.confirmIcon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--fg-default);
+}
+
+/* Same positioning as `.confirmIcon`, different colour — the reference gives
+ * "verifying" and "expired" their own tone (subtle / muted) distinct from
+ * "verified"'s `--fg-default`. */
+.confirmIconSubtle {
+  flex: none;
+  margin-top: 1px;
+  color: var(--fg-subtle);
+}
+
+.confirmIconMuted {
+  flex: none;
+  margin-top: 1px;
+  color: var(--fg-muted);
+}
+
+/* The "checking your link" skeleton — mirrors the reference's `.skeleton`
+ * exactly, including the shimmer. `prefers-reduced-motion` is handled
+ * globally already, so it isn't repeated here. */
+.skeleton {
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--bg-muted) 25%, var(--bg-subtle) 37%, var(--bg-muted) 63%);
+  background-size: 400% 100%;
+  animation: skeletonShimmer 1.4s ease infinite;
+}
+
+.skeleton + .skeleton {
+  margin-top: var(--space-2);
+}
+
+.skeleton80 {
+  width: 80%;
+}
+
+.skeleton60 {
+  width: 60%;
+}
+
+.skeleton40 {
+  width: 40%;
+}
+
+@keyframes skeletonShimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+.confirmTitle {
+  margin: 0;
+  font-weight: var(--weight-medium);
+  color: var(--fg-default);
+}
+
+.confirmBody {
+  margin: var(--space-2) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.confirmAction {
+  margin-top: var(--space-4);
+}
+
+/* Live match/mismatch feedback on the confirm-password field — the
+ * reference's `.field-ok` / `.field-error` plus `.field--error .input`. */
+.fieldOk {
+  margin: var(--space-2) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.fieldError {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  color: var(--fg-default);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+}
+
+.fieldErrorIcon {
+  flex: none;
+}
+
+/* Defined after `.input` in this file, so the cascade needs no `!important`
+ * to win the border colour when both classes apply to the same element. */
+.inputError {
+  border-color: var(--fg-default);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fg-default) 12%, transparent);
+}

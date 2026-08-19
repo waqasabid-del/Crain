@@ -111,7 +111,7 @@ describe("signing in", () => {
     renderRoute(<LoginPage />, { client, route: "/login", search: "next=%2Ffeed" });
 
     await userEvent.type(await screen.findByLabelText(/email/i), "ali@example.com");
-    await userEvent.type(screen.getByLabelText(/password/i), "correct-horse-battery");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "correct-horse-battery");
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     await waitFor(() => {
@@ -132,7 +132,7 @@ describe("signing in", () => {
     renderRoute(<LoginPage />, { client, route: "/login" });
 
     await userEvent.type(await screen.findByLabelText(/email/i), "ali@example.com");
-    await userEvent.type(screen.getByLabelText(/password/i), "wrong");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "wrong");
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     const alert = await screen.findByRole("alert");
@@ -153,11 +153,63 @@ describe("signing in", () => {
     renderRoute(<LoginPage />, { client, route: "/login" });
 
     await userEvent.type(await screen.findByLabelText(/email/i), "ali@example.com");
-    await userEvent.type(screen.getByLabelText(/password/i), "wrong");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "wrong");
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     await screen.findByRole("alert");
     expect(screen.getByRole("button", { name: /sign in/i })).toBeEnabled();
+  });
+
+  describe("SSO buttons and password reset", () => {
+    // md/15 §3 specifies Google/GitHub SSO, and the approved design shows both
+    // buttons — but no OAuth route exists anywhere in the API. A click must
+    // say so honestly rather than doing nothing, navigating to a guessed URL,
+    // or faking a session.
+    //
+    // "Forgot password?" is different: that feature now exists for real
+    // (/forgot-password, backed by POST /v1/auth/forgot-password), so it is
+    // a genuine link rather than a control that talks the reader out of
+    // clicking it.
+
+    it.each([
+      ["Google", /continue with google/i],
+      ["GitHub", /continue with github/i],
+    ] as const)("offers %s per the approved design", (_provider, name) => {
+      const client = createStubClient({ getSession: vi.fn(() => Promise.resolve(null)) });
+      renderRoute(<LoginPage />, { client, route: "/login" });
+
+      expect(screen.getByRole("button", { name })).toBeVisible();
+    });
+
+    it.each([
+      ["Google", /continue with google/i],
+      ["GitHub", /continue with github/i],
+    ] as const)(
+      "says %s sign-in isn't available yet, rather than doing nothing or faking it",
+      async (provider, name) => {
+        const logIn = vi.fn();
+        const client = createStubClient({ getSession: vi.fn(() => Promise.resolve(null)), logIn });
+        renderRoute(<LoginPage />, { client, route: "/login" });
+
+        await userEvent.click(screen.getByRole("button", { name }));
+
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+          new RegExp(`${provider} isn't available yet`, "i"),
+        );
+        expect(logIn).not.toHaveBeenCalled();
+        expect(router.replace).not.toHaveBeenCalled();
+      },
+    );
+
+    it("sends the reader to the real forgot-password page", () => {
+      const client = createStubClient({ getSession: vi.fn(() => Promise.resolve(null)) });
+      renderRoute(<LoginPage />, { client, route: "/login" });
+
+      expect(screen.getByRole("link", { name: /forgot password/i })).toHaveAttribute(
+        "href",
+        "/forgot-password",
+      );
+    });
   });
 });
 

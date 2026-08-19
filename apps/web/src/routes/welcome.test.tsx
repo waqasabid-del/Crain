@@ -1,5 +1,5 @@
 import type { Consent, FactPage } from "@cairn/api-client";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { axe } from "vitest-axe";
@@ -92,7 +92,7 @@ describe("their own record, first", () => {
     // md/11 §4.1: "the first thing a team member sees is their own contribution
     // record... That single sequence communicates 'this is yours' more
     // effectively than any amount of policy copy."
-    const record = await screen.findByRole("heading", { name: /what cairn has about you/i });
+    const record = await screen.findByRole("heading", { name: /your record/i });
     const reads = await screen.findByRole("heading", { name: /what cairn reads/i });
     const refusals = await screen.findByRole("heading", { name: /what cairn never does/i });
 
@@ -106,10 +106,16 @@ describe("their own record, first", () => {
 
   it("offers correcting as the first thing the reader can do to it", async () => {
     // The other half of §4.1's sequence: the first *action* available is
-    // correcting the record, not acknowledging a notice.
+    // correcting the record, not acknowledging a notice. This screen shows a
+    // preview of the record (the approved design's compact treatment) with a
+    // link to the full correction flow at `/me`, rather than the inline
+    // correction controls themselves — correcting is still one click away,
+    // just not duplicated onto this screen too.
     renderWelcome();
 
-    expect(await screen.findByRole("button", { name: /not right/i })).toBeVisible();
+    expect(
+      await screen.findByRole("link", { name: /correct anything that.s wrong/i }),
+    ).toHaveAttribute("href", "/me");
   });
 
   it("does not describe itself as monitoring or tracking", async () => {
@@ -234,64 +240,153 @@ describe("inline per-source opt-out", () => {
   });
 });
 
+const INVITATION_PREVIEW = {
+  email: "priya@acme.test",
+  role: "member",
+  workspaceName: "Acme Labs",
+  invitedByName: "M. Waqas",
+};
+
 describe("the invitation", () => {
   it("reads as an invitation rather than a notice", async () => {
-    renderRoute(<InvitePage />, { client: client(), route: "/invite", search: "token=abc" });
+    const previewInvitation = vi.fn(() => Promise.resolve(INVITATION_PREVIEW));
+    renderRoute(<InvitePage />, {
+      client: client({ previewInvitation }),
+      route: "/invite",
+      search: "token=abc",
+    });
 
-    expect(await screen.findByRole("heading", { name: /invited to cairn/i })).toBeVisible();
-    // What the product does, and what the reader controls — before what it
-    // needs from them.
-    expect(screen.getByText(/you will see your own record first/i)).toBeVisible();
-    expect(screen.getByText(/switch off any source/i)).toBeVisible();
+    expect(await screen.findByRole("heading", { name: /invited to acme labs/i })).toBeVisible();
+    // Who invited them, and to what — before what the form needs from them.
+    expect(screen.getByText(/m\. waqas invited you as a member/i)).toBeVisible();
+    expect(screen.getByText(/nothing is scored, ranked, or used against anyone/i)).toBeVisible();
   });
 
   it("sends a new member to their own record, not the team brief", async () => {
     // The exit criterion, at the routing level. Landing on the brief would make
     // the first thing a new member sees a page about everybody else.
     const acceptInvitation = vi.fn(() => Promise.resolve(SESSION.workspaces[0]!.workspace));
+    const previewInvitation = vi.fn(() => Promise.resolve(INVITATION_PREVIEW));
     renderRoute(<InvitePage />, {
-      client: client({ acceptInvitation }),
+      client: client({ acceptInvitation, previewInvitation }),
       route: "/invite",
       search: "token=abc",
     });
 
-    await userEvent.type(await screen.findByLabelText(/email this invitation/i), "priya@acme.test");
-    await userEvent.type(screen.getByLabelText(/choose a password/i), "correct-horse-battery");
-    await userEvent.click(screen.getByRole("button", { name: /join your team/i }));
+    await userEvent.type(
+      await screen.findByLabelText(/choose a password/i),
+      "correct-horse-battery",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /accept invitation/i }));
 
-    expect(router.replace).toHaveBeenCalledWith("/login?next=%2Fwelcome");
+    await waitFor(() => {
+      expect(router.replace).toHaveBeenCalledWith("/login?next=%2Fwelcome");
+    });
   });
 
   it("explains a broken link rather than failing at submit", async () => {
     renderRoute(<InvitePage />, { client: client(), route: "/invite" });
 
     expect(await screen.findByRole("heading", { name: /link is incomplete/i })).toBeVisible();
-    expect(screen.queryByRole("button", { name: /join/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /accept/i })).not.toBeInTheDocument();
+  });
+
+  it("explains an invitation that no longer checks out, rather than showing a form for it", async () => {
+    const previewInvitation = vi.fn(() => Promise.reject(apiError(409)));
+    renderRoute(<InvitePage />, {
+      client: client({ previewInvitation }),
+      route: "/invite",
+      search: "token=stale",
+    });
+
+    expect(await screen.findByRole("heading", { name: /can.t be used/i })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /accept/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the invited address locked, rather than asking the reader to retype it", async () => {
+    const previewInvitation = vi.fn(() => Promise.resolve(INVITATION_PREVIEW));
+    renderRoute(<InvitePage />, {
+      client: client({ previewInvitation }),
+      route: "/invite",
+      search: "token=abc",
+    });
+
+    const emailField = await screen.findByLabelText(/your email/i);
+    expect(emailField).toHaveValue("priya@acme.test");
+    expect(emailField).toHaveAttribute("readonly");
   });
 
   it("does not require a password from somebody who already has an account", async () => {
     const acceptInvitation = vi.fn(() => Promise.resolve(SESSION.workspaces[0]!.workspace));
+    const previewInvitation = vi.fn(() => Promise.resolve(INVITATION_PREVIEW));
     renderRoute(<InvitePage />, {
-      client: client({ acceptInvitation }),
+      client: client({ acceptInvitation, previewInvitation }),
       route: "/invite",
       search: "token=abc",
     });
 
-    await userEvent.type(await screen.findByLabelText(/email this invitation/i), "priya@acme.test");
-    await userEvent.click(screen.getByRole("button", { name: /join your team/i }));
+    await screen.findByLabelText(/your email/i);
+    await userEvent.click(screen.getByRole("button", { name: /accept invitation/i }));
 
     // Omitted, not sent empty: the API takes a password only when the person
     // has no account, and "" is not the same as "not applicable".
-    expect(acceptInvitation).toHaveBeenCalledWith({ token: "abc", email: "priya@acme.test" });
+    await waitFor(() => {
+      expect(acceptInvitation).toHaveBeenCalledWith({ token: "abc", email: "priya@acme.test" });
+    });
+  });
+
+  describe("SSO buttons", () => {
+    // The approved design shows both, but no OAuth route exists anywhere in
+    // the API — same gap as the sign-in and signup pages. A click must say
+    // so honestly rather than doing nothing or faking acceptance.
+
+    it.each([
+      ["Google", /accept with google/i],
+      ["GitHub", /accept with github/i],
+    ] as const)("offers %s per the approved design", async (_provider, name) => {
+      const previewInvitation = vi.fn(() => Promise.resolve(INVITATION_PREVIEW));
+      renderRoute(<InvitePage />, {
+        client: client({ previewInvitation }),
+        route: "/invite",
+        search: "token=abc",
+      });
+
+      expect(await screen.findByRole("button", { name })).toBeVisible();
+    });
+
+    it.each([
+      ["Google", /accept with google/i],
+      ["GitHub", /accept with github/i],
+    ] as const)(
+      "says %s acceptance isn't available yet, rather than doing nothing or faking it",
+      async (provider, name) => {
+        const acceptInvitation = vi.fn();
+        const previewInvitation = vi.fn(() => Promise.resolve(INVITATION_PREVIEW));
+        renderRoute(<InvitePage />, {
+          client: client({ acceptInvitation, previewInvitation }),
+          route: "/invite",
+          search: "token=abc",
+        });
+
+        await userEvent.click(await screen.findByRole("button", { name }));
+
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+          new RegExp(`${provider} isn't available yet`, "i"),
+        );
+        expect(acceptInvitation).not.toHaveBeenCalled();
+        expect(router.replace).not.toHaveBeenCalled();
+      },
+    );
   });
 
   it("passes an axe audit", async () => {
+    const previewInvitation = vi.fn(() => Promise.resolve(INVITATION_PREVIEW));
     const { container } = renderRoute(<InvitePage />, {
-      client: client(),
+      client: client({ previewInvitation }),
       route: "/invite",
       search: "token=abc",
     });
-    await screen.findByRole("heading", { name: /invited to cairn/i });
+    await screen.findByRole("heading", { name: /invited to acme labs/i });
 
     await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
   });

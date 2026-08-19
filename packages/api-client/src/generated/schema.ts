@@ -53,6 +53,32 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/auth/forgot-password": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Request a password reset link
+     * @description Issue a reset link, if the address has an account.
+     *
+     *     **The response is identical whether or not it does.** Saying otherwise
+     *     would let anyone use this form to enumerate registered addresses — this
+     *     is the unauthenticated case `login` avoids by being deliberately vague
+     *     about which of two things failed; here there is only one thing to hide,
+     *     the account's existence, and it stays hidden.
+     */
+    post: operations["forgot_password_v1_auth_forgot_password_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/auth/login": {
     parameters: {
       query?: never;
@@ -143,6 +169,31 @@ export interface paths {
      *     session, and there is no useful action either answer enables.
      */
     post: operations["resend_verification_v1_auth_resend_verification_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/auth/reset-password": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Redeem a password reset link
+     * @description Set a new password from a reset token.
+     *
+     *     Deliberately unauthenticated, and deliberately does not sign the caller
+     *     in: the token proves control of the address, not that this browser
+     *     should now hold a session — the reader continues to `/login` explicitly,
+     *     the same way accepting an invitation does.
+     */
+    post: operations["reset_password_endpoint_v1_auth_reset_password_post"];
     delete?: never;
     options?: never;
     head?: never;
@@ -604,6 +655,29 @@ export interface paths {
      *     invitation link take over an existing account.
      */
     post: operations["accept_v1_invitations_accept_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/invitations/preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * See who is inviting you, and where, before accepting
+     * @description Read-only. Nothing is created, changed, or consumed by looking.
+     *
+     *     Deliberately unauthenticated, same as `accept` below: the reader may not
+     *     have an account yet, so there is no session to require.
+     */
+    get: operations["preview_v1_invitations_preview_get"];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -1902,6 +1976,14 @@ export interface components {
       /** Url */
       url?: string | null;
     };
+    /** ForgotPasswordRequest */
+    ForgotPasswordRequest: {
+      /**
+       * Email
+       * Format: email
+       */
+      email: string;
+    };
     /**
      * GitHubInstallationResponse
      * @description A connected installation.
@@ -1962,6 +2044,23 @@ export interface components {
        * @default false
        */
       suspended: boolean;
+    };
+    /**
+     * InvitationPreviewResponse
+     * @description What the invitee sees before accepting anything — no token, no
+     *     membership row created, nothing mutated by looking.
+     */
+    InvitationPreviewResponse: {
+      /**
+       * Email
+       * Format: email
+       */
+      email: string;
+      /** Invitedbyname */
+      invitedByName: string;
+      role: components["schemas"]["TenantRole"];
+      /** Workspacename */
+      workspaceName: string;
     };
     /**
      * InvitationResponse
@@ -2285,6 +2384,13 @@ export interface components {
       repository: string;
       /** State */
       state: string;
+    };
+    /** ResetPasswordRequest */
+    ResetPasswordRequest: {
+      /** Password */
+      password: string;
+      /** Token */
+      token: string;
     };
     /**
      * RoleUpdate
@@ -2845,6 +2951,48 @@ export interface operations {
       };
     };
   };
+  forgot_password_v1_auth_forgot_password_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ForgotPasswordRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: string;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+      /** @description Too many requests from this address. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   login_v1_auth_login_post: {
     parameters: {
       query?: never;
@@ -2980,6 +3128,46 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["HTTPValidationError"];
         };
+      };
+    };
+  };
+  reset_password_endpoint_v1_auth_reset_password_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ResetPasswordRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            [key: string]: string;
+          };
+        };
+      };
+      /** @description Unknown, expired, or already-used link. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description The password is too short, or a field is malformed. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };
@@ -3697,6 +3885,44 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  preview_v1_invitations_preview_get: {
+    parameters: {
+      query: {
+        token: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["InvitationPreviewResponse"];
+        };
+      };
+      /** @description Unknown, expired, superseded, or already-accepted invitation. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
       };
     };
   };

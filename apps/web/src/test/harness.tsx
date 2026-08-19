@@ -60,6 +60,10 @@ export function createStubClient(overrides: Partial<CairnClient> = {}): CairnCli
   return {
     signUp: vi.fn(unexpected("signUp")),
     logIn: vi.fn(unexpected("logIn")),
+    forgotPassword: vi.fn(unexpected("forgotPassword")),
+    resetPassword: vi.fn(unexpected("resetPassword")),
+    verifyEmail: vi.fn(unexpected("verifyEmail")),
+    resendVerification: vi.fn(unexpected("resendVerification")),
     getSession: vi.fn(() => Promise.resolve(null)),
     logOut: vi.fn(() => Promise.resolve()),
     logOutEverywhere: vi.fn(unexpected("logOutEverywhere")),
@@ -68,6 +72,7 @@ export function createStubClient(overrides: Partial<CairnClient> = {}): CairnCli
     listInvitations: vi.fn(unexpected("listInvitations")),
     invite: vi.fn(unexpected("invite")),
     withdrawInvitation: vi.fn(unexpected("withdrawInvitation")),
+    previewInvitation: vi.fn(unexpected("previewInvitation")),
     acceptInvitation: vi.fn(unexpected("acceptInvitation")),
     getOnboarding: vi.fn(unexpected("getOnboarding")),
     getBrief: vi.fn(unexpected("getBrief")),

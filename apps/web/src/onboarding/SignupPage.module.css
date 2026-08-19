@@ -1,45 +1,133 @@
 /*
  * Signup.
  *
- * Shares its shape with the login card deliberately: the two screens are the
- * same object at two moments, and a reader who signs up and later signs in
- * should recognise the second as the same product. Duplicated rather than
- * imported because a shared "auth card" abstraction across two files that will
- * diverge (this one gains a plan picker; that one gains SSO) costs more to
- * unpick later than the duplication costs now.
+ * A two-panel split — brand narrative beside the form — per the approved
+ * design (signup.html), matched value-for-value against its stylesheet
+ * (cairn.css) wherever this app's own design-system tokens (packages/ui)
+ * define the equivalent. A few of the prototype's own tokens don't exist in
+ * the real token set (`--text-4xl`, `--tracking-*`, `--accent-hover`) — those
+ * are called out inline with the literal value used instead.
+ *
+ * Unlike the login card, this card has no border, background fill, or padding
+ * of its own — the approved design's `.auth__card` is a plain content column,
+ * not the bordered `.card` component. That is a deliberate difference from
+ * `LoginPage.module.css`, not an inconsistency to fix.
  */
 
 .page {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 100dvh;
+  padding: var(--space-6);
+  background: var(--bg-default);
+}
+
+.aside {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--space-16) var(--space-12);
+  background: var(--bg-inverse);
+  color: var(--fg-inverse);
+}
+
+.asideBrand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.eyebrow {
+  margin: 0;
+  /* Not `--fg-muted`: that token is calibrated for muted text on a *light*
+   * background. This sits on the dark aside, where the design derives a muted
+   * tone from `--fg-inverse` itself so it stays legible in both themes. */
+  color: color-mix(in srgb, var(--fg-inverse) 60%, transparent);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.asideHeading {
+  margin: var(--space-4) 0 0;
+  max-width: 16ch;
+  color: var(--fg-inverse);
+  /* The real token set stops at `--text-3xl` (1.875rem); the design's `.display`
+   * is 2.5rem, one step larger than anything tokenised, so this is literal. */
+  font-size: 2.5rem;
+  font-weight: var(--weight-semibold);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.asideLead {
+  margin: var(--space-5) 0 0;
+  max-width: 42ch;
+  color: color-mix(in srgb, var(--fg-inverse) 72%, transparent);
+  font-size: var(--text-lg);
+  line-height: var(--leading-relaxed);
+}
+
+.asideFoot {
+  margin: 0;
+  color: color-mix(in srgb, var(--fg-inverse) 55%, transparent);
+  font-size: var(--text-sm);
+}
+
+.panel {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100dvh;
-  padding: var(--space-6);
-  background: var(--bg-subtle);
+  padding: var(--space-12) var(--space-6);
+}
+
+@media (max-width: 860px) {
+  .page {
+    grid-template-columns: 1fr;
+  }
+
+  .aside {
+    display: none;
+  }
 }
 
 .card {
   width: 100%;
-  max-width: 24rem;
-  padding: var(--space-10) var(--space-8);
-  background: var(--bg-default);
-  border: var(--border-thin) solid var(--border-default);
-  border-radius: var(--radius-lg);
+  max-width: 400px;
 }
 
 .brand {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   margin-bottom: var(--space-8);
-  color: var(--fg-default);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
 }
 
-.brandName {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+.logoMark,
+.logoMarkInverse {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--radius-sm);
+}
+
+.logoMark {
+  color: var(--bg-default);
+  background: var(--fg-default);
+}
+
+.logoMarkInverse {
+  color: var(--fg-default);
+  background: var(--bg-default);
 }
 
 .title {
@@ -47,20 +135,61 @@
   font-size: var(--text-2xl);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);
-  letter-spacing: -0.015em;
+  /* `--tracking-tight`'s literal value: the real token set has no
+   * `--tracking-*` variables at all. */
+  letter-spacing: -0.014em;
 }
 
 .subtitle {
   margin: var(--space-2) 0 var(--space-8);
   color: var(--fg-muted);
-  font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+
+/* The two SSO buttons. Column, not row — a full-width target for each is what
+ * the approved design specifies, and it is also the larger touch target. */
+.oauthGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.oauthGroup button {
+  width: 100%;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-5) 0;
+}
+
+.dividerLine {
+  flex: 1;
+  height: var(--border-thin);
+  background: var(--border-default);
+}
+
+.dividerText {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
 }
 
 .form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+}
+
+/* Fields sit further apart from each other than the checkbox sits from the
+ * last field, or the button from the checkbox — the approved design sets
+ * those two gaps directly on the elements themselves, tighter than the
+ * general field-to-field rhythm. A single uniform `gap` here would flatten
+ * that distinction, so spacing is per-pair margins instead. */
+.field + .field {
+  margin-top: var(--space-5);
 }
 
 .field {
@@ -75,13 +204,14 @@
 }
 
 .input {
+  width: 100%;
   min-height: var(--min-target);
-  padding: 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
 
   color: var(--fg-default);
   background: var(--bg-default);
   font-family: var(--font-sans);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
 
   /*
    * `border-interactive`, not `border-default`.
@@ -96,9 +226,113 @@
   border-radius: var(--radius-md);
 }
 
+.input::placeholder {
+  color: var(--fg-subtle);
+}
+
+.input:hover:not(:disabled) {
+  border-color: var(--fg-muted);
+}
+
+/* `:focus-visible`, not `:focus`, and `outline: none` only inside it — a mouse
+ * click still gets no ring (this app's global rule is deliberate about that),
+ * but keyboard focus gets the design's soft glow instead of the plain global
+ * outline, rather than both stacking at once. */
+.input:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-focus) 22%, transparent);
+}
+
 .input:disabled {
   background: var(--bg-muted);
   color: var(--fg-muted);
+}
+
+/* The password field plus its show/hide control, as one unit so the button
+ * can be positioned relative to the input rather than the whole field. */
+.passwordGroup {
+  position: relative;
+}
+
+.passwordGroup .input {
+  padding-right: var(--space-10);
+}
+
+.passwordToggle {
+  position: absolute;
+  top: 50%;
+  right: var(--space-1);
+  transform: translateY(-50%);
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  color: var(--fg-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.passwordToggle:hover {
+  color: var(--fg-default);
+  background: var(--bg-muted);
+}
+
+.passwordToggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The password rule, stated before it can be broken. */
+.hint {
+  margin: 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+}
+
+/* The terms checkbox. Wraps the input rather than pairing it with `htmlFor`,
+ * so clicking the sentence toggles it too — the target a reader actually aims
+ * for is the text, not the 18px box in front of it. */
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  cursor: pointer;
+}
+
+.check input {
+  margin-top: 2px;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  accent-color: var(--accent-default);
+}
+
+.checkText {
+  font-size: var(--text-sm);
+}
+
+/* The Sign-in link, and the visually-matched-but-inert "Terms"/"Privacy
+ * Policy" words above (see the component for why those aren't real links). */
+.link {
+  color: var(--accent-default);
+  font-weight: var(--weight-medium);
+}
+
+.link:hover {
+  /* Not a colour change: the real token set has no `--accent-hover`, and
+   * inventing one here would be a colour this page picked on its own rather
+   * than one the design system defines. */
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.linkText {
+  color: var(--accent-default);
+  font-weight: var(--weight-medium);
 }
 
 /*
@@ -109,7 +343,7 @@
  * arriving at the reader's least confident moment.
  */
 .problem {
-  margin: 0;
+  margin: 0 0 var(--space-6);
   padding: var(--space-3) var(--space-4);
   color: var(--fg-default);
   background: var(--bg-muted);
@@ -120,18 +354,31 @@
 }
 
 .submit {
-  margin-top: var(--space-1);
+  margin-top: var(--space-2);
 }
 
-/* The password rule, stated before it can be broken rather than after. */
-.hint {
-  margin: 0;
-  color: var(--fg-muted);
+/* The reference design's `.btn--primary` is literally `--bg-inverse` (black
+ * in light mode) — the shared Button component's "primary" variant uses
+ * `--fg-default` instead, a different token that happens to match in light
+ * mode but isn't guaranteed to. Pinned here, on this button only, so it stays
+ * black whenever it's enabled — including right after the checkbox is
+ * checked. Scoped to `:not(:disabled)` so the existing greyed-out disabled
+ * look (shown while the checkbox is unchecked) is untouched. */
+.submit:not(:disabled) {
+  background: var(--bg-inverse);
+  color: var(--fg-inverse);
+  border-color: var(--bg-inverse);
+}
+
+.footnote {
+  margin: var(--space-4) 0 0;
+  color: var(--fg-subtle);
   font-size: var(--text-xs);
+  text-align: center;
 }
 
 .alternate {
-  margin: 0;
+  margin: var(--space-6) 0 0;
   color: var(--fg-muted);
   font-size: var(--text-sm);
   text-align: center;

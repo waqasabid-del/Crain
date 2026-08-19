@@ -129,6 +129,12 @@ export interface RequestOptions {
 
 type SignUpBody = paths["/v1/auth/signup"]["post"]["requestBody"]["content"]["application/json"];
 type LogInBody = paths["/v1/auth/login"]["post"]["requestBody"]["content"]["application/json"];
+type ForgotPasswordBody =
+  paths["/v1/auth/forgot-password"]["post"]["requestBody"]["content"]["application/json"];
+type ResetPasswordBody =
+  paths["/v1/auth/reset-password"]["post"]["requestBody"]["content"]["application/json"];
+type VerifyEmailBody =
+  paths["/v1/auth/verify-email"]["post"]["requestBody"]["content"]["application/json"];
 type InviteBody =
   paths["/v1/workspaces/{workspace_id}/invitations"]["post"]["requestBody"]["content"]["application/json"];
 export type CorrectionBody =
@@ -188,12 +194,31 @@ type ConnectGitHubBody =
 type AcceptBody =
   paths["/v1/invitations/accept"]["post"]["requestBody"]["content"]["application/json"];
 
+export type InvitationPreview =
+  paths["/v1/invitations/preview"]["get"]["responses"][200]["content"]["application/json"];
+
 /** Declared rather than inferred from the object literal, so an accidental
  * signature change is a compile error rather than a widened type. */
 export interface CairnClient {
   /** Create an account and its first workspace. Signs the caller in. */
   signUp(body: SignUpBody, options?: RequestOptions): Promise<Session>;
   logIn(body: LogInBody, options?: RequestOptions): Promise<Session>;
+  /** Issue a reset link if the address has an account. Same response either
+   * way — see the route's own docstring for why. */
+  forgotPassword(
+    body: ForgotPasswordBody,
+    options?: RequestOptions,
+  ): Promise<Record<string, string>>;
+  /** Redeem a reset link. Does not sign the caller in — continuing to
+   * `/login` is a separate, explicit step, same as accepting an invitation. */
+  resetPassword(body: ResetPasswordBody, options?: RequestOptions): Promise<Record<string, string>>;
+  /** Redeem a verification link. Deliberately unauthenticated — see the
+   * route's own docstring. One error for unknown, expired and used tokens
+   * alike, so a caller cannot distinguish which applied. */
+  verifyEmail(body: VerifyEmailBody, options?: RequestOptions): Promise<Session>;
+  /** Issue a fresh verification link for the signed-in caller. Requires a
+   * session — there is no unauthenticated resend, unlike `forgotPassword`. */
+  resendVerification(options?: RequestOptions): Promise<Record<string, string>>;
   /** Who the caller is. Resolves to null when signed out, rather than throwing. */
   getSession(options?: RequestOptions): Promise<Session | null>;
   logOut(options?: RequestOptions): Promise<void>;
@@ -207,6 +232,10 @@ export interface CairnClient {
     invitationId: string,
     options?: RequestOptions,
   ): Promise<void>;
+  /** Who is inviting whom, to where, as what — read-only, before anyone
+   * decides to accept. Deliberately unauthenticated, same as
+   * `acceptInvitation`: the reader may not have an account yet. */
+  previewInvitation(token: string, options?: RequestOptions): Promise<InvitationPreview>;
   acceptInvitation(body: AcceptBody, options?: RequestOptions): Promise<Workspace>;
   /** One request rather than four, so the onboarding screen cannot disagree
    * with itself while a history import runs. */
@@ -372,6 +401,18 @@ export function createClient(options: ClientOptions): CairnClient {
       body: paths["/v1/auth/login"]["post"]["requestBody"]["content"]["application/json"],
       options?: RequestOptions,
     ) => request<Session>("POST", "/v1/auth/login", body, options),
+
+    forgotPassword: (body: ForgotPasswordBody, options?: RequestOptions) =>
+      request<Record<string, string>>("POST", "/v1/auth/forgot-password", body, options),
+
+    resetPassword: (body: ResetPasswordBody, options?: RequestOptions) =>
+      request<Record<string, string>>("POST", "/v1/auth/reset-password", body, options),
+
+    verifyEmail: (body: VerifyEmailBody, options?: RequestOptions) =>
+      request<Session>("POST", "/v1/auth/verify-email", body, options),
+
+    resendVerification: (options?: RequestOptions) =>
+      request<Record<string, string>>("POST", "/v1/auth/resend-verification", undefined, options),
 
     getSession: async (options?: RequestOptions): Promise<Session | null> => {
       try {
@@ -569,6 +610,14 @@ export function createClient(options: ClientOptions): CairnClient {
         "POST",
         `/v1/workspaces/${workspaceId}/integrations/github`,
         body,
+        options,
+      ),
+
+    previewInvitation: (token: string, options?: RequestOptions) =>
+      request<InvitationPreview>(
+        "GET",
+        `/v1/invitations/preview${searchParams({ token })}`,
+        undefined,
         options,
       ),
 

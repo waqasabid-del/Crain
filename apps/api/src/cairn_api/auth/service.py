@@ -27,6 +27,7 @@ from cairn_api.db.auth_models import (
     EmailVerification,
     Invitation,
     PasswordCredential,
+    PasswordReset,
     Session,
 )
 from cairn_api.db.models import Membership, Tenant, TenantRole, User
@@ -74,6 +75,12 @@ class InvitationError(AuthError):
 
 class EmailNotVerifiedError(AuthError):
     """An action requires proof of address control and the account has none."""
+
+
+class PasswordResetTokenError(AuthError):
+    """Unknown, expired, or already-used reset link. One error for all three
+    — as with `InvalidCredentialsError`, distinguishing them would tell
+    whoever is holding the link more than the response should."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,6 +417,64 @@ async def accept_invitation(
     return membership
 
 
+@dataclass(frozen=True, slots=True)
+class InvitationPreview:
+    """What the approved design shows before anyone accepts anything: who is
+    inviting whom, to where, as what — read-only, no lock, no mutation."""
+
+    email: str
+    role: TenantRole
+    workspace_name: str
+    invited_by_name: str
+
+
+async def preview_invitation(session: AsyncSession, *, token: str) -> InvitationPreview:
+    """Look up an invitation by token without redeeming it.
+
+    Same validity checks as `accept_invitation`, and the same distinct
+    messages per cause — this table already treats "expired" and
+    "superseded" as different enough to tell apart (unlike a password-reset
+    or verification token), so a preview keeps that rather than flattening
+    it back to one generic answer.
+    """
+    invitation = await session.scalar(
+        select(Invitation).where(Invitation.token_hash == hash_token(token))
+    )
+    if invitation is None:
+        msg = "Invitation not found"
+        raise InvitationError(msg)
+    if invitation.accepted_at is not None:
+        msg = "Invitation has already been accepted"
+        raise InvitationError(msg)
+    if invitation.superseded_at is not None:
+        msg = "Invitation has been replaced by a more recent one"
+        raise InvitationError(msg)
+    if invitation.expires_at <= datetime.now(UTC):
+        msg = "Invitation has expired"
+        raise InvitationError(msg)
+
+    tenant = await session.get(Tenant, invitation.tenant_id)
+    if tenant is None:  # pragma: no cover — the foreign key guarantees this
+        msg = "Invitation not found"
+        raise InvitationError(msg)
+
+    invited_by_name = "A teammate"
+    if invitation.invited_by_user_id is not None:
+        inviter = await session.get(User, invitation.invited_by_user_id)
+        if inviter is not None:
+            # Falls back to the address's local part rather than the address
+            # itself — the reader is not owed the inviter's full email, only
+            # enough to recognise who this is.
+            invited_by_name = inviter.display_name or inviter.email.split("@")[0]
+
+    return InvitationPreview(
+        email=invitation.email,
+        role=invitation.role,
+        workspace_name=tenant.name,
+        invited_by_name=invited_by_name,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Email verification
 # ---------------------------------------------------------------------------
@@ -481,5 +546,115 @@ async def verify_email(session: AsyncSession, *, token: str) -> User:
 
     verification.consumed_at = now
     user.email_verified_at = now
+    await session.flush()
+    return user
+
+
+# ---------------------------------------------------------------------------
+# Password reset
+# ---------------------------------------------------------------------------
+
+#: Short — a reset link is meant to be used within minutes of asking for it,
+#: and a shorter window bounds how long a link sitting in an inbox stays
+#: dangerous if that inbox is compromised.
+PASSWORD_RESET_LIFETIME = timedelta(minutes=30)
+
+
+@dataclass(frozen=True, slots=True)
+class IssuedPasswordReset:
+    """A new reset token, the row recording it, and the address to mail it
+    to. The address is not a column on `PasswordReset` — it exists only here,
+    for the one caller that needs it in the same request it was issued."""
+
+    reset: PasswordReset
+    token: str
+    email: str
+
+
+async def issue_password_reset(session: AsyncSession, *, user: User) -> IssuedPasswordReset:
+    """Create a reset token for a known user; consumes any outstanding one
+    first so an older forwarded/intercepted link stops working."""
+    now = datetime.now(UTC)
+    await session.execute(
+        update(PasswordReset)
+        .where(
+            PasswordReset.user_id == user.id,
+            PasswordReset.consumed_at.is_(None),
+        )
+        .values(consumed_at=now)
+        .execution_options(synchronize_session="fetch")
+    )
+
+    token = generate_token()
+    reset = PasswordReset(
+        user_id=user.id,
+        token_hash=hash_token(token),
+        expires_at=now + PASSWORD_RESET_LIFETIME,
+    )
+    session.add(reset)
+    await session.flush()
+    return IssuedPasswordReset(reset=reset, token=token, email=user.email)
+
+
+async def request_password_reset(
+    session: AsyncSession, *, email: str
+) -> IssuedPasswordReset | None:
+    """Issue a reset token for the account at this address, or ``None`` if
+    there is no such account.
+
+    Returns ``None`` rather than raising: whether an address has an account
+    is exactly what the caller must not reveal, so there is no error to
+    surface — the endpoint sends the same response either way.
+    """
+    user = await _find_user_by_email(session, email)
+    if user is None:
+        # Hash anyway so response time doesn't leak account existence — same
+        # reasoning as `authenticate()`'s unknown-email path.
+        await hash_password_async(email)
+        return None
+    return await issue_password_reset(session, user=user)
+
+
+async def reset_password(session: AsyncSession, *, token: str, new_password: str) -> User:
+    """Redeem a reset token, replacing the account's password.
+
+    Revokes every session for the account: a password reset is the moment a
+    holder of a stolen session is most likely to still be logged in, and
+    leaving them signed in through it would make the reset pointless.
+    """
+    if len(new_password) < MIN_PASSWORD_LENGTH:
+        msg = f"Password must be at least {MIN_PASSWORD_LENGTH} characters"
+        raise WeakPasswordError(msg)
+
+    # `FOR UPDATE`: check-then-act below. Without the lock, two concurrent
+    # redemptions of the same link could both pass the consumed-at check.
+    reset = await session.scalar(
+        select(PasswordReset).where(PasswordReset.token_hash == hash_token(token)).with_for_update()
+    )
+    now = datetime.now(UTC)
+
+    if reset is None or reset.consumed_at is not None or reset.expires_at <= now:
+        msg = "Password reset link is not valid"
+        raise PasswordResetTokenError(msg)
+
+    user = await session.get(User, reset.user_id)
+    if user is None:
+        msg = "Password reset link is not valid"
+        raise PasswordResetTokenError(msg)
+
+    credential = await session.scalar(
+        select(PasswordCredential).where(PasswordCredential.user_id == user.id)
+    )
+    password_hash = await hash_password_async(new_password)
+    if credential is None:
+        # An OAuth-only account, redeeming proof of address control to add a
+        # password — the same trust the invitation flow already extends to a
+        # brand-new account.
+        session.add(PasswordCredential(user_id=user.id, password_hash=password_hash))
+    else:
+        credential.password_hash = password_hash
+
+    reset.consumed_at = now
+    await revoke_all_sessions_for_user(session, user_id=user.id)
     await session.flush()
     return user

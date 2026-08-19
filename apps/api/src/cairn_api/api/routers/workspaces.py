@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
@@ -42,13 +42,14 @@ from cairn_api.api.schemas import (
     AcceptInvitationRequest,
     ConnectGitHubRequest,
     GitHubInstallationResponse,
+    InvitationPreviewResponse,
     InvitationResponse,
     InviteRequest,
     MembershipResponse,
     WorkspaceResponse,
 )
 from cairn_api.auth.permissions import Permission
-from cairn_api.auth.service import accept_invitation, invite_to_workspace
+from cairn_api.auth.service import accept_invitation, invite_to_workspace, preview_invitation
 from cairn_api.db.auth_models import Invitation
 from cairn_api.db.github_models import GitHubInstallation
 from cairn_api.db.models import Membership, Tenant
@@ -275,6 +276,32 @@ async def revoke_invitation(
 # identified by the token, which is the only thing they actually hold.
 
 invitations_router = APIRouter(prefix="/invitations", tags=["invitations"])
+
+
+@invitations_router.get(
+    "/preview",
+    response_model=InvitationPreviewResponse,
+    summary="See who is inviting you, and where, before accepting",
+    responses={
+        409: {"description": "Unknown, expired, superseded, or already-accepted invitation."}
+    },
+)
+async def preview(
+    db: PlatformDb,
+    token: str = Query(min_length=1, max_length=256),
+) -> InvitationPreviewResponse:
+    """Read-only. Nothing is created, changed, or consumed by looking.
+
+    Deliberately unauthenticated, same as `accept` below: the reader may not
+    have an account yet, so there is no session to require.
+    """
+    result = await preview_invitation(db, token=token)
+    return InvitationPreviewResponse(
+        email=result.email,
+        role=result.role,
+        workspace_name=result.workspace_name,
+        invited_by_name=result.invited_by_name,
+    )
 
 
 @invitations_router.post(

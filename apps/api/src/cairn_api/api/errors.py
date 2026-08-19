@@ -33,6 +33,7 @@ from cairn_api.auth.service import (
     EmailNotVerifiedError,
     InvalidCredentialsError,
     InvitationError,
+    PasswordResetTokenError,
     WeakPasswordError,
 )
 from cairn_api.db.tenancy import MissingTenantContextError
@@ -224,6 +225,22 @@ def register_exception_handlers(app: FastAPI) -> None:
             title="Invitation cannot be used",
             detail=str(exc),
             problem_type="invitation-invalid",
+        )
+
+    @app.exception_handler(PasswordResetTokenError)
+    async def _handle_password_reset_token(
+        request: Request,
+        exc: PasswordResetTokenError,
+    ) -> Response:
+        # 409, same as InvitationError: well-formed request, invalid against
+        # current state. One message for unknown, expired and used links —
+        # see the exception's own docstring for why.
+        return problem_response(
+            request,
+            status_code=status.HTTP_409_CONFLICT,
+            title="Password reset link cannot be used",
+            detail=str(exc),
+            problem_type="password-reset-invalid",
         )
 
     # -- Programming errors ------------------------------------------------
