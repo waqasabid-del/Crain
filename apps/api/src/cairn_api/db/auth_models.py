@@ -157,3 +157,32 @@ class EmailVerification(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (Index("ix_email_verifications_user_id", "user_id"),)
+
+
+class PasswordReset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A token proving control of the address on file, redeemable once to set
+    a new password. Not tenant-scoped, like `Session` and `EmailVerification`
+    — it identifies a person, not a workspace member, and the application
+    role holds no privilege on this table at all (same reasoning as
+    `EmailVerification`: a scoped session able to insert here could reset a
+    password it does not own).
+
+    No `email` column, unlike `EmailVerification`: the token is keyed to
+    `user_id`, and resetting a password does not re-assert anything about the
+    address it was mailed to — there is nothing here an address change could
+    make stale.
+    """
+
+    __tablename__ = "password_resets"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("ix_password_resets_user_id", "user_id"),)

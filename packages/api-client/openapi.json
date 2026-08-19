@@ -45,41 +45,6 @@
         "title": "AcceptInvitationRequest",
         "type": "object"
       },
-      "AttributionHealthResponse": {
-        "additionalProperties": false,
-        "description": "Whether attribution is working here, in counts and nothing else.\n\n**No per-person figures, by construction.** There is no field here that\ncould carry a name, an id, an address or a volume of activity. md/05 \u00a7B.3.3\nmakes a per-person breakdown a product-reclassifying feature, and md/15\n\u00a72.3 says an Admin may not see more about a member than the member sees \u2014\nso an \"unresolved by person\" list is a leaderboard with the ranking left as\nan exercise for the reader.",
-        "properties": {
-          "disputed": {
-            "title": "Disputed",
-            "type": "integer"
-          },
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          },
-          "resolvedByProvider": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Resolvedbyprovider",
-            "type": "object"
-          },
-          "revoked": {
-            "title": "Revoked",
-            "type": "integer"
-          },
-          "unresolvedByProvider": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Unresolvedbyprovider",
-            "type": "object"
-          }
-        },
-        "required": ["disputed", "revoked", "notice"],
-        "title": "AttributionHealthResponse",
-        "type": "object"
-      },
       "AuditEntryResponse": {
         "additionalProperties": false,
         "description": "One recorded staff action.\n\n`entryHash` is returned so a reader can verify the chain independently\nrather than trusting the server's own verdict on itself.",
@@ -231,19 +196,9 @@
             "title": "Hedgedbysystem",
             "type": "boolean"
           },
-          "resolvedActors": {
-            "default": 0,
-            "title": "Resolvedactors",
-            "type": "integer"
-          },
           "text": {
             "title": "Text",
             "type": "string"
-          },
-          "unresolvedActors": {
-            "default": 0,
-            "title": "Unresolvedactors",
-            "type": "integer"
           }
         },
         "required": ["text", "certainty"],
@@ -373,50 +328,6 @@
         "title": "BriefSummary",
         "type": "object"
       },
-      "CapacityResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "capacity": {
-            "title": "Capacity",
-            "type": "string"
-          },
-          "capacityStatedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Capacitystatedat"
-          }
-        },
-        "required": ["capacity"],
-        "title": "CapacityResponse",
-        "type": "object"
-      },
-      "CapacityUpdate": {
-        "additionalProperties": false,
-        "description": "The person's own statement about their availability. Only theirs.",
-        "properties": {
-          "capacity": {
-            "pattern": "^(open_to_work|at_capacity|not_stated)$",
-            "title": "Capacity",
-            "type": "string"
-          }
-        },
-        "required": ["capacity"],
-        "title": "CapacityUpdate",
-        "type": "object"
-      },
-      "CaptureState": {
-        "description": "Where a capture request stands.\n\n`ELIGIBLE` is computed, never asserted: it is written only by the gate, and\nonly when every currently expected participant holds a live acceptance for\nthe current policy version. Nothing else in the product may set it.",
-        "enum": ["pending", "eligible", "refused", "expired", "cancelled", "completed"],
-        "title": "CaptureState",
-        "type": "string"
-      },
       "Certainty": {
         "description": "How much CAIRN trusts a claim.\n\nCategorical, never numeric. A \"73% confident\" badge looks rigorous, means\nnothing to a non-technical reader, and invites false precision. Internal\nnumeric confidence exists for thresholds and evaluation, but it never\nreaches this type or the interface.\n\nSee md/05-ux-design-privacy.md \u00a7A.2.1.",
         "enum": ["verified", "observed", "suggested"],
@@ -462,24 +373,6 @@
         "title": "CitationResponse",
         "type": "object"
       },
-      "ConfirmIdentityRequest": {
-        "additionalProperties": false,
-        "description": "A person saying an account is theirs, from an authenticated session.\n\n**No subject field, deliberately.** The person is resolved from the session,\nso there is nothing here for an administrator to point at a colleague. An\nOwner claiming a member's account would override the one thing md/05 \u00a7B.2.3\nsays cannot be overridden \u2014 that the record is the person's own.",
-        "properties": {
-          "provider": {
-            "$ref": "#/components/schemas/ConnectorProvider"
-          },
-          "providerAccountId": {
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Provideraccountid",
-            "type": "string"
-          }
-        },
-        "required": ["provider", "providerAccountId"],
-        "title": "ConfirmIdentityRequest",
-        "type": "object"
-      },
       "ConnectGitHubRequest": {
         "additionalProperties": false,
         "description": "Bind a GitHub App installation to this workspace.\n\nThe `installation_id` arrives as a query parameter on GitHub's post-install\nredirect. The caller must be an authenticated member with permission to\nconnect integrations, which is the whole point: an inbound webhook must\nnever be able to create this mapping, or whoever installed the app would\nhave their activity bound to a workspace nobody chose.",
@@ -513,186 +406,6 @@
         "required": ["installationId", "accountLogin"],
         "title": "ConnectGitHubRequest",
         "type": "object"
-      },
-      "ConnectorFleetView": {
-        "additionalProperties": false,
-        "description": "Every source at one moment, and the numbers worth alerting on.",
-        "properties": {
-          "measuredAt": {
-            "format": "date-time",
-            "title": "Measuredat",
-            "type": "string"
-          },
-          "oldestUnsuccessfulSyncMinutes": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Oldestunsuccessfulsyncminutes"
-          },
-          "providers": {
-            "items": {
-              "$ref": "#/components/schemas/ConnectorHealthView"
-            },
-            "title": "Providers",
-            "type": "array"
-          },
-          "providersConfiguredButUnverified": {
-            "default": 0,
-            "title": "Providersconfiguredbutunverified",
-            "type": "integer"
-          },
-          "subscriptions": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/SubscriptionHealthView"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "workspacesFailing": {
-            "default": 0,
-            "title": "Workspacesfailing",
-            "type": "integer"
-          },
-          "workspacesInError": {
-            "default": 0,
-            "title": "Workspacesinerror",
-            "type": "integer"
-          }
-        },
-        "required": ["measuredAt"],
-        "title": "ConnectorFleetView",
-        "type": "object"
-      },
-      "ConnectorHealthView": {
-        "additionalProperties": false,
-        "description": "One source, as far as it can be seen without reading what it carried.\n\nEvery field is a count, an age, a flag, or a mapping keyed by a closed enum.\nThere is nowhere here to put a channel name, a message, a repository or a\nperson \u2014 reaching any of those needs the consent-gated support session in\nmd/15 \u00a75.2, never an operations screen.",
-        "properties": {
-          "credentialsConfigured": {
-            "title": "Credentialsconfigured",
-            "type": "boolean"
-          },
-          "deliveriesLastHour": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deliverieslasthour"
-          },
-          "deliveriesTotal": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deliveriestotal"
-          },
-          "deliveriesUnobservableReason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Deliveriesunobservablereason"
-          },
-          "errorsByCategory": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Errorsbycategory",
-            "type": "object"
-          },
-          "failuresLastHour": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Failureslasthour"
-          },
-          "inboundVerified": {
-            "default": false,
-            "title": "Inboundverified",
-            "type": "boolean"
-          },
-          "oldestUnsuccessfulSyncMinutes": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Oldestunsuccessfulsyncminutes"
-          },
-          "provider": {
-            "title": "Provider",
-            "type": "string"
-          },
-          "workspacesByHealth": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Workspacesbyhealth",
-            "type": "object"
-          },
-          "workspacesByState": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Workspacesbystate",
-            "type": "object"
-          },
-          "workspacesConnected": {
-            "title": "Workspacesconnected",
-            "type": "integer"
-          },
-          "workspacesEverSynced": {
-            "title": "Workspaceseversynced",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "provider",
-          "credentialsConfigured",
-          "workspacesConnected",
-          "workspacesEverSynced"
-        ],
-        "title": "ConnectorHealthView",
-        "type": "object"
-      },
-      "ConnectorProvider": {
-        "description": "Which system a connection reaches.\n\nClosed, because a provider is not a label: each value implies a webhook\nverifier, an identity resolver and a retention rule. A free string would let\na typo create a connection nothing on the ingestion side can service, and it\nwould look connected in the UI.",
-        "enum": ["github", "slack", "google_chat", "google_meet"],
-        "title": "ConnectorProvider",
-        "type": "string"
-      },
-      "ConsentDecision": {
-        "description": "One person's answer.\n\nThere is no `assumed`, `implied`, `inherited` or `default` member, and no\nboolean that could be initialised to true. Silence is `PENDING` forever \u2014\nit never ages into agreement.",
-        "enum": ["pending", "accepted", "declined", "withdrawn", "expired"],
-        "title": "ConsentDecision",
-        "type": "string"
       },
       "ConsentResponse": {
         "additionalProperties": false,
@@ -862,73 +575,6 @@
         "title": "EvaluationSummary",
         "type": "object"
       },
-      "ExternalIdentityResponse": {
-        "additionalProperties": false,
-        "description": "One provider account bound to the reader, with how CAIRN knows.\n\nReturned only for the caller's own person. There is no variant of this model\ncarrying somebody else's link, and no route that would produce one.",
-        "properties": {
-          "explanation": {
-            "title": "Explanation",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "linkedAt": {
-            "format": "date-time",
-            "title": "Linkedat",
-            "type": "string"
-          },
-          "provider": {
-            "$ref": "#/components/schemas/ConnectorProvider"
-          },
-          "providerAccountId": {
-            "title": "Provideraccountid",
-            "type": "string"
-          },
-          "revokedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Revokedat"
-          },
-          "revokedReason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Revokedreason"
-          },
-          "state": {
-            "$ref": "#/components/schemas/IdentityLinkState"
-          },
-          "verification": {
-            "$ref": "#/components/schemas/IdentityVerification"
-          }
-        },
-        "required": [
-          "id",
-          "provider",
-          "providerAccountId",
-          "verification",
-          "state",
-          "linkedAt",
-          "explanation"
-        ],
-        "title": "ExternalIdentityResponse",
-        "type": "object"
-      },
       "FacetPerson": {
         "additionalProperties": false,
         "description": "Somebody at least one current fact is about.",
@@ -1077,11 +723,6 @@
             "title": "People",
             "type": "array"
           },
-          "resolvedActors": {
-            "default": 0,
-            "title": "Resolvedactors",
-            "type": "integer"
-          },
           "sources": {
             "items": {
               "$ref": "#/components/schemas/FactSourceResponse"
@@ -1115,11 +756,6 @@
               }
             ],
             "title": "Supersessionreason"
-          },
-          "unresolvedActors": {
-            "default": 0,
-            "title": "Unresolvedactors",
-            "type": "integer"
           },
           "validFrom": {
             "format": "date-time",
@@ -1193,6 +829,19 @@
         "title": "FactSourceResponse",
         "type": "object"
       },
+      "ForgotPasswordRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": ["email"],
+        "title": "ForgotPasswordRequest",
+        "type": "object"
+      },
       "GitHubInstallationResponse": {
         "additionalProperties": false,
         "description": "A connected installation.",
@@ -1234,467 +883,6 @@
         "title": "GitHubInstallationResponse",
         "type": "object"
       },
-      "GoogleChatDisconnectResponse": {
-        "additionalProperties": false,
-        "description": "What disconnecting did, stated precisely enough to be trusted.",
-        "properties": {
-          "credentialCleared": {
-            "title": "Credentialcleared",
-            "type": "boolean"
-          },
-          "disconnectedAt": {
-            "format": "date-time",
-            "title": "Disconnectedat",
-            "type": "string"
-          },
-          "retentionNotice": {
-            "title": "Retentionnotice",
-            "type": "string"
-          },
-          "state": {
-            "title": "State",
-            "type": "string"
-          }
-        },
-        "required": ["state", "disconnectedAt", "credentialCleared", "retentionNotice"],
-        "title": "GoogleChatDisconnectResponse",
-        "type": "object"
-      },
-      "GoogleChatInstallResponse": {
-        "additionalProperties": false,
-        "description": "Where to send the customer, and what they need to know first.",
-        "properties": {
-          "authorizeUrl": {
-            "title": "Authorizeurl",
-            "type": "string"
-          },
-          "expiresAt": {
-            "format": "date-time",
-            "title": "Expiresat",
-            "type": "string"
-          },
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          }
-        },
-        "required": ["authorizeUrl", "expiresAt", "notice"],
-        "title": "GoogleChatInstallResponse",
-        "type": "object"
-      },
-      "GoogleChatSpaceListResponse": {
-        "additionalProperties": false,
-        "description": "The picker's contents. Eligible spaces only.",
-        "properties": {
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          },
-          "spaces": {
-            "items": {
-              "$ref": "#/components/schemas/GoogleChatSpaceResponse"
-            },
-            "title": "Spaces",
-            "type": "array"
-          }
-        },
-        "required": ["notice"],
-        "title": "GoogleChatSpaceListResponse",
-        "type": "object"
-      },
-      "GoogleChatSpaceResponse": {
-        "additionalProperties": false,
-        "description": "One space the workspace could select, and the state of its feed.",
-        "properties": {
-          "displayName": {
-            "title": "Displayname",
-            "type": "string"
-          },
-          "eligible": {
-            "title": "Eligible",
-            "type": "boolean"
-          },
-          "errorCategory": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Errorcategory"
-          },
-          "expireTime": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expiretime"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "selected": {
-            "title": "Selected",
-            "type": "boolean"
-          },
-          "subscriptionState": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Subscriptionstate"
-          }
-        },
-        "required": ["name", "displayName", "eligible", "selected"],
-        "title": "GoogleChatSpaceResponse",
-        "type": "object"
-      },
-      "GoogleChatSpaceSelectionRequest": {
-        "additionalProperties": false,
-        "description": "The full state of the picker, not a delta.\n\nA replace rather than a merge: unchecking a box has to mean something, and\nthe something it means is withdrawing permission to read a conversation.",
-        "properties": {
-          "spaceNames": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Spacenames",
-            "type": "array"
-          }
-        },
-        "title": "GoogleChatSpaceSelectionRequest",
-        "type": "object"
-      },
-      "GoogleChatSpaceSelectionResponse": {
-        "additionalProperties": false,
-        "description": "What CAIRN may now process. Resource names only \u2014 deliberately no names.",
-        "properties": {
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          },
-          "spaceNames": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Spacenames",
-            "type": "array"
-          }
-        },
-        "required": ["notice"],
-        "title": "GoogleChatSpaceSelectionResponse",
-        "type": "object"
-      },
-      "GoogleMeetDisconnectResponse": {
-        "additionalProperties": false,
-        "description": "What disconnecting did, stated precisely enough to be trusted.",
-        "properties": {
-          "credentialCleared": {
-            "title": "Credentialcleared",
-            "type": "boolean"
-          },
-          "disconnectedAt": {
-            "format": "date-time",
-            "title": "Disconnectedat",
-            "type": "string"
-          },
-          "retentionNotice": {
-            "title": "Retentionnotice",
-            "type": "string"
-          },
-          "state": {
-            "title": "State",
-            "type": "string"
-          },
-          "subscriptionsRemoved": {
-            "title": "Subscriptionsremoved",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "state",
-          "disconnectedAt",
-          "subscriptionsRemoved",
-          "credentialCleared",
-          "retentionNotice"
-        ],
-        "title": "GoogleMeetDisconnectResponse",
-        "type": "object"
-      },
-      "GoogleMeetInstallResponse": {
-        "additionalProperties": false,
-        "description": "Where to send the customer, and what connecting does and does not do.",
-        "properties": {
-          "authorizeUrl": {
-            "title": "Authorizeurl",
-            "type": "string"
-          },
-          "expiresAt": {
-            "format": "date-time",
-            "title": "Expiresat",
-            "type": "string"
-          },
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          }
-        },
-        "required": ["authorizeUrl", "expiresAt", "notice"],
-        "title": "GoogleMeetInstallResponse",
-        "type": "object"
-      },
-      "GoogleMeetStatusResponse": {
-        "additionalProperties": false,
-        "description": "Whether Meet is connected, and what its subscriptions are doing.\n\n**Counts and states only.** There is no meeting reference here (for Meet that\nis the joining code, and a joining code is a credential), no meeting title \u2014\nnone is stored \u2014 and no participant. A workspace screen answering \"is this\nworking?\" needs a shape and a date; it does not need to name a conversation.\n\nEvery field is optional-by-absence rather than defaulted: a connector that\ncannot say something omits it, and the screen renders nothing. A zero here\nwould read as \"no subscriptions are expiring\", which is a different claim\nfrom \"CAIRN cannot tell you\".",
-        "properties": {
-          "connected": {
-            "title": "Connected",
-            "type": "boolean"
-          },
-          "nearestExpiry": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Nearestexpiry"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "subscriptionsByState": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Subscriptionsbystate",
-            "type": "object"
-          },
-          "transcriptAccessGranted": {
-            "default": false,
-            "title": "Transcriptaccessgranted",
-            "type": "boolean"
-          }
-        },
-        "required": ["connected", "status"],
-        "title": "GoogleMeetStatusResponse",
-        "type": "object"
-      },
-      "GoogleMeetTranscriptAccessResponse": {
-        "additionalProperties": false,
-        "description": "Where to send the customer for the **separate** transcript permission.",
-        "properties": {
-          "authorizeUrl": {
-            "title": "Authorizeurl",
-            "type": "string"
-          },
-          "expiresAt": {
-            "format": "date-time",
-            "title": "Expiresat",
-            "type": "string"
-          },
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          }
-        },
-        "required": ["authorizeUrl", "expiresAt", "notice"],
-        "title": "GoogleMeetTranscriptAccessResponse",
-        "type": "object"
-      },
-      "GoogleMeetTranscriptAccessStateResponse": {
-        "additionalProperties": false,
-        "description": "Whether this workspace has granted transcript access, and what that means.",
-        "properties": {
-          "granted": {
-            "title": "Granted",
-            "type": "boolean"
-          },
-          "grantedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Grantedat"
-          },
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          },
-          "revokedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Revokedat"
-          }
-        },
-        "required": ["granted", "notice"],
-        "title": "GoogleMeetTranscriptAccessStateResponse",
-        "type": "object"
-      },
-      "GoogleMeetTranscriptListResponse": {
-        "additionalProperties": false,
-        "description": "This workspace's transcript availability. Status only, by construction.",
-        "properties": {
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          },
-          "transcriptAccessGranted": {
-            "title": "Transcriptaccessgranted",
-            "type": "boolean"
-          },
-          "transcripts": {
-            "items": {
-              "$ref": "#/components/schemas/GoogleMeetTranscriptStatus"
-            },
-            "title": "Transcripts",
-            "type": "array"
-          }
-        },
-        "required": ["transcriptAccessGranted", "transcripts", "notice"],
-        "title": "GoogleMeetTranscriptListResponse",
-        "type": "object"
-      },
-      "GoogleMeetTranscriptStatus": {
-        "additionalProperties": false,
-        "description": "One announced transcript, as far as a customer may see it.",
-        "properties": {
-          "announcedAt": {
-            "format": "date-time",
-            "title": "Announcedat",
-            "type": "string"
-          },
-          "artifactId": {
-            "format": "uuid",
-            "title": "Artifactid",
-            "type": "string"
-          },
-          "contentBytes": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Contentbytes"
-          },
-          "contentHeld": {
-            "title": "Contentheld",
-            "type": "boolean"
-          },
-          "errorCategory": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Errorcategory"
-          },
-          "generatedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Generatedat"
-          },
-          "meetingId": {
-            "format": "uuid",
-            "title": "Meetingid",
-            "type": "string"
-          },
-          "refusalReason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Refusalreason"
-          },
-          "retentionExpiresAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Retentionexpiresat"
-          },
-          "retrievedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Retrievedat"
-          },
-          "state": {
-            "title": "State",
-            "type": "string"
-          },
-          "withdrawnAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Withdrawnat"
-          }
-        },
-        "required": ["artifactId", "meetingId", "state", "announcedAt", "contentHeld"],
-        "title": "GoogleMeetTranscriptStatus",
-        "type": "object"
-      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1724,40 +912,6 @@
         "title": "HealthResponse",
         "type": "object"
       },
-      "IdentityKind": {
-        "description": "What sort of identifier a claim carries.",
-        "enum": ["email", "github_login"],
-        "title": "IdentityKind",
-        "type": "string"
-      },
-      "IdentityLinkState": {
-        "description": "Where this link stands now.\n\nDeliberately not a boolean. \"Linked / not linked\" cannot distinguish an\naccount nobody has claimed from one somebody withdrew, and those need\ndifferent words on screen and different behaviour in the pipeline.",
-        "enum": ["active", "revoked", "disputed"],
-        "title": "IdentityLinkState",
-        "type": "string"
-      },
-      "IdentityProposalResponse": {
-        "additionalProperties": false,
-        "description": "An identifier CAIRN already attached to the reader by inference.\n\nThe reader's own `identities` rows in `PROPOSED` state, and nothing else.\nThis is deliberately *not* a list of unclaimed accounts in the workspace \u2014\nsee the route docstring for why that list must never exist.",
-        "properties": {
-          "kind": {
-            "$ref": "#/components/schemas/IdentityKind"
-          },
-          "value": {
-            "title": "Value",
-            "type": "string"
-          }
-        },
-        "required": ["kind", "value"],
-        "title": "IdentityProposalResponse",
-        "type": "object"
-      },
-      "IdentityVerification": {
-        "description": "How CAIRN came to believe this account belongs to this person.\n\nStored rather than inferred, because \"how do you know?\" is the question the\nTrust Center has to answer in the person's own words, and reconstructing it\nlater from timestamps would be a guess about a guess.",
-        "enum": ["verified_email_match", "self_confirmed"],
-        "title": "IdentityVerification",
-        "type": "string"
-      },
       "IntegrationResponse": {
         "additionalProperties": false,
         "description": "One source, and whether it is currently reading.\n\nDisconnected integrations are returned rather than filtered out: a gap in the\nfeed is explained by \"GitHub was disconnected on the 4th\" and unexplained by\nsilence.",
@@ -1765,18 +919,6 @@
           "account": {
             "title": "Account",
             "type": "string"
-          },
-          "authorisedBy": {
-            "anyOf": [
-              {
-                "format": "email",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Authorisedby"
           },
           "connectedAt": {
             "format": "date-time",
@@ -1795,51 +937,9 @@
             ],
             "title": "Disconnectedat"
           },
-          "health": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Health"
-          },
           "installationId": {
             "title": "Installationid",
             "type": "integer"
-          },
-          "lastSuccessfulSyncAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lastsuccessfulsyncat"
-          },
-          "revokedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Revokedat"
-          },
-          "scopes": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Scopes",
-            "type": "array"
           },
           "source": {
             "title": "Source",
@@ -1853,6 +953,31 @@
         },
         "required": ["source", "account", "installationId", "connectedAt"],
         "title": "IntegrationResponse",
+        "type": "object"
+      },
+      "InvitationPreviewResponse": {
+        "additionalProperties": false,
+        "description": "What the invitee sees before accepting anything \u2014 no token, no\nmembership row created, nothing mutated by looking.",
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "invitedByName": {
+            "title": "Invitedbyname",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TenantRole"
+          },
+          "workspaceName": {
+            "title": "Workspacename",
+            "type": "string"
+          }
+        },
+        "required": ["email", "role", "workspaceName", "invitedByName"],
+        "title": "InvitationPreviewResponse",
         "type": "object"
       },
       "InvitationResponse": {
@@ -1917,245 +1042,10 @@
         "title": "LoginRequest",
         "type": "object"
       },
-      "MeetingCaptureCreateRequest": {
-        "additionalProperties": false,
-        "description": "Ask a named set of people whether one meeting may be collected.\n\n**There is no consent field, and there is no route that adds one.** An\nadministrator names who would be in the meeting; every one of those people\nthen answers for themselves from their own session. `extra=\"forbid\"` means a\nclient that invents `consented` or `approvedBy` is rejected rather than\nquietly ignored.",
-        "properties": {
-          "externalMeetingRef": {
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Externalmeetingref",
-            "type": "string"
-          },
-          "participantPersonIds": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "maxItems": 200,
-            "minItems": 1,
-            "title": "Participantpersonids",
-            "type": "array"
-          },
-          "provider": {
-            "$ref": "#/components/schemas/MeetingProvider"
-          },
-          "purpose": {
-            "maxLength": 500,
-            "minLength": 1,
-            "title": "Purpose",
-            "type": "string"
-          },
-          "scheduledEnd": {
-            "format": "date-time",
-            "title": "Scheduledend",
-            "type": "string"
-          },
-          "scheduledStart": {
-            "format": "date-time",
-            "title": "Scheduledstart",
-            "type": "string"
-          }
-        },
-        "required": [
-          "provider",
-          "externalMeetingRef",
-          "scheduledStart",
-          "scheduledEnd",
-          "purpose",
-          "participantPersonIds"
-        ],
-        "title": "MeetingCaptureCreateRequest",
-        "type": "object"
-      },
-      "MeetingCaptureListResponse": {
-        "additionalProperties": false,
-        "description": "Every capture request in the workspace, plus the totals.",
-        "properties": {
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          },
-          "requests": {
-            "items": {
-              "$ref": "#/components/schemas/MeetingCaptureResponse"
-            },
-            "title": "Requests",
-            "type": "array"
-          },
-          "totals": {
-            "$ref": "#/components/schemas/MeetingStateCounts"
-          }
-        },
-        "required": ["totals", "notice"],
-        "title": "MeetingCaptureListResponse",
-        "type": "object"
-      },
-      "MeetingCaptureResponse": {
-        "additionalProperties": false,
-        "description": "One capture request, as the workspace that asked for it may see it.",
-        "properties": {
-          "acceptedCount": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Acceptedcount"
-          },
-          "eligible": {
-            "title": "Eligible",
-            "type": "boolean"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "message": {
-            "title": "Message",
-            "type": "string"
-          },
-          "participantCount": {
-            "title": "Participantcount",
-            "type": "integer"
-          },
-          "policyVersion": {
-            "title": "Policyversion",
-            "type": "string"
-          },
-          "provider": {
-            "$ref": "#/components/schemas/MeetingProvider"
-          },
-          "purpose": {
-            "title": "Purpose",
-            "type": "string"
-          },
-          "reason": {
-            "$ref": "#/components/schemas/ReasonCode"
-          },
-          "requestedAt": {
-            "format": "date-time",
-            "title": "Requestedat",
-            "type": "string"
-          },
-          "scheduledEnd": {
-            "format": "date-time",
-            "title": "Scheduledend",
-            "type": "string"
-          },
-          "scheduledStart": {
-            "format": "date-time",
-            "title": "Scheduledstart",
-            "type": "string"
-          },
-          "state": {
-            "$ref": "#/components/schemas/CaptureState"
-          }
-        },
-        "required": [
-          "id",
-          "provider",
-          "scheduledStart",
-          "scheduledEnd",
-          "purpose",
-          "state",
-          "policyVersion",
-          "requestedAt",
-          "participantCount",
-          "eligible",
-          "reason",
-          "message"
-        ],
-        "title": "MeetingCaptureResponse",
-        "type": "object"
-      },
-      "MeetingDecisionChoice": {
-        "description": "What a participant may say about their own capture request.\n\nDeliberately not `ConsentDecision`. That enum also has `PENDING`, which is\nthe *absence* of an answer, and `EXPIRED`, which is a conclusion the\neligibility gate reaches \u2014 neither is something a person can assert about\nthemselves, so neither is on the wire.",
-        "enum": ["accepted", "declined", "withdrawn"],
-        "title": "MeetingDecisionChoice",
-        "type": "string"
-      },
-      "MeetingDecisionRequest": {
-        "additionalProperties": false,
-        "description": "One person's own answer. Carries no subject, by design.",
-        "properties": {
-          "decision": {
-            "$ref": "#/components/schemas/MeetingDecisionChoice"
-          }
-        },
-        "required": ["decision"],
-        "title": "MeetingDecisionRequest",
-        "type": "object"
-      },
-      "MeetingProvider": {
-        "description": "Which platform produced the meeting.\n\nDeclared now and implemented later, so the column, its CHECK constraint and\nthe eligibility gate exist before any provider code does \u2014 the order that\nmakes it impossible to ship a connector that forgot to ask.",
-        "enum": ["google_meet", "zoom"],
-        "title": "MeetingProvider",
-        "type": "string"
-      },
-      "MeetingStateCounts": {
-        "additionalProperties": false,
-        "description": "How many requests stand where. The aggregate, and only in totals.",
-        "properties": {
-          "cancelled": {
-            "default": 0,
-            "title": "Cancelled",
-            "type": "integer"
-          },
-          "completed": {
-            "default": 0,
-            "title": "Completed",
-            "type": "integer"
-          },
-          "eligible": {
-            "default": 0,
-            "title": "Eligible",
-            "type": "integer"
-          },
-          "expired": {
-            "default": 0,
-            "title": "Expired",
-            "type": "integer"
-          },
-          "pending": {
-            "default": 0,
-            "title": "Pending",
-            "type": "integer"
-          },
-          "refused": {
-            "default": 0,
-            "title": "Refused",
-            "type": "integer"
-          }
-        },
-        "title": "MeetingStateCounts",
-        "type": "object"
-      },
       "MembershipResponse": {
         "additionalProperties": false,
         "description": "A person's place in a workspace.\n\nCarries role and join date and nothing else \u2014 no activity counts, no last\nseen, no \"engagement\". Roles govern configuration; they do not govern how\nmuch is visible about a person (md/15 \u00a72.2), and a members list is exactly\nwhere a visibility field would first appear.",
         "properties": {
-          "capacity": {
-            "default": "not_stated",
-            "title": "Capacity",
-            "type": "string"
-          },
-          "capacityStatedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Capacitystatedat"
-          },
           "displayName": {
             "anyOf": [
               {
@@ -2310,136 +1200,6 @@
         },
         "required": ["stage", "calls", "tokens"],
         "title": "ModelSpendLine",
-        "type": "object"
-      },
-      "MyIdentitiesResponse": {
-        "additionalProperties": false,
-        "description": "Everything CAIRN links to the reader across sources, and how.",
-        "properties": {
-          "identities": {
-            "items": {
-              "$ref": "#/components/schemas/ExternalIdentityResponse"
-            },
-            "title": "Identities",
-            "type": "array"
-          },
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          },
-          "proposals": {
-            "items": {
-              "$ref": "#/components/schemas/IdentityProposalResponse"
-            },
-            "title": "Proposals",
-            "type": "array"
-          }
-        },
-        "required": ["notice"],
-        "title": "MyIdentitiesResponse",
-        "type": "object"
-      },
-      "MyMeetingRequestListResponse": {
-        "additionalProperties": false,
-        "description": "The requests the caller was asked about. Theirs only.",
-        "properties": {
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          },
-          "requests": {
-            "items": {
-              "$ref": "#/components/schemas/MyMeetingRequestResponse"
-            },
-            "title": "Requests",
-            "type": "array"
-          }
-        },
-        "required": ["notice"],
-        "title": "MyMeetingRequestListResponse",
-        "type": "object"
-      },
-      "MyMeetingRequestResponse": {
-        "additionalProperties": false,
-        "description": "One capture request, as the person who was asked sees it.\n\nCarries the caller's own answer and nothing about anybody else's. The\nrequest's standing is shown because a participant is entitled to know\nwhether anything will be collected; *who* caused that standing is not theirs\nto learn, and no field here could tell them.",
-        "properties": {
-          "canDecide": {
-            "title": "Candecide",
-            "type": "boolean"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "message": {
-            "title": "Message",
-            "type": "string"
-          },
-          "myDecidedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mydecidedat"
-          },
-          "myDecision": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ConsentDecision"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "participantCount": {
-            "title": "Participantcount",
-            "type": "integer"
-          },
-          "policyVersion": {
-            "title": "Policyversion",
-            "type": "string"
-          },
-          "provider": {
-            "$ref": "#/components/schemas/MeetingProvider"
-          },
-          "purpose": {
-            "title": "Purpose",
-            "type": "string"
-          },
-          "scheduledEnd": {
-            "format": "date-time",
-            "title": "Scheduledend",
-            "type": "string"
-          },
-          "scheduledStart": {
-            "format": "date-time",
-            "title": "Scheduledstart",
-            "type": "string"
-          },
-          "state": {
-            "$ref": "#/components/schemas/CaptureState"
-          }
-        },
-        "required": [
-          "id",
-          "provider",
-          "scheduledStart",
-          "scheduledEnd",
-          "purpose",
-          "state",
-          "policyVersion",
-          "participantCount",
-          "canDecide",
-          "message"
-        ],
-        "title": "MyMeetingRequestResponse",
         "type": "object"
       },
       "NotificationStatus": {
@@ -2699,153 +1459,11 @@
         "title": "QueueHealth",
         "type": "object"
       },
-      "ReasonCode": {
-        "description": "Why collection is or is not permitted. Internal, precise, never shown raw.",
-        "enum": [
-          "allowed",
-          "awaiting_consent",
-          "refused",
-          "unresolved_participant",
-          "participant_added",
-          "policy_changed",
-          "rescheduled",
-          "not_collectable",
-          "window_passed",
-          "scope_mismatch",
-          "no_participants"
-        ],
-        "title": "ReasonCode",
-        "type": "string"
-      },
       "Region": {
         "description": "Where a tenant's data is stored (only ``US_CENTRAL1`` is live so far,\nmd/06 \u00a76.3).",
         "enum": ["us-central1", "europe-west1"],
         "title": "Region",
         "type": "string"
-      },
-      "RelatedFact": {
-        "additionalProperties": false,
-        "description": "One piece of evidence: a fact, its certainty tier, its citations.",
-        "properties": {
-          "certainty": {
-            "title": "Certainty",
-            "type": "string"
-          },
-          "occurredAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Occurredat"
-          },
-          "sources": {
-            "items": {
-              "$ref": "#/components/schemas/RelatedFactSource"
-            },
-            "title": "Sources",
-            "type": "array"
-          },
-          "statement": {
-            "title": "Statement",
-            "type": "string"
-          }
-        },
-        "required": ["statement", "certainty", "sources"],
-        "title": "RelatedFact",
-        "type": "object"
-      },
-      "RelatedFactSource": {
-        "additionalProperties": false,
-        "description": "One citation on a related fact, resolvable to the thing itself.",
-        "properties": {
-          "evidenceId": {
-            "title": "Evidenceid",
-            "type": "string"
-          },
-          "source": {
-            "title": "Source",
-            "type": "string"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Url"
-          }
-        },
-        "required": ["evidenceId", "source"],
-        "title": "RelatedFactSource",
-        "type": "object"
-      },
-      "RelatedPersonGroup": {
-        "additionalProperties": false,
-        "description": "One person's related work, as evidence.\n\n**No score, no rank, no relevance - not hidden: absent.** A field that\nexists gets displayed eventually, and a number between people is a ranking\nwhatever the label says (md/05 B.2.2). Groups order by most recent related\nfact, a property of the evidence. Capacity is the person's own statement,\ncarried verbatim with when they said it.",
-        "properties": {
-          "capacity": {
-            "title": "Capacity",
-            "type": "string"
-          },
-          "capacityStatedAt": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Capacitystatedat"
-          },
-          "displayName": {
-            "title": "Displayname",
-            "type": "string"
-          },
-          "facts": {
-            "items": {
-              "$ref": "#/components/schemas/RelatedFact"
-            },
-            "title": "Facts",
-            "type": "array"
-          },
-          "personId": {
-            "format": "uuid",
-            "title": "Personid",
-            "type": "string"
-          }
-        },
-        "required": ["personId", "displayName", "capacity", "facts"],
-        "title": "RelatedPersonGroup",
-        "type": "object"
-      },
-      "RelatedWorkResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "groups": {
-            "items": {
-              "$ref": "#/components/schemas/RelatedPersonGroup"
-            },
-            "title": "Groups",
-            "type": "array"
-          },
-          "topic": {
-            "title": "Topic",
-            "type": "string"
-          }
-        },
-        "required": ["topic", "groups"],
-        "title": "RelatedWorkResponse",
-        "type": "object"
       },
       "RepositoryProgress": {
         "additionalProperties": false,
@@ -2872,17 +1490,24 @@
         "title": "RepositoryProgress",
         "type": "object"
       },
-      "RevokeIdentityRequest": {
+      "ResetPasswordRequest": {
         "additionalProperties": false,
-        "description": "Ending a link, and whether the link was ever right.\n\n`disputed` separates \"this was mine and I am unlinking it\" from \"this was\nnever mine\". Both stop attribution at once; only the second says the\noriginal link was wrong, and flattening the two would lose the distinction\nthe person actually made.",
         "properties": {
-          "disputed": {
-            "default": false,
-            "title": "Disputed",
-            "type": "boolean"
+          "password": {
+            "maxLength": 1024,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
           }
         },
-        "title": "RevokeIdentityRequest",
+        "required": ["password", "token"],
+        "title": "ResetPasswordRequest",
         "type": "object"
       },
       "RoleUpdate": {
@@ -3000,141 +1625,6 @@
         },
         "required": ["password", "email", "workspaceName", "workspaceSlug"],
         "title": "SignupRequest",
-        "type": "object"
-      },
-      "SlackChannelListResponse": {
-        "additionalProperties": false,
-        "description": "The picker's contents.",
-        "properties": {
-          "channels": {
-            "items": {
-              "$ref": "#/components/schemas/SlackChannelResponse"
-            },
-            "title": "Channels",
-            "type": "array"
-          },
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          }
-        },
-        "required": ["notice"],
-        "title": "SlackChannelListResponse",
-        "type": "object"
-      },
-      "SlackChannelResponse": {
-        "additionalProperties": false,
-        "description": "One public channel the workspace could select.",
-        "properties": {
-          "botIsMember": {
-            "title": "Botismember",
-            "type": "boolean"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "selected": {
-            "title": "Selected",
-            "type": "boolean"
-          }
-        },
-        "required": ["id", "name", "botIsMember", "selected"],
-        "title": "SlackChannelResponse",
-        "type": "object"
-      },
-      "SlackChannelSelectionRequest": {
-        "additionalProperties": false,
-        "description": "The full state of the picker, not a delta.\n\nA replace rather than a merge: unchecking a box has to mean something, and\nthe something it means is withdrawing permission to read a channel.",
-        "properties": {
-          "channelIds": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Channelids",
-            "type": "array"
-          }
-        },
-        "title": "SlackChannelSelectionRequest",
-        "type": "object"
-      },
-      "SlackChannelSelectionResponse": {
-        "additionalProperties": false,
-        "description": "What CAIRN may now process. IDs only \u2014 deliberately no names.",
-        "properties": {
-          "channelIds": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Channelids",
-            "type": "array"
-          },
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          }
-        },
-        "required": ["notice"],
-        "title": "SlackChannelSelectionResponse",
-        "type": "object"
-      },
-      "SlackDisconnectResponse": {
-        "additionalProperties": false,
-        "description": "What disconnecting did, stated precisely enough to be trusted.",
-        "properties": {
-          "credentialCleared": {
-            "title": "Credentialcleared",
-            "type": "boolean"
-          },
-          "disconnectedAt": {
-            "format": "date-time",
-            "title": "Disconnectedat",
-            "type": "string"
-          },
-          "retentionNotice": {
-            "title": "Retentionnotice",
-            "type": "string"
-          },
-          "state": {
-            "title": "State",
-            "type": "string"
-          }
-        },
-        "required": ["state", "disconnectedAt", "credentialCleared", "retentionNotice"],
-        "title": "SlackDisconnectResponse",
-        "type": "object"
-      },
-      "SlackInstallResponse": {
-        "additionalProperties": false,
-        "description": "Where to send the customer, and what they are about to be asked.",
-        "properties": {
-          "authorizeUrl": {
-            "title": "Authorizeurl",
-            "type": "string"
-          },
-          "expiresAt": {
-            "format": "date-time",
-            "title": "Expiresat",
-            "type": "string"
-          },
-          "notice": {
-            "title": "Notice",
-            "type": "string"
-          },
-          "requestedScopes": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Requestedscopes",
-            "type": "array"
-          }
-        },
-        "required": ["authorizeUrl", "expiresAt", "notice"],
-        "title": "SlackInstallResponse",
         "type": "object"
       },
       "SloObjective": {
@@ -3402,113 +1892,6 @@
         },
         "required": ["id", "name", "slug", "region", "createdAt", "memberCount"],
         "title": "StaffTenantSummary",
-        "type": "object"
-      },
-      "SubscriptionHealthView": {
-        "additionalProperties": false,
-        "description": "Every Google Chat lease at one moment, as counts and one age.\n\nAnswers the three questions an operator has about a renewal loop \u2014 how many\nleases are alive, how many are broken, how long until the next lapses \u2014 and\nnone of the questions a support session exists for. **Every field is an\ninteger, an age, a closed-enum mapping or the provider name; there is\nnowhere here to put a space, a workspace or a person**, which is a property\nof the shape rather than of the care taken filling it in.\n\nDerived from `SubscriptionRecord`, which the reader in\n`gchat/subscriptions.py` builds without an identifier of any kind, so no\naggregation choice made downstream can reintroduce one.",
-        "properties": {
-          "expiryIsPermanentLoss": {
-            "default": false,
-            "title": "Expiryispermanentloss",
-            "type": "boolean"
-          },
-          "nearestExpiryMinutes": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Nearestexpiryminutes"
-          },
-          "observable": {
-            "default": true,
-            "title": "Observable",
-            "type": "boolean"
-          },
-          "provider": {
-            "title": "Provider",
-            "type": "string"
-          },
-          "renewalDueWithinMinutes": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Renewalduewithinminutes"
-          },
-          "subscriptionsByErrorCategory": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Subscriptionsbyerrorcategory",
-            "type": "object"
-          },
-          "subscriptionsByState": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Subscriptionsbystate",
-            "type": "object"
-          },
-          "subscriptionsExpected": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Subscriptionsexpected"
-          },
-          "subscriptionsExpired": {
-            "default": 0,
-            "title": "Subscriptionsexpired",
-            "type": "integer"
-          },
-          "subscriptionsLive": {
-            "default": 0,
-            "title": "Subscriptionslive",
-            "type": "integer"
-          },
-          "subscriptionsMissing": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Subscriptionsmissing"
-          },
-          "subscriptionsSuspended": {
-            "default": 0,
-            "title": "Subscriptionssuspended",
-            "type": "integer"
-          },
-          "subscriptionsUnobservableReason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Subscriptionsunobservablereason"
-          }
-        },
-        "required": ["provider"],
-        "title": "SubscriptionHealthView",
         "type": "object"
       },
       "SubscriptionInspection": {
@@ -4064,6 +2447,53 @@
         "tags": ["health"]
       }
     },
+    "/v1/auth/forgot-password": {
+      "post": {
+        "description": "Issue a reset link, if the address has an account.\n\n**The response is identical whether or not it does.** Saying otherwise\nwould let anyone use this form to enumerate registered addresses \u2014 this\nis the unauthenticated case `login` avoids by being deliberately vague\nabout which of two things failed; here there is only one thing to hide,\nthe account's existence, and it stays hidden.",
+        "operationId": "forgot_password_v1_auth_forgot_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Forgot Password V1 Auth Forgot Password Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many requests from this address."
+          }
+        },
+        "summary": "Request a password reset link",
+        "tags": ["auth"]
+      }
+    },
     "/v1/auth/login": {
       "post": {
         "description": "Verify credentials and issue a session.",
@@ -4244,6 +2674,46 @@
         "tags": ["auth"]
       }
     },
+    "/v1/auth/reset-password": {
+      "post": {
+        "description": "Set a new password from a reset token.\n\nDeliberately unauthenticated, and deliberately does not sign the caller\nin: the token proves control of the address, not that this browser\nshould now hold a session \u2014 the reader continues to `/login` explicitly,\nthe same way accepting an invitation does.",
+        "operationId": "reset_password_endpoint_v1_auth_reset_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Reset Password Endpoint V1 Auth Reset Password Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Unknown, expired, or already-used link."
+          },
+          "422": {
+            "description": "The password is too short, or a field is malformed."
+          }
+        },
+        "summary": "Redeem a password reset link",
+        "tags": ["auth"]
+      }
+    },
     "/v1/auth/session": {
       "get": {
         "description": "Return the signed-in user and their workspaces.\n\nThe request a frontend makes before rendering anything, which is why it\nreturns workspaces in the same round trip rather than requiring a second\ncall to decide what to draw.",
@@ -4377,374 +2847,6 @@
         "tags": ["auth"]
       }
     },
-    "/v1/integrations/google-chat/callback": {
-      "get": {
-        "description": "Where Google sends the customer back.\n\n**Any ``error`` parameter is a failed install.** The callback branches on the\n*presence* of the parameter, never on the literal ``access_denied``: an\nequality check that missed would fall through to \"exchange the code\" with no\ncode, and the customer would see a parse failure instead of \"you declined\".\nThe value is read only to choose between \"denied\" and \"error\", and is then\ndiscarded.\n\nThe order of the checks is the security property. The state is claimed \u2014\natomically, single-use \u2014 *before* anything is exchanged, so a replayed\ncallback fails on the second attempt whether or not the first one worked.\nThen the caller is proved to **still** be a member of the state's workspace\n**with permission to connect**: minutes passed, and in those minutes the\nperson may have been removed or demoted, and an install that completes on a\npermission that no longer exists is one nobody currently authorised. Only\nthen is the code sent to Google.\n\nRedirects rather than returning JSON, because the thing following this URL is\na browser mid-navigation, and the destination is built from\n``public_app_url`` rather than from the request \u2014 the same rule as\nverification links, for the same reason.",
-        "operationId": "finish_install_v1_integrations_google_chat_callback_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "code",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Code"
-            }
-          },
-          {
-            "in": "query",
-            "name": "state",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "State"
-            }
-          },
-          {
-            "in": "query",
-            "name": "error",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Error"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "303": {
-            "description": "Back to the workspace's admin screen."
-          },
-          "307": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Finish connecting a Google Chat account",
-        "tags": ["google-chat"]
-      }
-    },
-    "/v1/integrations/google-meet/callback": {
-      "get": {
-        "description": "Where Google sends the customer back.\n\n**Any ``error`` parameter is a failed install.** The callback branches on the\n*presence* of the parameter, never on the literal ``access_denied``: an\nequality check that missed would fall through to \"exchange the code\" with no\ncode, and the customer would see a parse failure instead of \"you declined\".\n\nThe order of the checks is the security property. The state is claimed \u2014\natomically, single-use \u2014 *before* anything is exchanged, so a replayed\ncallback fails on the second attempt whether or not the first one worked.\n\n**The workspace comes off the stored row and never from the request.** There\nis no ``workspace_id`` parameter on this route to trust, and adding one would\nlet anybody who obtained a state bind an authorisation to a workspace of their\nchoosing.\n\nThen the caller is proved to **still** be a member of that workspace **with\npermission to connect**: minutes passed, and in those minutes the person may\nhave been removed or demoted, and an install that completes on a permission\nthat no longer exists is one nobody currently authorised. Only then is the\ncode sent to Google.",
-        "operationId": "finish_install_v1_integrations_google_meet_callback_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "code",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Code"
-            }
-          },
-          {
-            "in": "query",
-            "name": "state",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "State"
-            }
-          },
-          {
-            "in": "query",
-            "name": "error",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Error"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "303": {
-            "description": "Back to the workspace's admin screen."
-          },
-          "307": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Finish connecting a Google Meet account",
-        "tags": ["google-meet"]
-      }
-    },
-    "/v1/integrations/google-meet/transcript-callback": {
-      "get": {
-        "description": "Where Google sends the customer back from the transcript consent screen.\n\n**A separate path on a separate OAuth client**, so the two flows cannot\nredeem each other's authorisation codes \u2014 Google matches the redirect URI\nexactly, and a shared one would make the distinction depend on a branch rather\nthan on the registration.\n\nThe same order as the connection callback, for the same reasons: any ``error``\nparameter is a refusal, the state is claimed atomically and single-use before\nanything is exchanged, the workspace comes off the stored row and never from\nthe request, and the caller is proved to *still* be a member with permission\nbefore the code is sent to Google. `consume_state` is passed the transcript\ngrant kind, so a state issued for \"connect Google Meet\" cannot be redeemed\nhere.",
-        "operationId": "finish_transcript_access_v1_integrations_google_meet_transcript_callback_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "code",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Code"
-            }
-          },
-          {
-            "in": "query",
-            "name": "state",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "State"
-            }
-          },
-          {
-            "in": "query",
-            "name": "error",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Error"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "303": {
-            "description": "Back to the workspace's admin screen."
-          },
-          "307": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Finish granting access to Google Meet transcripts",
-        "tags": ["google-meet"]
-      }
-    },
-    "/v1/integrations/slack/callback": {
-      "get": {
-        "description": "Where Slack sends the customer back.\n\n**Any ``error`` parameter is a failed install.** Slack's documentation does\nnot state verbatim which value comes back when somebody presses Cancel, so\nthis does not compare against the literal ``access_denied`` \u2014 an equality\ncheck that missed would fall through to \"exchange the code\" with no code, and\nthe customer would see a parse failure instead of \"you declined\". Presence is\nthe condition; the value is read for categorisation and then discarded.\n\nThe order of the checks is the security property. The state is claimed \u2014\natomically, single-use \u2014 *before* anything is exchanged, so a replayed\ncallback fails on the second attempt whether or not the first one worked.\nThen the caller is proved to still be a member of the state's workspace with\npermission to connect, so a leaked state cannot be redeemed by anyone else.\nOnly then is the code sent to Slack.\n\nRedirects rather than returning JSON, because the thing following this URL is\na browser mid-navigation, and the destination is built from\n``public_app_url`` rather than from the request \u2014 the same rule as\nverification links, for the same reason.",
-        "operationId": "finish_install_v1_integrations_slack_callback_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "code",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Code"
-            }
-          },
-          {
-            "in": "query",
-            "name": "state",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "State"
-            }
-          },
-          {
-            "in": "query",
-            "name": "error",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Error"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "303": {
-            "description": "Back to the workspace's integration settings."
-          },
-          "307": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Finish connecting a Slack workspace",
-        "tags": ["slack"]
-      }
-    },
     "/v1/internal/audit": {
       "get": {
         "description": "The log, newest first, optionally for one workspace.",
@@ -4871,54 +2973,6 @@
           }
         },
         "summary": "Check the audit chain end to end",
-        "tags": ["internal"]
-      }
-    },
-    "/v1/internal/operations/connectors": {
-      "get": {
-        "description": "Per-source health, answered without reading anything a source delivered.\n\nStep 32 adds Slack and Google Chat, at which point \"is ingestion working\"\nstops being one number and becomes a per-provider question. The tempting way\nto answer it is to look at what came in; that is the one thing an operator\nmay never do, so every figure here is a count, an age or a category from a\nclosed set.\n\nPlatform-wide and naming no workspace, like the other operations surfaces.\nA per-workspace view of what a customer is producing is a support session's\nbusiness, not a dashboard's.",
-        "operationId": "connector_health_v1_internal_operations_connectors_get",
-        "parameters": [
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectorFleetView"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Whether each source is delivering",
         "tags": ["internal"]
       }
     },
@@ -5116,7 +3170,7 @@
     },
     "/v1/internal/operations/spend": {
       "get": {
-        "description": "The spend counters and the ceiling signals.\n\n**The ceiling numbers are now cluster-wide, not per-replica**: enforcement\nreads and writes the durable `spend_counters` rows, so what refuses work on\nany replica is the same total this screen would show. The *signal* counters\nbelow (warnings, refusals, closest approach) remain this replica's own view\n\u2014 they count log-worthy moments, which are per-process by nature \u2014 and the\nresponse shape is unchanged so the dashboards reading it keep working.\n\nRead from `SPEND_SIGNALS` rather than from a ledger. A ledger belongs to one\nunit of work and is discarded with it, so building a fresh one here \u2014 which\nis what this endpoint used to do \u2014 reported zero however much the process\nhad spent, and the screen could not have shown a cost incident if one had\nbeen happening while it was open.",
+        "description": "The process's own spend counters, and the ceiling signals.\n\nIn-process, so this is one replica's view \u2014 stated rather than implied,\nbecause a spend figure that looks global and is not is how a cost incident\ngets missed. The durable version arrives with the metrics exporter.\n\nRead from `SPEND_SIGNALS` rather than from a ledger. A ledger belongs to one\nunit of work and is discarded with it, so building a fresh one here \u2014 which\nis what this endpoint used to do \u2014 reported zero however much the process\nhad spent, and the screen could not have shown a cost incident if one had\nbeen happening while it was open.",
         "operationId": "model_spend_v1_internal_operations_spend_get",
         "parameters": [
           {
@@ -5756,6 +3810,52 @@
         "tags": ["invitations"]
       }
     },
+    "/v1/invitations/preview": {
+      "get": {
+        "description": "Read-only. Nothing is created, changed, or consumed by looking.\n\nDeliberately unauthenticated, same as `accept` below: the reader may not\nhave an account yet, so there is no session to require.",
+        "operationId": "preview_v1_invitations_preview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Unknown, expired, superseded, or already-accepted invitation."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "See who is inviting you, and where, before accepting",
+        "tags": ["invitations"]
+      }
+    },
     "/v1/workspaces/{workspace_id}": {
       "get": {
         "description": "Return the workspace the caller is a member of.\n\nRead through the tenant-scoped session rather than the platform one, even\nthough membership is already proven. Two reasons: privileged connections\nshould stay rare enough that `grep platform_db` remains reviewable, and it\nmeans row-level security is exercised on the ordinary read path, where a\npolicy regression would show up immediately rather than in the one endpoint\nthat happens to be scoped.",
@@ -5815,70 +3915,6 @@
         },
         "summary": "Read a workspace",
         "tags": ["workspaces"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/attribution-health": {
-      "get": {
-        "description": "Counts, so an Owner can tell whether to ask members to confirm accounts.\n\n**Owner and Admin, and counts only.** The gate is `WORKSPACE_SETTINGS`\nrather than a new permission because this is a fact about the workspace's\nconfiguration \u2014 how many source accounts have an owner \u2014 and inventing an\n`identities.view` permission would make *how much is visible about people* a\nfunction of role, which md/05 \u00a7B.3.3 and `permissions.py` both refuse.\n\nThe gate is therefore doing much less work than it looks like it is. What\nactually protects members is the return type: `attribution_health` groups by\nprovider and state and never by person, so there is no name, no id, no\naddress and no activity volume to withhold. An Admin reading this learns\nexactly one thing a member could not \u2014 a count \u2014 and md/15 \u00a72.3's rule that\nan Admin may not see more *about a member* than the member sees is intact\nbecause nothing here is about a member at all.",
-        "operationId": "workspace_attribution_health_v1_workspaces__workspace_id__attribution_health_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AttributionHealthResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to manage workspace settings."
-          },
-          "404": {
-            "description": "No such workspace, or you are not a member."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Whether attribution is working in this workspace",
-        "tags": ["identities"]
       }
     },
     "/v1/workspaces/{workspace_id}/brief": {
@@ -6731,913 +4767,6 @@
         "tags": ["administration"]
       }
     },
-    "/v1/workspaces/{workspace_id}/integrations/google-chat/disconnect": {
-      "post": {
-        "description": "Stop collecting, tear the leases down, and drop the refresh token.\n\nAll three, in one call, with no option to do only the first. A disconnect\nthat leaves the credential behind keeps CAIRN holding a standing grant to\nread a customer's conversations after they asked it to stop \u2014 and from\noutside there is no way to tell the two apart, which is exactly why the\nresponse says which happened.\n\nThe subscriptions are removed **before** the credential is destroyed, because\ndeleting a lease at Google needs a token. Every space is blocked locally\nwhether or not that succeeds: `remove_all_subscriptions` marks each row before\nit calls Google and does not stop on an error, and the connection state this\nhandler then sets is itself what `spaces.is_space_permitted` refuses on. A\nlease that survives at Google therefore delivers into a workspace that will\nnot read it, and lapses on its own inside four hours.\n\n**The response tells the truth about retention.** Disconnecting stops new\ncollection; it does not delete what was already recorded. Saying otherwise\nwould be the shorter sentence and a false one.",
-        "operationId": "disconnect_google_chat_v1_workspaces__workspace_id__integrations_google_chat_disconnect_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoogleChatDisconnectResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to disconnect integrations."
-          },
-          "404": {
-            "description": "No Google Chat account is connected."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Disconnect Google Chat and destroy the stored credential",
-        "tags": ["google-chat"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/integrations/google-chat/install": {
-      "post": {
-        "description": "Issue a one-time state with its PKCE verifier, and return the authorise URL.\n\nReturns the URL rather than redirecting. The caller is a browser application\ndoing this from an admin screen, and a 302 out of an XHR is either followed\ninvisibly or blocked \u2014 neither of which lets the interface warn about the\n\"add the app to the space\" step before the customer is standing on Google's\nconsent screen.\n\nRuns on the platform connection because ``google_chat_oauth_states`` is\ndeliberately unreachable from the application role: the callback has to read\nthe row with no tenant context to scope to, so every statement against that\ntable is platform-side and the grant set says so.",
-        "operationId": "begin_install_v1_workspaces__workspace_id__integrations_google_chat_install_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoogleChatInstallResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to connect integrations."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "503": {
-            "description": "Google Chat is not configured on this deployment."
-          }
-        },
-        "summary": "Begin connecting a Google Chat account",
-        "tags": ["google-chat"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/integrations/google-chat/spaces": {
-      "get": {
-        "description": "The picker's contents: every eligible named space, and the state of its feed.\n\nGated on `INTEGRATIONS_CONNECT` \u2014 Owner and Admin \u2014 rather than on plain\nmembership. This is the one endpoint in the API that returns Google Chat\nspace **display names**, and the people who may see the list are the people\nwho may change what CAIRN reads. A Member gains nothing from a list they\ncannot act on, and a space name is frequently the most sensitive string a\ncustomer holds.\n\nDirect messages, one-to-one app conversations and unnamed spaces never reach\nthis response: `spaces.eligible_spaces` removes them, in addition to the\nserver-side filter Google is asked for. Two filters rather than one, because\na picker that offered a direct message would not be noticed until somebody\nselected it.",
-        "operationId": "list_spaces_v1_workspaces__workspace_id__integrations_google_chat_spaces_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoogleChatSpaceListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to connect integrations."
-          },
-          "404": {
-            "description": "No Google Chat account is connected."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "502": {
-            "description": "Google could not be reached."
-          }
-        },
-        "summary": "List the Google Chat spaces CAIRN could read",
-        "tags": ["google-chat"]
-      },
-      "put": {
-        "description": "Replace the selection with exactly these spaces, and move the subscriptions.\n\n``PUT`` rather than ``POST``, and a replace rather than a merge, because the\nbody is the full state of a set of checkboxes. A merge would make unchecking\na box do nothing \u2014 and the box being unchecked is somebody withdrawing\npermission for CAIRN to read a conversation, which is the single operation on\nthis endpoint that must not silently fail.\n\nAn empty list is valid and means \"process nothing\", which is also the state a\nfreshly connected account is in.\n\n**This is where the subscription lifecycle is driven from.** Selecting a space\ncreates a Workspace Events lease; deselecting deletes the selection row \u2014\nwhich blocks ingestion the moment it lands \u2014 and then tears the lease down.\nThe commit happens after both, so a caller that receives 200 has had every\nremoval persisted.",
-        "operationId": "save_spaces_v1_workspaces__workspace_id__integrations_google_chat_spaces_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GoogleChatSpaceSelectionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoogleChatSpaceSelectionResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to connect integrations."
-          },
-          "404": {
-            "description": "No Google Chat account is connected."
-          },
-          "409": {
-            "description": "A space is already connected to another workspace."
-          },
-          "422": {
-            "description": "A value was not a Google Chat space resource name."
-          }
-        },
-        "summary": "Choose which Google Chat spaces CAIRN may process",
-        "tags": ["google-chat"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/integrations/google-meet/disconnect": {
-      "post": {
-        "description": "Stop watching, tear the leases down, and drop the refresh token.\n\nAll three, in one call, with no option to do only the first. A disconnect that\nleaves the credential behind keeps CAIRN holding a standing grant after the\ncustomer asked it to stop, and from outside there is no way to tell the two\napart \u2014 which is exactly why the response says which happened.\n\nThe subscriptions are removed **before** the credential is destroyed, because\ndeleting a lease at Google needs a token. Every meeting is blocked locally\nwhether or not that succeeds: `remove_all_subscriptions` marks each row before\nit calls Google and does not stop on an error, and the receiver refuses a\ndelivery whose connection is not active. A lease that survives at Google\ntherefore delivers into a workspace that will not record it, and lapses on its\nown because nothing renews it.\n\n**The response tells the truth about retention.** Disconnecting stops new\ncollection; it does not delete what was already recorded.",
-        "operationId": "disconnect_google_meet_v1_workspaces__workspace_id__integrations_google_meet_disconnect_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoogleMeetDisconnectResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to disconnect integrations."
-          },
-          "404": {
-            "description": "No Google Meet account is connected."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Disconnect Google Meet and destroy the stored credential",
-        "tags": ["google-meet"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/integrations/google-meet/install": {
-      "post": {
-        "description": "Issue a one-time state with its PKCE verifier, and return the authorise URL.\n\nReturns the URL rather than redirecting. The caller is a browser application\ndoing this from an admin screen, and a 302 out of an XHR is either followed\ninvisibly or blocked \u2014 neither of which lets the interface state\n:data:`CONNECT_NOTICE` before the customer is standing on Google's consent\nscreen.\n\nRuns on the platform connection because ``google_meet_oauth_states`` is\ndeliberately unreachable from the application role: the callback has to read\nthe row with no tenant context to scope to, so every statement against that\ntable is platform-side and the grant set says so.",
-        "operationId": "begin_install_v1_workspaces__workspace_id__integrations_google_meet_install_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoogleMeetInstallResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to connect integrations."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "503": {
-            "description": "Google Meet is not configured on this deployment."
-          }
-        },
-        "summary": "Begin connecting a Google Meet account",
-        "tags": ["google-meet"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/integrations/google-meet/status": {
-      "get": {
-        "description": "The one word a screen shows, decided here rather than in a browser.\n\n**200 with `connected: false` rather than a 404.** \"Not connected\" is the\nordinary state of this connector in almost every workspace, and a screen that\nhas to catch an error to render its most common case will eventually render\nan error instead.\n\nThe status word is composed server-side on purpose. A client that derived\n\"expiring\" from a date would be deciding what the renewal window is, and two\nclients would eventually decide differently \u2014 the window belongs to the code\nthat does the renewing.\n\nCarries no meeting reference (for Meet that is the joining code), no title \u2014\nnone is stored \u2014 and no participant.",
-        "operationId": "meet_status_v1_workspaces__workspace_id__integrations_google_meet_status_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoogleMeetStatusResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to manage integrations."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Whether Meet is connected, and what its subscriptions are doing",
-        "tags": ["google-meet"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/integrations/google-meet/transcript-access": {
-      "post": {
-        "description": "Issue a state for the **transcript** grant, and return its authorise URL.\n\nA separate route rather than a parameter on the install route, and that is the\ndesign rather than an accident of layout. ``drive.meet.readonly`` is a\nrestricted scope that lets CAIRN read the file the platform produced; folding\nit into \"connect Google Meet\" would mean a workspace acquiring artifact access\nby pressing a button labelled something else. Connecting and granting\ntranscript access are two decisions, so they are two clicks, two OAuth\nclients, two consent screens and two rows.\n\nRequires an existing, live Meet connection: transcript access with nothing to\napply it to is a restricted-scope grant held for no reason.",
-        "operationId": "begin_transcript_access_v1_workspaces__workspace_id__integrations_google_meet_transcript_access_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoogleMeetTranscriptAccessResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to connect integrations."
-          },
-          "404": {
-            "description": "No Google Meet account is connected."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "503": {
-            "description": "Transcript retrieval is not configured on this deployment."
-          }
-        },
-        "summary": "Begin granting CAIRN access to Google Meet transcripts",
-        "tags": ["google-meet"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/integrations/google-meet/transcript-access/revoke": {
-      "post": {
-        "description": "Stop retrieving transcripts, and destroy the credential that could.\n\n**Narrower than disconnecting, deliberately.** The Meet connection keeps\nworking, the subscriptions keep running, and CAIRN goes back to recording only\nthat a transcript exists. Somebody who decides transcript retrieval was a step\ntoo far should not have to tear down the whole connector to undo it.\n\nIdempotent: revoking access nobody granted answers the same way, because from\nthe caller's side \"we do not have it\" is one fact.",
-        "operationId": "revoke_transcript_access_v1_workspaces__workspace_id__integrations_google_meet_transcript_access_revoke_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoogleMeetTranscriptAccessStateResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to disconnect integrations."
-          },
-          "404": {
-            "description": "No Google Meet account is connected."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Withdraw CAIRN's access to Google Meet transcripts",
-        "tags": ["google-meet"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/integrations/google-meet/transcripts": {
-      "get": {
-        "description": "Availability and status. **There is no route that returns a transcript.**\n\nWhat a workspace can see here: that a meeting they all consented to produced a\ntranscript, whether CAIRN retrieved it, how large it was, when it will be\ndeleted, and \u2014 when it was refused \u2014 a reason from a vocabulary CAIRN wrote\nthat names nobody.\n\nWhat it cannot see: a line of it. Making transcripts readable is a product\ndecision with its own consent conversation, and shipping it as a side effect\nof shipping retrieval would be making that decision on everybody's behalf.",
-        "operationId": "list_transcripts_v1_workspaces__workspace_id__integrations_google_meet_transcripts_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GoogleMeetTranscriptListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to manage integrations."
-          },
-          "404": {
-            "description": "No Google Meet account is connected."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Which meetings produced a transcript, and what happened to it",
-        "tags": ["google-meet"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/integrations/slack/channels": {
-      "get": {
-        "description": "The picker's contents: every non-archived public channel, and its state.\n\nGated on `INTEGRATIONS_CONNECT` \u2014 Owner and Admin \u2014 rather than on plain\nmembership. This is the one endpoint in the API that returns Slack channel\nnames, and the people who may see the list are the people who may change what\nCAIRN reads. A Member gains nothing from a list they cannot act on.\n\n``bot_is_member`` is carried through untouched because it is the field that\nmakes the screen honest: selecting a channel the app has not been invited to\nproduces a permission that delivers nothing, forever, with no error anywhere.",
-        "operationId": "list_channels_v1_workspaces__workspace_id__integrations_slack_channels_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SlackChannelListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to connect integrations."
-          },
-          "404": {
-            "description": "No Slack workspace is connected."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "502": {
-            "description": "Slack could not be reached."
-          }
-        },
-        "summary": "List public channels CAIRN could read",
-        "tags": ["slack"]
-      },
-      "put": {
-        "description": "Replace the selection with exactly these channels.\n\n``PUT`` rather than ``POST``, and a replace rather than a merge, because the\nbody is the full state of a set of checkboxes. A merge would make unchecking\na box do nothing \u2014 and the box being unchecked is somebody withdrawing\npermission for CAIRN to read a conversation, which is the single operation on\nthis endpoint that must not silently fail.\n\nAn empty list is valid and means \"process nothing\", which is also the state a\nfreshly connected workspace is in.\n\nRuns on the tenant-scoped session: the application role holds SELECT, INSERT\nand DELETE here precisely because these writes happen from inside a\nworkspace, where the policy's WITH CHECK stops a row being written for\nanybody else.",
-        "operationId": "save_channels_v1_workspaces__workspace_id__integrations_slack_channels_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SlackChannelSelectionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SlackChannelSelectionResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to connect integrations."
-          },
-          "404": {
-            "description": "No Slack workspace is connected."
-          },
-          "422": {
-            "description": "A value was not a Slack channel ID."
-          }
-        },
-        "summary": "Choose which public channels CAIRN may process",
-        "tags": ["slack"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/integrations/slack/disconnect": {
-      "post": {
-        "description": "Stop collecting, and drop the bot token.\n\nBoth, in one call, with no option to do only the first. A disconnect that\nleaves the credential behind keeps CAIRN holding a live grant to read a\ncustomer's conversations after they asked it to stop \u2014 and from outside there\nis no way to tell the two apart, which is exactly why the response says which\nhappened.\n\nRuns on the platform connection because the application role holds SELECT\nonly on ``source_connections``.\n\n**The response tells the truth about retention.** Disconnecting stops new\ncollection; it does not delete what was already recorded. Saying otherwise\nwould be the shorter sentence and a false one, and a product whose deletion\nclaims are approximate is one whose deletion claims are worthless.",
-        "operationId": "disconnect_slack_v1_workspaces__workspace_id__integrations_slack_disconnect_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SlackDisconnectResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to disconnect integrations."
-          },
-          "404": {
-            "description": "No Slack workspace is connected."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Disconnect Slack and destroy the stored credential",
-        "tags": ["slack"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/integrations/slack/install": {
-      "post": {
-        "description": "Issue a one-time state and return the authorise URL.\n\nReturns the URL rather than redirecting. The caller is a browser application\ndoing this from a settings screen, and a 302 out of an XHR is either followed\ninvisibly or blocked \u2014 neither of which lets the interface warn about the\n``/invite`` step before the customer is standing on Slack's consent screen.\n\nRuns on the platform connection because ``slack_oauth_states`` is\ndeliberately unreachable from the application role: the callback has to read\nthe row with no tenant context to scope to, so every statement against that\ntable is platform-side and the grant set says so.",
-        "operationId": "begin_install_v1_workspaces__workspace_id__integrations_slack_install_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SlackInstallResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to connect integrations."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "503": {
-            "description": "Slack is not configured on this deployment."
-          }
-        },
-        "summary": "Begin connecting a Slack workspace",
-        "tags": ["slack"]
-      }
-    },
     "/v1/workspaces/{workspace_id}/invitations": {
       "get": {
         "description": "List invitations that are still redeemable.\n\nGated on the permission to *invite* rather than a separate read permission.\nWho has been invited but not yet joined is administrative information, and a\nViewer having it serves no purpose while disclosing hiring intent.\n\nSuperseded and accepted invitations are excluded \u2014 an admin asking \"who is\nstill outstanding\" means exactly the rows a new invitation would conflict\nwith.",
@@ -7840,441 +4969,6 @@
         },
         "summary": "Withdraw an invitation",
         "tags": ["workspaces"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/me/capacity": {
-      "put": {
-        "description": "Self-declared capacity: the person states it, everybody sees it.\n\n**Self only, by construction rather than by a check** - the same shape as\nthe work-role endpoint above. The person is resolved from the caller's own\nsession; no parameter exists through which a target could be named, so an\nOwner with every permission still cannot set a colleague's capacity.\nNothing anywhere computes this value: availability inferred from activity\nwould be monitoring wearing a helpful face, and `PersonCapacity`'s\ndocstring records why there is no history table either.",
-        "operationId": "set_my_capacity_v1_workspaces__workspace_id__me_capacity_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CapacityUpdate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CapacityResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "404": {
-            "description": "No such workspace, or no record to state it on."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "State your own availability, or withdraw the statement",
-        "tags": ["me"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/me/identities": {
-      "get": {
-        "description": "The caller's own links, the caller's own proposals, and the rule.\n\n**`proposals` is not a menu of unclaimed accounts, and must never become\none.** It returns only the `PROPOSED` rows of the existing `identities`\ntable that are *already attached to the caller's own `Person`* \u2014 identifiers\nCAIRN inferred were theirs and is showing them so they can correct it.\n\nListing the workspace's *unresolved* provider accounts here is the thing\nthis whole step exists to prevent. Handing every member a list of\ncolleagues' unclaimed accounts next to a \"that's me\" button is the\nclaim-a-colleague attack served as a feature: the second person to look at\nthe list takes whatever the first has not claimed, the link is recorded as\n`SELF_CONFIRMED`, and from then on somebody else's work is in their record\nwith CAIRN's own evidence field vouching for it. The exclusive index would\nnot stop it \u2014 it only decides who gets there first. So the query is scoped\nto `Person.user_id == caller` and there is no parameter, no filter and no\nflag that widens it.\n\n**Ended links are shown.** A person is entitled to see that an account was\nonce attributed to them and no longer is \u2014 hiding it makes the record less\ncheckable at exactly the moment somebody is checking it.",
-        "operationId": "my_identities_v1_workspaces__workspace_id__me_identities_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MyIdentitiesResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "404": {
-            "description": "No such workspace, or you are not a member."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Which source accounts CAIRN believes are yours",
-        "tags": ["identities"]
-      },
-      "post": {
-        "description": "Record that the caller owns a provider account.\n\n**Self only, by construction rather than by a check.** The `Person` written\nis the one the caller's own session resolved to; the request body has no\nsubject field, and there is no second route that takes one. That absence is\nthe design \u2014 an Owner who could confirm a colleague's account would be\nwriting evidence, in CAIRN's own words, that a member's work belongs to\nwhoever the Owner chose.\n\n**No permission is declared**, and requiring one would be the wrong axis.\nEvery role including Viewer may answer a question about themselves, and\nmaking that a grant would mean a person's own account was something the\nworkspace let them have.\n\nIdempotent when the account is already theirs: confirming twice is a\ndouble-click, not a second claim.\n\nRefused with 409 when somebody else holds the account, and the refusal names\nnobody. Which colleague holds an account is not the asker's to know \u2014 saying\nso would turn this endpoint into an oracle for mapping accounts to people.",
-        "operationId": "confirm_identity_v1_workspaces__workspace_id__me_identities_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConfirmIdentityRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExternalIdentityResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "CAIRN has not linked any activity to your account yet."
-          },
-          "404": {
-            "description": "No such workspace, or you are not a member."
-          },
-          "409": {
-            "description": "That account is already linked to somebody in this workspace."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Confirm a source account is yours",
-        "tags": ["identities"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/me/identities/{identity_id}/revoke": {
-      "post": {
-        "description": "End a link, keeping the row and its evidence.\n\n**Only the caller's own links.** The lookup is filtered by the caller's\n`Person`, so another member's link is a 404 rather than a permission error \u2014\nfrom outside, a link that is not yours is indistinguishable from one that\ndoes not exist, which is also what row-level security gives us across\nworkspaces.\n\nNothing is deleted. The row, its verification method, when it was linked and\nwhy it ended all survive, and so does every fact the link ever produced \u2014\nfacts carry the provider actor id recorded at ingestion, which was never\nderived from this table and is not rewritten now.\n\nIdempotent: an already-ended link is returned unchanged rather than\nerroring. Re-stamping the timestamp would move the moment attribution\nactually stopped, which is the one thing the row exists to record.",
-        "operationId": "revoke_identity_v1_workspaces__workspace_id__me_identities__identity_id__revoke_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "identity_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Identity Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RevokeIdentityRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExternalIdentityResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "404": {
-            "description": "No such link of yours in this workspace."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Stop attributing one of your source accounts to you",
-        "tags": ["identities"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/me/meeting-requests": {
-      "get": {
-        "description": "The caller's own invitations to answer, and nobody else's.\n\n**Self only by construction rather than by a check.** The person is resolved\nfrom the caller's session; there is no subject parameter, no filter and no\nflag that widens it, so no role has a route through which to read what a\ncolleague was asked or how they answered.\n\n**No permission is declared**, and requiring one would be the wrong axis.\nEvery role including Viewer may answer a question about their own presence in\na meeting, and making that a grant would mean a person's own consent was\nsomething the workspace let them have.",
-        "operationId": "my_meeting_requests_v1_workspaces__workspace_id__me_meeting_requests_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MyMeetingRequestListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "404": {
-            "description": "No such workspace, or you are not a member."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Meetings you have been asked about",
-        "tags": ["meetings"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/me/meeting-requests/{meeting_id}/decision": {
-      "post": {
-        "description": "Record the caller's own answer, and recompute what it makes possible.\n\n**The only route in the product that writes a consent decision.** The user id\nstored in `decided_by_user_id` is the one the session cookie resolved to, and\nthe body has no field that could name anybody else \u2014 so an administrator\ncalling this records their own answer to their own invitation, or gets a 404.\n\n**404, not 403, for a decision that is not the caller's.** Whether a meeting\nexists is not a non-participant's to confirm, and a 403 would confirm it \u2014\nturning this into a way of discovering which colleagues are in a meeting\nsomebody asked to capture.\n\n**Append-only.** Changing your mind supersedes the previous row and inserts a\nnew one; nothing is updated in place and nothing is deleted, because the\nhistory is the product's only evidence that withdrawal was possible and\nhonoured.",
-        "operationId": "decide_meeting_request_v1_workspaces__workspace_id__me_meeting_requests__meeting_id__decision_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "meeting_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Meeting Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MeetingDecisionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MyMeetingRequestResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "404": {
-            "description": "You have no meeting request with that identifier."
-          },
-          "422": {
-            "description": "The request is closed, or that answer does not apply."
-          }
-        },
-        "summary": "Agree, refuse, or take your agreement back",
-        "tags": ["meetings"]
       }
     },
     "/v1/workspaces/{workspace_id}/me/role": {
@@ -8626,217 +5320,6 @@
         },
         "summary": "What CAIRN believes about you",
         "tags": ["me"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/meetings/capture-requests": {
-      "get": {
-        "description": "The list and the totals, with no per-person answer anywhere in either.\n\nRead-only, including the eligibility it reports: the gate is consulted for\ndisplay and nothing is written, so opening this screen cannot change what\nCAIRN believes it is allowed to do.",
-        "operationId": "list_capture_requests_v1_workspaces__workspace_id__meetings_capture_requests_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MeetingCaptureListResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to manage workspace settings."
-          },
-          "404": {
-            "description": "No such workspace, or you are not a member."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Capture requests in this workspace, and where they stand",
-        "tags": ["meetings"]
-      },
-      "post": {
-        "description": "Create the question. It grants nothing.\n\nThe request lands `pending` with no consent rows at all, and stays there\nuntil every expected participant has affirmatively agreed from their own\nsession. Silence never ages into agreement, so a request created and then\nforgotten collects nothing, forever.\n\nGated on `WORKSPACE_SETTINGS` (Owner and Admin) because *asking* is a\nconfiguration action. What that gate emphatically does not confer is any\nability to answer \u2014 see the module docstring.",
-        "operationId": "create_capture_request_v1_workspaces__workspace_id__meetings_capture_requests_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MeetingCaptureCreateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MeetingCaptureResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to manage workspace settings."
-          },
-          "404": {
-            "description": "No such workspace, or you are not a member."
-          },
-          "409": {
-            "description": "That meeting already has an open capture request."
-          },
-          "422": {
-            "description": "The window, or one of the people named, is not usable."
-          }
-        },
-        "summary": "Ask everybody in a meeting whether CAIRN may collect it",
-        "tags": ["meetings"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/meetings/capture-requests/{meeting_id}/cancel": {
-      "post": {
-        "description": "Withdraw the question.\n\nOnly an open request can be cancelled. A refused one is already closed, and\ncancelling it would replace \"somebody said no\" with a tidier word \u2014 the\nrecord has to keep saying refused, because that is what the product may later\nhave to demonstrate it honoured.",
-        "operationId": "cancel_capture_request_v1_workspaces__workspace_id__meetings_capture_requests__meeting_id__cancel_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "meeting_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Meeting Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MeetingCaptureResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "403": {
-            "description": "Requires permission to manage workspace settings."
-          },
-          "404": {
-            "description": "No such capture request in this workspace."
-          },
-          "422": {
-            "description": "The request is already closed."
-          }
-        },
-        "summary": "Call off a capture request",
-        "tags": ["meetings"]
       }
     },
     "/v1/workspaces/{workspace_id}/members": {
@@ -9285,75 +5768,6 @@
         },
         "summary": "Change how long raw activity is kept",
         "tags": ["administration"]
-      }
-    },
-    "/v1/workspaces/{workspace_id}/related-work": {
-      "get": {
-        "description": "See the module docstring for everything this refuses to be.\n\nThe topic is deliberately not logged: it is free text about somebody's\nwork, and the telemetry allow-list has no slot for it. The count is\nobservable; the words are not.",
-        "operationId": "find_related_work_v1_workspaces__workspace_id__related_work_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "topic",
-            "required": true,
-            "schema": {
-              "maxLength": 500,
-              "minLength": 2,
-              "title": "Topic",
-              "type": "string"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "cairn_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cairn Session"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RelatedWorkResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Find who has worked on related things, with evidence",
-        "tags": ["related-work"]
       }
     },
     "/v1/workspaces/{workspace_id}/search": {

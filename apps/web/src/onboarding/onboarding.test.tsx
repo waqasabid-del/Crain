@@ -7,7 +7,7 @@ import { axe } from "vitest-axe";
 import AppLayout from "../app/(app)/layout.js";
 import { apiError, createStubClient, renderRoute, router, SESSION } from "../test/harness.js";
 import { OnboardingPage } from "./OnboardingPage.js";
-import { SignupPage, slugify } from "./SignupPage.js";
+import { deriveWorkspaceName, SignupPage, slugify } from "./SignupPage.js";
 
 /**
  * Step 20's exit criterion, and it is not "the flow works".
@@ -75,7 +75,7 @@ describe("never an empty state", () => {
   it("offers the one action that matters when nothing is connected", async () => {
     renderOnboarding(onboarding({ stage: "not_connected", connected: false, importing: false }));
 
-    expect(await screen.findByRole("heading", { name: /connect your code/i })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: /connect a source/i })).toBeVisible();
     // A real link, so middle-click and open-in-new-tab work — a cautious admin
     // about to grant access to their organisation wants to check where it goes.
     expect(screen.getByRole("link", { name: /connect github/i })).toHaveAttribute("href");
@@ -139,7 +139,9 @@ describe("never an empty state", () => {
       onboarding({ stage: "ready", importing: false, factsAvailable: 0, commitsImported: 0 }),
     );
 
-    expect(await screen.findByRole("heading", { name: /nothing to summarise yet/i })).toBeVisible();
+    // The checklist keeps one title per row ("See your first brief") across
+    // every state; status is the badge, not a changing heading.
+    expect(await screen.findByText(/no activity found/i)).toBeVisible();
     expect(screen.getByText(/real answer rather than a problem/i)).toBeVisible();
   });
 
@@ -238,10 +240,10 @@ describe("signup", () => {
 
     renderRoute(<SignupPage />, { client, route: "/signup" });
 
-    await userEvent.type(screen.getByLabelText(/your name/i), "Ali Rahman");
+    await userEvent.type(screen.getByLabelText(/full name/i), "Ali Rahman");
     await userEvent.type(screen.getByLabelText(/work email/i), "ali@acme.test");
-    await userEvent.type(screen.getByLabelText(/password/i), "correct-horse-battery");
-    await userEvent.type(screen.getByLabelText(/company or team/i), "Acme Inc");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "correct-horse-battery");
+    await userEvent.click(screen.getByRole("checkbox", { name: /agree/i }));
     await userEvent.click(screen.getByRole("button", { name: /create workspace/i }));
 
     await waitFor(() => {
@@ -249,17 +251,87 @@ describe("signup", () => {
     });
 
     const body = vi.mocked(signUp).mock.calls[0]?.[0];
-    expect(body?.workspaceName).toBe("Acme Inc");
-    // Derived, not asked for. A reader inventing a URL-safe identifier in their
-    // first thirty seconds is a reader deciding whether this is worth it.
-    expect(body?.workspaceSlug).toMatch(/^acme-inc-[a-z0-9]{6}$/);
+    // Derived from the person, not asked for — the approved design has no
+    // company-name field at all. A reader inventing one in their first thirty
+    // seconds is a reader deciding whether this is worth it.
+    expect(body?.workspaceName).toBe("Ali Rahman's workspace");
+    expect(body?.workspaceSlug).toMatch(/^ali-rahman-s-workspace-[a-z0-9]{6}$/);
+  });
+
+  it("does not let the reader submit before agreeing to the terms", async () => {
+    const client = createStubClient({ getSession: vi.fn(() => Promise.resolve(null)) });
+    renderRoute(<SignupPage />, { client, route: "/signup" });
+
+    await userEvent.type(screen.getByLabelText(/full name/i), "Ali Rahman");
+    await userEvent.type(screen.getByLabelText(/work email/i), "ali@acme.test");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "correct-horse-battery");
+
+    expect(screen.getByRole("button", { name: /create workspace/i })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("checkbox", { name: /agree/i }));
+
+    expect(screen.getByRole("button", { name: /create workspace/i })).toBeEnabled();
+  });
+
+  it("lets the reader reveal the password they typed", async () => {
+    const client = createStubClient({ getSession: vi.fn(() => Promise.resolve(null)) });
+    renderRoute(<SignupPage />, { client, route: "/signup" });
+
+    const passwordField = screen.getByLabelText(/^password$/i);
+    await userEvent.type(passwordField, "correct-horse-battery");
+    expect(passwordField).toHaveAttribute("type", "password");
+
+    await userEvent.click(screen.getByRole("button", { name: /show password/i }));
+    expect(passwordField).toHaveAttribute("type", "text");
+
+    await userEvent.click(screen.getByRole("button", { name: /hide password/i }));
+    expect(passwordField).toHaveAttribute("type", "password");
   });
 
   it("states the password rule before it can be broken", () => {
     const client = createStubClient({ getSession: vi.fn(() => Promise.resolve(null)) });
     renderRoute(<SignupPage />, { client, route: "/signup" });
 
-    expect(screen.getByText(/at least 12 characters/i)).toBeVisible();
+    expect(screen.getByText(/12 characters or more/i)).toBeVisible();
+  });
+
+  describe("SSO buttons", () => {
+    // md/15 §3 specifies Google and GitHub SSO, and the approved design shows
+    // both buttons — but no OAuth route exists anywhere in the API yet
+    // (`grep -r oauth apps/api/src/cairn_api/api` returns nothing). These
+    // assertions are the guardrail: a click must say so honestly rather than
+    // silently doing nothing, redirecting to a guessed URL, or faking a session.
+
+    it.each([
+      ["Google", /sign up with google/i],
+      ["GitHub", /sign up with github/i],
+    ] as const)("offers %s per the approved design", (_provider, name) => {
+      const client = createStubClient({ getSession: vi.fn(() => Promise.resolve(null)) });
+      renderRoute(<SignupPage />, { client, route: "/signup" });
+
+      expect(screen.getByRole("button", { name })).toBeVisible();
+    });
+
+    it.each([
+      ["Google", /sign up with google/i],
+      ["GitHub", /sign up with github/i],
+    ] as const)(
+      "says %s sign-up isn't available yet, rather than doing nothing or faking it",
+      async (provider, name) => {
+        const signUp = vi.fn();
+        const client = createStubClient({ getSession: vi.fn(() => Promise.resolve(null)), signUp });
+        renderRoute(<SignupPage />, { client, route: "/signup" });
+
+        await userEvent.click(screen.getByRole("button", { name }));
+
+        expect(await screen.findByRole("alert")).toHaveTextContent(
+          new RegExp(`${provider} isn't available yet`, "i"),
+        );
+        // The point of the guard: a click must not reach the API client at all.
+        expect(signUp).not.toHaveBeenCalled();
+        expect(router.replace).not.toHaveBeenCalledWith("/onboarding");
+      },
+    );
   });
 
   it("explains a rejected signup without losing what was typed", async () => {
@@ -273,8 +345,8 @@ describe("signup", () => {
     renderRoute(<SignupPage />, { client, route: "/signup" });
 
     await userEvent.type(screen.getByLabelText(/work email/i), "taken@acme.test");
-    await userEvent.type(screen.getByLabelText(/password/i), "correct-horse-battery");
-    await userEvent.type(screen.getByLabelText(/company or team/i), "Acme Inc");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "correct-horse-battery");
+    await userEvent.click(screen.getByRole("checkbox", { name: /agree/i }));
     await userEvent.click(screen.getByRole("button", { name: /create workspace/i }));
 
     expect(await screen.findByRole("alert")).toBeVisible();
@@ -287,6 +359,24 @@ describe("signup", () => {
     const { container } = renderRoute(<SignupPage />, { client, route: "/signup" });
 
     await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+  });
+});
+
+describe("deriveWorkspaceName", () => {
+  it("names the workspace after its new owner", () => {
+    expect(deriveWorkspaceName("Ali Rahman", "ali@acme.test")).toBe("Ali Rahman's workspace");
+  });
+
+  it("trims whitespace before naming it", () => {
+    expect(deriveWorkspaceName("  Ali Rahman  ", "ali@acme.test")).toBe("Ali Rahman's workspace");
+  });
+
+  it("falls back to the email's local part when no name was given", () => {
+    expect(deriveWorkspaceName("", "ali@acme.test")).toBe("ali's workspace");
+  });
+
+  it("falls back further when there is nothing usable in either field", () => {
+    expect(deriveWorkspaceName("", "")).toBe("My workspace");
   });
 });
 

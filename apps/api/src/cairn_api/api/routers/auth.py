@@ -37,12 +37,15 @@ from cairn_api.api.dependencies import (
     enforce_rate_limit,
 )
 from cairn_api.api.ratelimit import (
+    FORGOT_PASSWORD_PER_ADDRESS,
     LOGIN_PER_ADDRESS,
     LOGIN_PER_IDENTIFIER,
     SIGNUP_PER_ADDRESS,
 )
 from cairn_api.api.schemas import (
+    ForgotPasswordRequest,
     LoginRequest,
+    ResetPasswordRequest,
     SessionResponse,
     SignupRequest,
     UserResponse,
@@ -55,6 +58,8 @@ from cairn_api.auth.service import (
     authenticate,
     create_session,
     issue_email_verification,
+    request_password_reset,
+    reset_password,
     revoke_all_sessions_for_user,
     revoke_session,
     sign_up,
@@ -64,7 +69,7 @@ from cairn_api.auth.tokens import hash_token
 from cairn_api.config import SESSION_COOKIE_NAME, Settings
 from cairn_api.db.auth_models import Session
 from cairn_api.db.models import Membership, User
-from cairn_api.email import send_best_effort, verification_message
+from cairn_api.email import password_reset_message, send_best_effort, verification_message
 
 logger = structlog.get_logger(__name__)
 
@@ -376,3 +381,76 @@ async def resend_verification(
         await logger.ainfo("verification_resent", user_id=str(caller.user.id))
 
     return {"status": "sent"}
+
+
+@router.post(
+    "/forgot-password",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Request a password reset link",
+    responses={429: {"description": "Too many requests from this address."}},
+)
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    request: Request,
+    response: Response,
+    db: PlatformDb,
+    settings: SettingsDep,
+    limiter: RateLimiterDep,
+    address: ClientAddress,
+    sender: EmailSenderDep,
+) -> dict[str, str]:
+    """Issue a reset link, if the address has an account.
+
+    **The response is identical whether or not it does.** Saying otherwise
+    would let anyone use this form to enumerate registered addresses — this
+    is the unauthenticated case `login` avoids by being deliberately vague
+    about which of two things failed; here there is only one thing to hide,
+    the account's existence, and it stays hidden.
+    """
+    await enforce_rate_limit(
+        request,
+        response,
+        limiter,
+        key=f"forgot-password:{address}",
+        limit=FORGOT_PASSWORD_PER_ADDRESS,
+    )
+
+    issued = await request_password_reset(db, email=body.email)
+    await db.commit()
+
+    if issued is not None:
+        # After the commit, and deliberately not part of it — same reasoning
+        # as signup: a relay that is briefly unreachable must not cost
+        # somebody their only way back into the account.
+        await send_best_effort(
+            sender,
+            password_reset_message(settings, to=issued.email, token=issued.token),
+            event="forgot_password",
+        )
+        await logger.ainfo("password_reset_requested", user_id=str(issued.reset.user_id))
+
+    return {"status": "sent"}
+
+
+@router.post(
+    "/reset-password",
+    status_code=status.HTTP_200_OK,
+    summary="Redeem a password reset link",
+    responses={
+        409: {"description": "Unknown, expired, or already-used link."},
+        422: {"description": "The password is too short, or a field is malformed."},
+    },
+)
+async def reset_password_endpoint(body: ResetPasswordRequest, db: PlatformDb) -> dict[str, str]:
+    """Set a new password from a reset token.
+
+    Deliberately unauthenticated, and deliberately does not sign the caller
+    in: the token proves control of the address, not that this browser
+    should now hold a session — the reader continues to `/login` explicitly,
+    the same way accepting an invitation does.
+    """
+    user = await reset_password(db, token=body.token, new_password=body.password)
+    await db.commit()
+
+    await logger.ainfo("password_reset_completed", user_id=str(user.id))
+    return {"status": "reset"}

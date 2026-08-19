@@ -7,6 +7,7 @@ from cairn_api.email.message import (
     EmailSender,
     Message,
     invitation_message,
+    password_reset_message,
     verification_message,
 )
 from cairn_api.email.senders import ConsoleSender, SmtpSender
@@ -19,6 +20,7 @@ __all__ = [
     "SmtpSender",
     "build_sender",
     "invitation_message",
+    "password_reset_message",
     "send_best_effort",
     "verification_message",
 ]
