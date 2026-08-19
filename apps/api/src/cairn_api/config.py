@@ -173,6 +173,17 @@ class Settings(BaseSettings):
 
     # -- Email -------------------------------------------------------------
 
+    spend_backend: Literal["memory", "postgres"] = Field(
+        default="postgres",
+        description=(
+            "Where model-spend counters live. 'postgres' shares one ceiling "
+            "across every replica and survives restarts - the only correct "
+            "answer anywhere that bills. 'memory' is per-process and forgets "
+            "on restart: local development and unit tests only, and a deployed "
+            "environment refuses to start on it, exactly as the queue does."
+        ),
+    )
+
     audit_sink_url: PostgresDsn | None = Field(
         default=None,
         description=(

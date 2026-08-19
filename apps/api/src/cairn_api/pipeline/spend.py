@@ -18,12 +18,18 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 import structlog
 
 from cairn_api import telemetry
 from cairn_api.config import Settings, get_settings
 from cairn_api.pipeline.provider import ModelProvider, ModelRequest, ModelResponse
+
+if TYPE_CHECKING:
+    import uuid
+
+    from cairn_api.pipeline.spend_store import SpendStore as SpendStoreLike
 
 logger = structlog.get_logger(__name__)
 
@@ -342,6 +348,12 @@ def ledger_for(tenant: str, settings: Settings | None = None) -> TokenLedger:
 class BudgetedProvider:
     """A `ModelProvider` that spends against a ledger — a decorator so no
     stage has to know a budget exists, and it can't be bypassed by accident.
+
+    With a `store`, the ceiling gains a memory: the durable period counters in
+    `spend_store` are consulted — and the call atomically reserved — before the
+    in-process check, so restarts forget nothing and replicas share one
+    ceiling. Without one, behaviour is exactly what it was: per-unit-of-work,
+    in-process, the configuration unit tests run against.
     """
 
     inner: ModelProvider
@@ -350,13 +362,40 @@ class BudgetedProvider:
     #: Bound at wrap time, not read from the request — a request carries no identity.
     stage: str = UNATTRIBUTED
 
+    #: The durable counters, when the deployment has them. `None` preserves the
+    #: historical in-process behaviour byte for byte.
+    store: SpendStoreLike | None = None
+
+    #: The tenant as a UUID for the store's tenant-scoped rows. The ledger's
+    #: `tenant` string stays what it was because log lines and tests read it.
+    tenant_id: uuid.UUID | None = None
+
     def for_stage(self, stage: str) -> BudgetedProvider:
         """Shared, not copied: copying would multiply the ceiling per stage."""
-        return BudgetedProvider(inner=self.inner, ledger=self.ledger, stage=stage)
+        return BudgetedProvider(
+            inner=self.inner,
+            ledger=self.ledger,
+            stage=stage,
+            store=self.store,
+            tenant_id=self.tenant_id,
+        )
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
         try:
             self.ledger.check()
+            if self.store is not None and self.tenant_id is not None:
+                # Pre-dispatch and atomic: the call is counted in the same
+                # operation that checks the period ceiling, which is what makes
+                # two replicas provably unable to jointly exceed it. Raises the
+                # same SpendCeilingError, so every refusal path downstream —
+                # the signal counters, the once-per-job log claim, the stages
+                # that swallow and degrade — behaves identically.
+                await self.store.reserve_call(
+                    self.tenant_id,
+                    stage=self.stage,
+                    max_tokens=self.ledger.max_tokens,
+                    max_calls=self.ledger.max_calls,
+                )
         except SpendCeilingError as refusal:
             # Recorded here rather than inside `check()` because the ledger does
             # not know which stage is asking, and "which stage is being refused"
@@ -382,6 +421,12 @@ class BudgetedProvider:
             raise
 
         self.ledger.record(self.stage, response)
+        if self.store is not None and self.tenant_id is not None:
+            await self.store.record_tokens(
+                self.tenant_id,
+                stage=self.stage,
+                tokens=response.input_tokens + response.output_tokens,
+            )
         SPEND_SIGNALS.spent(
             stage=self.stage,
             tokens=response.input_tokens + response.output_tokens,

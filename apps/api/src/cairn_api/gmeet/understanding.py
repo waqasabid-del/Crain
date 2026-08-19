@@ -71,6 +71,7 @@ from cairn_api.pipeline.jobs import (
     build_providers,
 )
 from cairn_api.pipeline.spend import BudgetedProvider, ledger_for
+from cairn_api.pipeline.spend_store import process_spend_store
 
 logger = structlog.get_logger(__name__)
 
@@ -225,7 +226,12 @@ async def _understand_one(
     """Stages 1-3 over one transcript's parts, in model-sized rounds."""
     parts = evidence_parts(text, artifact_id=artifact.id)
     ledger = ledger_for(str(artifact.tenant_id))
-    budgeted = BudgetedProvider(inner=providers.model, ledger=ledger)
+    budgeted = BudgetedProvider(
+        inner=providers.model,
+        ledger=ledger,
+        store=process_spend_store(),
+        tenant_id=artifact.tenant_id,
+    )
     written = 0
 
     for start in range(0, len(parts), MAX_EVIDENCE_ITEMS):

@@ -43,6 +43,7 @@ from cairn_api.pipeline.provider import (
     VertexProvider,
 )
 from cairn_api.pipeline.spend import BudgetedProvider, ledger_for
+from cairn_api.pipeline.spend_store import process_spend_store
 from cairn_api.telemetry.attributes import safe
 
 logger = structlog.get_logger(__name__)
@@ -787,7 +788,14 @@ async def _understand_chunk(
 
     # Per-tenant ledger so one workspace's runaway backfill can't deny the model to others (spend.py).
     ledger = ledger_for(str(tenant_id))
-    budgeted = BudgetedProvider(inner=providers.model, ledger=ledger)
+    budgeted = BudgetedProvider(
+        inner=providers.model,
+        ledger=ledger,
+        # The durable half: period counters shared by every replica, so a
+        # restart cannot re-grant a ceiling. See pipeline/spend_store.py.
+        store=process_spend_store(),
+        tenant_id=tenant_id,
+    )
 
     content = _render(evidence)
 

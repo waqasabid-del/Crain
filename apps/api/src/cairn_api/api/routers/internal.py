@@ -321,11 +321,14 @@ async def model_spend(
     settings: SettingsDep,
     staff: Annotated[StaffContext, Depends(requires_staff(*OPERATIONS_ROLES))],
 ) -> ModelSpend:
-    """The process's own spend counters, and the ceiling signals.
+    """The spend counters and the ceiling signals.
 
-    In-process, so this is one replica's view — stated rather than implied,
-    because a spend figure that looks global and is not is how a cost incident
-    gets missed. The durable version arrives with the metrics exporter.
+    **The ceiling numbers are now cluster-wide, not per-replica**: enforcement
+    reads and writes the durable `spend_counters` rows, so what refuses work on
+    any replica is the same total this screen would show. The *signal* counters
+    below (warnings, refusals, closest approach) remain this replica's own view
+    — they count log-worthy moments, which are per-process by nature — and the
+    response shape is unchanged so the dashboards reading it keep working.
 
     Read from `SPEND_SIGNALS` rather than from a ledger. A ledger belongs to one
     unit of work and is discarded with it, so building a fresh one here — which
