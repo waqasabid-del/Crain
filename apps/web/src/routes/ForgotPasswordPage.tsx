@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useId, useState, type ReactNode, type SyntheticEvent } from "react";
 
 import { useApiClient } from "../api/context.js";
+import { useAuth } from "../auth/context.js";
 import { useTheme } from "../theme/context.js";
 import { describeError, type DescribedError } from "../errors.js";
 import styles from "./SignInCard.module.css";
@@ -48,10 +49,37 @@ function CheckIcon(): ReactNode {
   );
 }
 
+function LockIcon(): ReactNode {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="4" y="10" width="16" height="10" rx="2" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+    </svg>
+  );
+}
+
 export function ForgotPasswordPage(): ReactNode {
   const client = useApiClient();
+  const { status, session } = useAuth();
   const { preference, setPreference } = useTheme();
   const emailId = useId();
+  const emailHintId = useId();
+
+  // Signed in: the reset is for *this* account, not an address typed in on
+  // the reader's behalf — same reasoning as the locked email on `/invite`.
+  // Signed out (the ordinary case — someone who forgot their password
+  // usually cannot sign in) keeps the free-text field, since there is no
+  // session email to lock to.
+  const lockedEmail = status === "authenticated" ? (session?.user.email ?? null) : null;
 
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -72,7 +100,7 @@ export function ForgotPasswordPage(): ReactNode {
       // screen to reveal either way. The confirmation below is shown
       // unconditionally rather than gated on success, matching the
       // approved design exactly.
-      await client.forgotPassword({ email });
+      await client.forgotPassword({ email: lockedEmail ?? email });
     } catch (error: unknown) {
       setProblem(describeError(error, "send a reset link"));
     } finally {
@@ -132,19 +160,40 @@ export function ForgotPasswordPage(): ReactNode {
                 <label className={styles.label} htmlFor={emailId}>
                   Email
                 </label>
-                <input
-                  className={styles.input}
-                  id={emailId}
-                  type="email"
-                  autoComplete="email"
-                  placeholder="you@company.com"
-                  required
-                  disabled={submitting}
-                  value={email}
-                  onChange={(event) => {
-                    setEmail(event.target.value);
-                  }}
-                />
+                {lockedEmail !== null ? (
+                  <>
+                    <div className={styles.passwordGroup}>
+                      <input
+                        className={styles.input}
+                        id={emailId}
+                        type="email"
+                        value={lockedEmail}
+                        readOnly
+                        aria-describedby={emailHintId}
+                      />
+                      <span className={styles.passwordToggle} aria-hidden="true">
+                        <LockIcon />
+                      </span>
+                    </div>
+                    <p className={styles.hint} id={emailHintId}>
+                      You&rsquo;re signed in as this address, so this is the account it will reset.
+                    </p>
+                  </>
+                ) : (
+                  <input
+                    className={styles.input}
+                    id={emailId}
+                    type="email"
+                    autoComplete="email"
+                    placeholder="you@company.com"
+                    required
+                    disabled={submitting}
+                    value={email}
+                    onChange={(event) => {
+                      setEmail(event.target.value);
+                    }}
+                  />
+                )}
               </div>
 
               <Button
