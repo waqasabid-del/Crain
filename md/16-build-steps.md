@@ -94,6 +94,42 @@ _Everything expensive to reverse. No user-visible features yet — this is the l
 
 ---
 
+## Gate ledger — 2026-08-19 consolidation
+
+The release gates (`uv run python -m cairn_api.ops.gates_cli`), each in one of
+two honest states: **closed with evidence** in the runbook's format (who
+validated, when, against what), or **red with the reason written down and the
+owner named**. Nothing below reinterprets a gate to flatter the table.
+
+| Gate                  | State                              | Evidence, or reason and owner                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `queue`               | **PASS**                           | PostgreSQL scheduler live end-to-end: real webhook deliveries claimed `FOR UPDATE SKIP LOCKED`, understood, dead-letters visible. Validated by the AI track, 2026-08-18, against the Acme dev workspace during the Stage B proof.                                                                                                                                                                                                           |
+| `model`               | **Closed (MANUAL, evidenced)**     | OpenAI `gpt-4o-mini` live with a recorded evaluation baseline: `evaluation.runner --pipeline real` PASS against `baseline-real.json`; live runs reached groundedness 100% (22+ claims), attribution 100% over real denominators (14–16 attributed claims), abstention 3/3. Validated by the AI track, 2026-08-18/19, against the seed evaluation dataset and the Acme workspace.                                                            |
+| `github`              | **Closed (MANUAL, evidenced)**     | Stage B answered: App `4635549` (manifest-created, read-only, asserted by `test_github_app_manifest.py`), installation `154655949` on `waqasabid-del`, real commit `946637b` → HMAC-verified delivery → fact credited to author **and** co-author, cited to the commit URL. 90-day backfill ran twice: 41 commits, idempotent (30→30 facts). Validated by the AI track with the founder's account, 2026-08-18.                              |
+| `email`               | **Open (MANUAL), scoped honestly** | The probe passed against Mailpit — which proves the **sender path** (real `SmtpSender`, real SMTP session, links that resolve), not a provider. Provider proof needs staging SMTP credentials (roadmap Session 11). Owner: infrastructure track, blocked on hosting.                                                                                                                                                                        |
+| `connectors`          | **Red**                            | Slack: code complete and tested (signature, OAuth, channels, events); blocked on the human step — creating the Slack app and placing three credentials in `.env`. Owner: founder; the session runsheet is ready. Google Chat: blocked at Google — `chat.messages.readonly` is RESTRICTED and needs a CASA assessment. Not ours to unblock. `inboundVerified` is false because nothing has yet arrived, which is the gate telling the truth. |
+| `meeting-transcripts` | **Red, at Google**                 | `drive.meet.readonly` needs OAuth verification plus a CASA Letter of Assessment; no code shortens that. What changed on our side: the reading path now exists — a consented transcript becomes suggested-tier, hedged, cited facts, proven with a synthetic transcript through the real pipeline (`test_meeting_understanding.py`). The provider path awaits a real meeting after the assessment.                                           |
+| `telemetry`           | **Red, parked**                    | Parked by the local-first decision: no OTLP collector exists to export to. Un-parked by standing up a collector at staging (roadmap Session 11). Owner: infrastructure track.                                                                                                                                                                                                                                                               |
+| `audit-sink`          | **Red, ours, decided**             | The one gate that is ours and was unstarted. Now decided, not implemented: `docs/AUDIT-SINK-OPTIONS.md` — recommendation is a second Postgres instance with INSERT-only grants, ~one session of work. The "customer-verifiable" claim stays embargoed until then.                                                                                                                                                                           |
+
+## Track status — what the repo can now say for itself
+
+- **AI is live on OpenAI** (`gpt-4o-mini`) with a recorded, blocking evaluation
+  baseline; prompt changes re-run the scorecard and a regression blocks.
+- **Stage B is answered with evidence**, not claimed: a real GitHub App
+  processing a real commit into a correctly co-attributed, cited fact
+  (`946637b`), with idempotent backfill.
+- **Three sources produce facts** — `github` (live), `meeting` (synthetic
+  transcript through the real pipeline; provider path awaits CASA), and `chat`
+  (seed only; live Slack blocked on the human setup step above). The brief is
+  recency-first, sectioned by certainty tier, and archives only caller-named
+  finished periods.
+- **Red, and why:** connectors (founder step / Google), meeting-transcripts
+  (Google), telemetry and email-provider (parked for hosting), audit-sink
+  (ours — decision recorded, implementation next).
+
+---
+
 ## Current position
 
 **✅ Step 1 — Monorepo scaffolding. Complete.** (commit `b155522`)
