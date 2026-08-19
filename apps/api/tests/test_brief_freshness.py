@@ -31,6 +31,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from cairn_api.api import briefs
+from cairn_api.db.brief_models import Brief as BriefModel
 from cairn_api.db.fact_models import Fact as FactRow
 from cairn_api.db.fact_models import FactSource as FactSourceRow
 from cairn_api.db.models import Tenant
@@ -168,3 +169,95 @@ class TestABriefIsATimeSliceNotAQuestion:
             )
 
         assert superseded_id not in {item.fact.id for item in result.for_context()}
+
+
+class TestTheJunkCriterionSparesHistory:
+    """The 206 wrongly-archived rows, identified by shape rather than by date.
+
+    Deleted here rather than in production: the live 206 were removed with a
+    blunt tenant-wide DELETE during diagnosis, before this criterion existed -
+    which is exactly the mistake this module prevents a future operator from
+    repeating. The criterion is validated against minted rows of both shapes,
+    and the no-mint test closes the loop: no path can produce the junk shape
+    again, so the cleanup is idempotent at zero forever.
+    """
+
+    @staticmethod
+    def _row(
+        tenant_id: uuid.UUID, *, start: datetime, end: datetime, created: datetime
+    ) -> BriefModel:
+        from cairn_api.db.brief_models import Brief as BriefRow
+
+        return BriefRow(
+            tenant_id=tenant_id,
+            period_start=start,
+            period_end=end,
+            narrative="x",
+            model="offline",
+            truncated=False,
+            created_at=created,
+        )
+
+    async def test_a_default_shaped_row_matches_and_a_named_one_does_not(
+        self, platform: AsyncSession
+    ) -> None:
+        from cairn_api.db.brief_models import Brief as BriefRow
+        from cairn_api.ops.purge_default_briefs import _junk_conditions
+        from sqlalchemy import select
+
+        tenant = Tenant(name="Junk", slug=f"junk-{uuid.uuid4().hex[:10]}")
+        platform.add(tenant)
+        await platform.commit()
+
+        # The convicted path's shape: both boundaries from one now() capture -
+        # microsecond-bearing end, span exactly the default - written seconds
+        # after its own period "ended".
+        junk_end = datetime(2026, 8, 18, 14, 3, 21, 123456, tzinfo=UTC)
+        junk = self._row(
+            tenant.id,
+            start=junk_end - timedelta(days=7),
+            end=junk_end,
+            created=junk_end + timedelta(seconds=40),
+        )
+        # A caller-named finished week: round boundary, asked about afterwards.
+        named_end = datetime(2026, 8, 17, 0, 0, 0, 0, tzinfo=UTC)
+        named = self._row(
+            tenant.id,
+            start=named_end - timedelta(days=7),
+            end=named_end,
+            created=named_end + timedelta(hours=9),
+        )
+        platform.add_all([junk, named])
+        await platform.commit()
+
+        matched = set(
+            await platform.scalars(
+                select(BriefRow.id).where(BriefRow.tenant_id == tenant.id, *_junk_conditions())
+            )
+        )
+
+        assert junk.id in matched, "the default-path shape must be identified"
+        assert named.id not in matched, "a caller-named finished period is history, not junk"
+
+    def test_the_criterion_mirrors_the_endpoint_default(self) -> None:
+        """If the default span changes, the criterion must change with it or it
+        describes a path that no longer exists."""
+        from cairn_api.api.routers import facts
+        from cairn_api.ops import purge_default_briefs
+
+        assert purge_default_briefs.DEFAULT_BRIEF_DAYS == facts.DEFAULT_BRIEF_DAYS
+
+    def test_no_path_can_mint_the_junk_shape_again(self) -> None:
+        """The regression that matters: storing requires `is_record`, and
+        `is_record` requires a caller-named boundary - the default request,
+        the only producer of the junk shape, can never reach the archive."""
+        import inspect
+
+        from cairn_api.api.routers import facts
+
+        source = inspect.getsource(facts.get_brief)
+        assert "is_record(until)" in source, (
+            "the archive gate must be the caller-named-boundary check; "
+            "is_complete(end) with a defaulted end is the convicted bug"
+        )
+        assert briefs.is_record(until=None, now=NOW) is False

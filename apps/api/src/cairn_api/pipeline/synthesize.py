@@ -22,9 +22,35 @@ logger = structlog.get_logger(__name__)
 
 MAX_FACTS = 40  # item ceiling, on top of retrieval's token budget (md/09 §4.2)
 
+
+def claim_target(fact_count: int) -> int:
+    """How many claims a brief over `fact_count` facts should aim for.
+
+    **The editorial lottery existed because the budget was one adjective.** The
+    instruction said "a short brief" and nothing else, so forty candidates
+    compressed to however many claims the model felt like - about six - and
+    which six was luck. Six generations in a row missed the newest commit while
+    repeating the same vivid mid-week stories.
+
+    Scaled, not fixed: one claim per three facts keeps a quiet day's brief from
+    padding and a dense week's from starving, floored so a brief never dwindles
+    to a headline and capped well inside `MAX_FACTS` so the target can always be
+    met from what was retrieved. A target, stated to the model as one - the
+    gates still drop what fails them, and a short honest brief still beats a
+    padded one.
+    """
+    return max(4, min(15, -(-fact_count // 3)))
+
+
 INSTRUCTION = """\
 Write a short brief for a founder about their team's week, using only the facts
 listed in the data block.
+
+The reader sees three sections, split by the certainty on each claim - facts
+marked "verified" appear under **Shipped**, "observed" under **In motion**,
+"suggested" under **Worth a look** (md/05 A.2.2). Cover every tier that has
+facts: a brief that spends all its claims on one tier hides the other two
+sections entirely, and the hedged tiers are where correction happens.
 
 Rules:
 - Every claim must reference the fact ids it comes from. Reference only ids in
@@ -113,10 +139,13 @@ async def synthesize(
         usable = facts[: max_facts if max_facts is not None else MAX_FACTS]
         by_id = {fact.id: fact for fact in usable}
 
-        request = prompts.build(
-            INSTRUCTION.replace("their team's week", f"their team's {period}"),
-            _render(usable),
+        instruction = INSTRUCTION.replace("their team's week", f"their team's {period}")
+        # The budget, made explicit and scaled to what arrived. See `claim_target`.
+        instruction += (
+            f"\nThere are {len(usable)} facts. Aim for about {claim_target(len(usable))} "
+            "claims. When trimming, drop the oldest first - the newest facts are the news."
         )
+        request = prompts.build(instruction, _render(usable))
 
         try:
             response = await provider.complete(request)
