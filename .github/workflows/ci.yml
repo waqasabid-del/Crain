@@ -460,6 +460,11 @@ jobs:
     permissions:
       contents: read
       security-events: write
+      # gitleaks-action lists the PR's commits through the API on pull_request
+      # events; without this it dies with 'Resource not accessible by
+      # integration' before scanning anything - a failure that reads as a leak
+      # and is actually a 403.
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:

@@ -261,3 +261,45 @@ class TestTheJunkCriterionSparesHistory:
             "is_complete(end) with a defaulted end is the convicted bug"
         )
         assert briefs.is_record(until=None, now=NOW) is False
+
+
+class TestThePurgeCommandRuns:
+    """The command itself, both modes, against the real platform connection.
+
+    Dry-run is the default and reports without deleting; --apply deletes only
+    what the criterion matches. Exercised end to end because a cleanup command
+    that only its conditions are tested for is a command nobody has run.
+    """
+
+    async def test_dry_run_reports_and_deletes_nothing(self, platform: AsyncSession) -> None:
+        from cairn_api.db.brief_models import Brief as BriefRow
+        from cairn_api.ops import purge_default_briefs
+        from sqlalchemy import select
+
+        tenant = Tenant(name="Purge", slug=f"purge-{uuid.uuid4().hex[:10]}")
+        platform.add(tenant)
+        await platform.commit()
+        junk_end = datetime(2026, 8, 18, 9, 1, 2, 654321, tzinfo=UTC)
+        platform.add(
+            BriefModel(
+                tenant_id=tenant.id,
+                period_start=junk_end - timedelta(days=7),
+                period_end=junk_end,
+                narrative="x",
+                model="offline",
+                truncated=False,
+                created_at=junk_end + timedelta(seconds=30),
+            )
+        )
+        await platform.commit()
+
+        code = await purge_default_briefs.run(apply=False)
+
+        assert code == 0
+        survived = await platform.scalar(select(BriefRow).where(BriefRow.tenant_id == tenant.id))
+        assert survived is not None, "a dry run must delete nothing"
+
+        code = await purge_default_briefs.run(apply=True)
+        assert code == 0
+        remaining = await platform.scalar(select(BriefRow).where(BriefRow.tenant_id == tenant.id))
+        assert remaining is None, "--apply must remove the junk-shaped row"

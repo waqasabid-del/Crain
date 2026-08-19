@@ -105,6 +105,24 @@ describe("createClient", () => {
     expect(error.problem.requestId).toBe("req-123");
   });
 
+  it("redeems a verification token against the endpoint the email links to", async () => {
+    // The route this exercises 404'd in every inbox for the life of the signup
+    // flow because no client method existed to call it. The method exists now;
+    // this pins the path and the body shape so the two cannot drift apart
+    // silently again.
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ user: null, workspaces: [] }));
+    const client = createClient({ baseUrl: "https://api.test", fetch: fetchMock });
+
+    await client.verifyEmail({ token: "delivered-only-to-the-inbox" });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.test/v1/auth/verify-email");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ token: "delivered-only-to-the-inbox" });
+    // The cookie is what a successful redemption may set.
+    expect(init.credentials).toBe("include");
+  });
+
   it("does not choke on a non-JSON error body", async () => {
     // A 502 from a load balancer returns HTML. A client that throws
     // "SyntaxError: Unexpected token <" while parsing it has replaced a

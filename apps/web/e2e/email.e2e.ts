@@ -46,7 +46,10 @@ test("signing up sends a verification link that resolves", async ({ page, reques
     .toBeGreaterThan(0);
 
   const [message] = await capturedMessages(request);
-  expect(message.To[0].Address).toBe(address);
+  if (message === undefined) {
+    throw new Error("the sink was empty despite the poll succeeding");
+  }
+  expect(message.To[0]?.Address).toBe(address);
   expect(message.Subject).toMatch(/confirm your cairn email address/i);
 
   // The assertion the original defect needed: follow the link a person would

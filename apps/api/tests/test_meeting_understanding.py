@@ -115,7 +115,7 @@ class TestAConsentedTranscriptBecomesSuggestedFacts:
         scenario, artifact = await stored_scenario(platform)
 
         outcome = await understanding.understand_stored_transcripts(
-            platform, providers=scripted(), now=NOW
+            platform, providers=scripted(), tenant_id=scenario.tenant_id, now=NOW
         )
         await platform.commit()
 
@@ -136,7 +136,10 @@ class TestAConsentedTranscriptBecomesSuggestedFacts:
         scenario, _ = await stored_scenario(platform)
 
         await understanding.understand_stored_transcripts(
-            platform, providers=scripted(certainty="verified"), now=NOW
+            platform,
+            tenant_id=scenario.tenant_id,
+            providers=scripted(certainty="verified"),
+            now=NOW,
         )
         await platform.commit()
 
@@ -150,11 +153,11 @@ class TestAConsentedTranscriptBecomesSuggestedFacts:
         scenario, _ = await stored_scenario(platform)
 
         first = await understanding.understand_stored_transcripts(
-            platform, providers=scripted(), now=NOW
+            platform, providers=scripted(), tenant_id=scenario.tenant_id, now=NOW
         )
         await platform.commit()
         second = await understanding.understand_stored_transcripts(
-            platform, providers=scripted(), now=NOW
+            platform, providers=scripted(), tenant_id=scenario.tenant_id, now=NOW
         )
         await platform.commit()
 
@@ -183,7 +186,7 @@ class TestConsentGatesTheRead:
         await withdraw(platform, scenario)
 
         outcome = await understanding.understand_stored_transcripts(
-            platform, providers=scripted(), now=NOW
+            platform, providers=scripted(), tenant_id=scenario.tenant_id, now=NOW
         )
         await platform.commit()
 
@@ -209,7 +212,7 @@ class TestRetentionStillWins:
         assert await raw_of(platform, scenario) is None
 
         outcome = await understanding.understand_stored_transcripts(
-            platform, providers=scripted(), now=NOW
+            platform, providers=scripted(), tenant_id=scenario.tenant_id, now=NOW
         )
         await platform.commit()
 
@@ -222,7 +225,9 @@ class TestRetentionStillWins:
     ) -> None:
         """Provenance keeps the citation; the raw text goes."""
         scenario, artifact = await stored_scenario(platform)
-        await understanding.understand_stored_transcripts(platform, providers=scripted(), now=NOW)
+        await understanding.understand_stored_transcripts(
+            platform, providers=scripted(), tenant_id=scenario.tenant_id, now=NOW
+        )
         await platform.commit()
 
         artifact.retention_expires_at = NOW - timedelta(days=1)
@@ -272,7 +277,7 @@ class TestNoContentEscapes:
 
         with structlog.testing.capture_logs() as captured:
             await understanding.understand_stored_transcripts(
-                platform, providers=scripted(), now=NOW
+                platform, providers=scripted(), tenant_id=_scenario.tenant_id, now=NOW
             )
         await platform.commit()
 

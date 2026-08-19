@@ -126,6 +126,7 @@ async def understand_stored_transcripts(
     db: AsyncSession,
     *,
     providers: Providers | None = None,
+    tenant_id: uuid.UUID | None = None,
     now: datetime | None = None,
     limit: int = UNDERSTAND_BATCH,
 ) -> UnderstandingOutcome:
@@ -139,13 +140,17 @@ async def understand_stored_transcripts(
     resolved = providers or build_providers()
     outcome = UnderstandingOutcome()
 
+    # `tenant_id` narrows the sweep - the same shape as
+    # `retrieval.retrieve_pending_transcripts`, and for the same reason: the
+    # production pass covers every workspace, and a test asserting on counts
+    # must not be counting the scenarios other tests committed.
+    statement = select(GoogleMeetTranscriptArtifact).where(
+        GoogleMeetTranscriptArtifact.state == GoogleMeetTranscriptState.STORED
+    )
+    if tenant_id is not None:
+        statement = statement.where(GoogleMeetTranscriptArtifact.tenant_id == tenant_id)
     artifacts = list(
-        await db.scalars(
-            select(GoogleMeetTranscriptArtifact)
-            .where(GoogleMeetTranscriptArtifact.state == GoogleMeetTranscriptState.STORED)
-            .order_by(GoogleMeetTranscriptArtifact.created_at)
-            .limit(limit)
-        )
+        await db.scalars(statement.order_by(GoogleMeetTranscriptArtifact.created_at).limit(limit))
     )
 
     for artifact in artifacts:
