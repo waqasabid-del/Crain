@@ -97,6 +97,14 @@ class VerifyEmailRequest(ApiModel):
     token: str = Field(min_length=1, max_length=256)
 
 
+class ForgotPasswordRequest(ApiModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(PasswordField):
+    token: str = Field(min_length=1, max_length=256)
+
+
 class ConnectGitHubRequest(ApiModel):
     """Bind a GitHub App installation to this workspace.
 
@@ -203,6 +211,16 @@ class InvitationResponse(ApiModel):
     email: EmailStr
     role: TenantRole
     expires_at: datetime
+
+
+class InvitationPreviewResponse(ApiModel):
+    """What the invitee sees before accepting anything — no token, no
+    membership row created, nothing mutated by looking."""
+
+    email: EmailStr
+    role: TenantRole
+    workspace_name: str
+    invited_by_name: str
 
 
 class GitHubInstallationResponse(ApiModel):

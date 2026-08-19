@@ -2,7 +2,7 @@
 
 import { Suspense, type ReactNode } from "react";
 
-import { VerifyEmailPage } from "../../routes/VerifyEmailPage.js";
+import { ResetPasswordPage } from "../../routes/ResetPasswordPage.js";
 
 /**
  * Suspended for the same reason as `/login` — the page reads `?token=`, and
@@ -13,7 +13,7 @@ import { VerifyEmailPage } from "../../routes/VerifyEmailPage.js";
 export default function Page(): ReactNode {
   return (
     <Suspense fallback={null}>
-      <VerifyEmailPage />
+      <ResetPasswordPage />
     </Suspense>
   );
 }

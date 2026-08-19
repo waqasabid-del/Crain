@@ -196,6 +196,14 @@ INVITE_ACCEPT_PER_ADDRESS = RateLimit(limit=20, window_seconds=60 * 60)
 #: that went to spam and far below anything automated.
 VERIFY_RESEND_PER_USER = RateLimit(limit=3, window_seconds=60 * 60)
 
+#: Password reset requests from one client address per hour.
+#:
+#: Unauthenticated and sends mail on every hit that resolves to a real
+#: account, so this is the same defence as `SIGNUP_PER_ADDRESS` against
+#: driving the relay — not brute-force defence, since the token itself is
+#: unguessable.
+FORGOT_PASSWORD_PER_ADDRESS = RateLimit(limit=5, window_seconds=60 * 60)
+
 
 class PostgresRateLimiter:
     """A token bucket held in PostgreSQL, shared across every instance.

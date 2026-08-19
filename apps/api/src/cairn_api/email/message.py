@@ -37,6 +37,24 @@ def verification_message(settings: Settings, *, to: str, token: str) -> Message:
     )
 
 
+def password_reset_message(settings: Settings, *, to: str, token: str) -> Message:
+    """The link that redeems a password reset. Silent about whether the
+    account exists — this is only ever called for one that does — and the
+    body itself says nothing an interceptor couldn't already infer from
+    having the link."""
+    url = _link(settings, "reset-password", token)
+    return Message(
+        to=to,
+        subject="Reset your CAIRN password",
+        body=(
+            "We received a request to reset your CAIRN password.\n\n"
+            f"Choose a new one here:\n\n{url}\n\n"
+            "This link expires in 30 minutes and works once. If you did not "
+            "request this, ignore this message — your password will not change.\n"
+        ),
+    )
+
+
 def invitation_message(settings: Settings, *, to: str, token: str, workspace_name: str) -> Message:
     """The link that redeems an invitation. The inviter is deliberately not named."""
     url = _link(settings, "invite", token)

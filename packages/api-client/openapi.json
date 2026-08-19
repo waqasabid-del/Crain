@@ -1193,6 +1193,19 @@
         "title": "FactSourceResponse",
         "type": "object"
       },
+      "ForgotPasswordRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": ["email"],
+        "title": "ForgotPasswordRequest",
+        "type": "object"
+      },
       "GitHubInstallationResponse": {
         "additionalProperties": false,
         "description": "A connected installation.",
@@ -1853,6 +1866,31 @@
         },
         "required": ["source", "account", "installationId", "connectedAt"],
         "title": "IntegrationResponse",
+        "type": "object"
+      },
+      "InvitationPreviewResponse": {
+        "additionalProperties": false,
+        "description": "What the invitee sees before accepting anything \u2014 no token, no\nmembership row created, nothing mutated by looking.",
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "invitedByName": {
+            "title": "Invitedbyname",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TenantRole"
+          },
+          "workspaceName": {
+            "title": "Workspacename",
+            "type": "string"
+          }
+        },
+        "required": ["email", "role", "workspaceName", "invitedByName"],
+        "title": "InvitationPreviewResponse",
         "type": "object"
       },
       "InvitationResponse": {
@@ -2870,6 +2908,26 @@
         },
         "required": ["repository", "state", "commitsImported", "finished"],
         "title": "RepositoryProgress",
+        "type": "object"
+      },
+      "ResetPasswordRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "maxLength": 1024,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": ["password", "token"],
+        "title": "ResetPasswordRequest",
         "type": "object"
       },
       "RevokeIdentityRequest": {
@@ -4064,6 +4122,53 @@
         "tags": ["health"]
       }
     },
+    "/v1/auth/forgot-password": {
+      "post": {
+        "description": "Issue a reset link, if the address has an account.\n\n**The response is identical whether or not it does.** Saying otherwise\nwould let anyone use this form to enumerate registered addresses \u2014 this\nis the unauthenticated case `login` avoids by being deliberately vague\nabout which of two things failed; here there is only one thing to hide,\nthe account's existence, and it stays hidden.",
+        "operationId": "forgot_password_v1_auth_forgot_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Forgot Password V1 Auth Forgot Password Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "Too many requests from this address."
+          }
+        },
+        "summary": "Request a password reset link",
+        "tags": ["auth"]
+      }
+    },
     "/v1/auth/login": {
       "post": {
         "description": "Verify credentials and issue a session.",
@@ -4241,6 +4346,46 @@
           }
         },
         "summary": "Send a fresh verification link",
+        "tags": ["auth"]
+      }
+    },
+    "/v1/auth/reset-password": {
+      "post": {
+        "description": "Set a new password from a reset token.\n\nDeliberately unauthenticated, and deliberately does not sign the caller\nin: the token proves control of the address, not that this browser\nshould now hold a session \u2014 the reader continues to `/login` explicitly,\nthe same way accepting an invitation does.",
+        "operationId": "reset_password_endpoint_v1_auth_reset_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Reset Password Endpoint V1 Auth Reset Password Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Unknown, expired, or already-used link."
+          },
+          "422": {
+            "description": "The password is too short, or a field is malformed."
+          }
+        },
+        "summary": "Redeem a password reset link",
         "tags": ["auth"]
       }
     },
@@ -5753,6 +5898,52 @@
           }
         },
         "summary": "Redeem an invitation",
+        "tags": ["invitations"]
+      }
+    },
+    "/v1/invitations/preview": {
+      "get": {
+        "description": "Read-only. Nothing is created, changed, or consumed by looking.\n\nDeliberately unauthenticated, same as `accept` below: the reader may not\nhave an account yet, so there is no session to require.",
+        "operationId": "preview_v1_invitations_preview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Unknown, expired, superseded, or already-accepted invitation."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "See who is inviting you, and where, before accepting",
         "tags": ["invitations"]
       }
     },
