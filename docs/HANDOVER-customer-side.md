@@ -1,5 +1,14 @@
 # Handover: product gaps found by the AI/infrastructure track
 
+> **Coordination rule, effective 2026-08-19.** The AI track is backend-only
+> from here; everything under `apps/web` and `packages/ui` is yours. Two things
+> before you start: **rebase on main once PR #2 merges** - the People page,
+> My Week, the Trust Center copy and the `/verify` screen all changed underneath
+> you while you were away - and **read this document first**: it lists exactly
+> where the AI track touched your territory, including the People page's
+> vocabulary-guard test, which rejects ranking words even in negation ("no
+> scores" fails it) and will bite your copy the way it bit ours (item 6).
+
 2026-08-19. Facts and evidence pointers, not instructions — the customer-side
 pack has the instructions. Each item was _found_ by this track's live proofs,
 which is why the evidence is a test, a log line, or a session artefact rather
