@@ -304,35 +304,62 @@ def _audit_sink_gate(settings: Settings) -> Gate:
     """A record that survives a compromise of the database that holds it.
 
     The internal audit log is hash-chained, so an attacker inside the
-    *application* can append but cannot rewrite history undetected — the
-    application role holds INSERT and SELECT and neither UPDATE nor DELETE.
+    *application* can append but cannot rewrite history undetected. What the
+    chain cannot survive alone is the database *owner* - a compromise at that
+    level can drop the table outright.
 
-    What the chain cannot survive is the database *owner*. A compromise at that
-    level can drop the table outright, and a chain nobody can read proves
-    nothing. So this gate stays blocked until the record is replicated somewhere
-    CAIRN's own operators cannot reach, and it exists in code rather than in a
-    document so that "we should do that eventually" cannot quietly become
-    "we did that".
+    The answer is the mirror: a second PostgreSQL instance under credentials
+    the primary's owner does not hold, holding a byte-faithful copy of the
+    chain, shipped from the maintenance loop behind the sink's own
+    MAX(sequence) cursor. `internal/audit_sink.py` verifies the two against
+    each other and names the first diverging sequence and the shape of the
+    divergence - a gap, a mismatch, or a primary truncation the sink survived.
 
-    Tracked here, not fixed here: a second sink is a separate piece of
-    infrastructure with its own retention, access model and failure modes.
-    Until it exists, the honest external claim is "tamper-evident", never
-    "immutable" or "customer-verifiable".
+    Configuration alone does not close this gate, for the same reason it does
+    not close the model or GitHub gates: a DSN proves a name was set, not that
+    a row round-tripped. The closure evidence is one audited action present in
+    both chains and a green verify_against_sink() - and the honest external
+    claim after that is "mirrored to an independent append-only sink, with
+    divergence detection on both chains". It is still not "customer-verifiable":
+    a customer cannot run the verification, and the phrase stays embargoed
+    until one can (see the gate ledger).
     """
-    _ = settings
+    if settings.audit_sink_url is None:
+        return Gate(
+            name="audit-sink",
+            status=GateStatus.BLOCKED,
+            detail=(
+                "The internal audit log lives only in the application database. "
+                "It is tamper-evident, not tamper-proof: a database-owner "
+                "compromise can delete the whole record."
+            ),
+            next_step=(
+                "Mirror the chain to an independent append-only sink: start it "
+                "(docker compose up -d audit-sink locally; the host's second "
+                "managed instance in staging), set CAIRN_AUDIT_SINK_URL, run "
+                "one audited staff action, and confirm verify_against_sink() "
+                "is green: uv run python -m cairn_api.internal.audit_sink. "
+                "Until then, do not describe the audit log externally as "
+                "immutable or customer-verifiable."
+            ),
+        )
+
     return Gate(
         name="audit-sink",
-        status=GateStatus.BLOCKED,
+        status=GateStatus.UNVERIFIED,
         detail=(
-            "The internal audit log lives only in the application database. It is "
-            "tamper-evident, not tamper-proof: a database-owner compromise can "
-            "delete the whole record."
+            "An audit mirror is configured on a separate instance. The chain "
+            "ships from the maintenance loop; divergence detection covers both "
+            "directions."
         ),
         next_step=(
-            "Replicate the audit chain to an append-only sink outside this database "
-            "and outside CAIRN operators' write access. Until then, do not describe "
-            "the audit log externally as immutable or customer-verifiable — see "
-            "md/16 Step 28, 'Still deferred from Step 27'."
+            "Close by evidence, not configuration: run one audited staff "
+            "action, then `uv run python -m cairn_api.internal.audit_sink` and "
+            "record the green round trip in the gate ledger. Credentials being "
+            "present proves nothing about the mirror - and even closed, the "
+            "record is 'mirrored to an independent append-only sink', never "
+            "'customer-verifiable': a customer cannot run the verification, "
+            "and that phrase stays embargoed until one can."
         ),
     )
 

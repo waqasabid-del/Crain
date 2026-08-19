@@ -22,6 +22,7 @@ from cairn_api.github import jobs as github_jobs
 from cairn_api.gmeet import retrieval as gmeet_retrieval
 from cairn_api.gmeet import subscriptions as gmeet_subscriptions
 from cairn_api.gmeet import understanding as gmeet_understanding
+from cairn_api.internal import audit_sink
 from cairn_api.jobs.factory import build_queue
 from cairn_api.jobs.queue import JobQueue
 from cairn_api.jobs.runner import JobRegistry
@@ -149,9 +150,20 @@ async def run_maintenance(*, interval: float) -> None:
                 # already excludes live leases and unelapsed throttles, so every
                 # worker running it enqueues nothing twice.
                 resumed = await _resume_backfills(session)
+                # The audit mirror. Platform-scoped like everything else on
+                # this loop; the cursor lives in the sink itself, so a failed
+                # pass moves nothing and the next pass retries from truth.
+                audit_shipped = await audit_sink.ship_pending(session)
         except Exception as exc:
             await logger.awarning("maintenance.failed", error=str(exc))
         else:
+            if audit_shipped.shipped or audit_shipped.failed:
+                await logger.ainfo(
+                    "maintenance.audit_mirrored",
+                    shipped=audit_shipped.shipped,
+                    lag=audit_shipped.lag,
+                    failed=audit_shipped.failed,
+                )
             if resumed:
                 await logger.ainfo("maintenance.backfills_resumed", count=resumed)
             if purged:

@@ -95,6 +95,41 @@ services:
       timeout: 3s
       retries: 15
 
+  # The audit sink - the second trust domain.
+  #
+  # A separate PostgreSQL instance holding a byte-faithful mirror of the
+  # internal audit chain, under credentials the application database's owner
+  # does not hold. The primary chain is tamper-evident inside one trust domain;
+  # the mirror makes erasure detectable across two: deleting the primary's
+  # history leaves a sink that still names every sequence, and the application
+  # role at the sink can INSERT and SELECT and nothing else (see
+  # infra/audit-sink-init.sql, which is this instance's whole schema).
+  #
+  # In production this is the host's second managed instance; nothing in the
+  # code changes but CAIRN_AUDIT_SINK_URL. See docs/AUDIT-SINK-OPTIONS.md.
+  audit-sink:
+    image: pgvector/pgvector:pg16
+    container_name: cairn-audit-sink
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: audit_owner
+      POSTGRES_PASSWORD: audit_owner_local_dev
+      POSTGRES_DB: cairn_audit
+      LANG: C
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports:
+      - "5433:5432"
+    volumes:
+      - audit_sink_data:/var/lib/postgresql/data
+      - ./infra/audit-sink-init.sql:/docker-entrypoint-initdb.d/audit-sink-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audit_owner -d cairn_audit"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
 volumes:
   postgres_data:
     name: cairn_postgres_data
+  audit_sink_data:
+    name: cairn_audit_sink_data

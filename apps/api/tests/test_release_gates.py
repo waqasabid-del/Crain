@@ -181,9 +181,29 @@ class TestTheAuditSinkStaysHonest:
     eventually" cannot quietly become "we did that".
     """
 
-    def test_it_is_blocked_regardless_of_configuration(self) -> None:
-        for settings in (Settings(), deployed(queue_backend="postgres")):
-            assert gate_named("audit-sink", settings).status is GateStatus.BLOCKED
+    def test_unconfigured_is_blocked_and_configured_is_never_a_pass(self) -> None:
+        """The sink exists now, and the gate moved with it - but only as far
+        as evidence can carry: no sink URL is BLOCKED, and a URL alone is
+        UNVERIFIED, because a DSN proves a name was set, not that a row
+        round-tripped. PASSED is unreachable from configuration, exactly as
+        the model and GitHub gates hold."""
+        assert gate_named("audit-sink", Settings()).status is GateStatus.BLOCKED
+        assert (
+            gate_named("audit-sink", deployed(queue_backend="postgres")).status
+            is GateStatus.BLOCKED
+        )
+
+        from pydantic import PostgresDsn
+
+        configured = Settings(
+            environment="local",
+            audit_sink_url=PostgresDsn(
+                "postgresql+asyncpg://audit_mirror:x@sink.example:5433/cairn_audit"
+            ),
+        )
+        gate = gate_named("audit-sink", configured)
+        assert gate.status is GateStatus.UNVERIFIED
+        assert "evidence" in gate.next_step
 
     def test_it_says_what_the_chain_does_not_survive(self) -> None:
         gate = gate_named("audit-sink", Settings())
@@ -198,6 +218,18 @@ class TestTheAuditSinkStaysHonest:
 
         assert "immutable" in gate.next_step
         assert "customer-verifiable" in gate.next_step
+
+        # And the embargo survives implementation: even a configured sink must
+        # not imply a customer can verify it, because they cannot.
+        from pydantic import PostgresDsn
+
+        configured = Settings(
+            environment="local",
+            audit_sink_url=PostgresDsn(
+                "postgresql+asyncpg://audit_mirror:x@sink.example:5433/cairn_audit"
+            ),
+        )
+        assert "customer-verifiable" in gate_named("audit-sink", configured).next_step
 
 
 class TestTheConnectorGateCannotPass:

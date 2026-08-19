@@ -173,6 +173,19 @@ class Settings(BaseSettings):
 
     # -- Email -------------------------------------------------------------
 
+    audit_sink_url: PostgresDsn | None = Field(
+        default=None,
+        description=(
+            "The audit mirror - a SECOND PostgreSQL instance holding a "
+            "byte-faithful copy of the internal audit chain, under credentials "
+            "the application database's owner does not hold. Unset, the chain "
+            "is tamper-evident within one trust domain only and the audit-sink "
+            "release gate stays red. The role behind this DSN may INSERT and "
+            "SELECT and nothing else; infra/audit-sink-init.sql is its entire "
+            "schema."
+        ),
+    )
+
     email_backend: EmailBackend = Field(
         default="console",
         description=(
@@ -979,6 +992,27 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @model_validator(mode="after")
+    def the_sink_must_be_a_second_trust_domain(self) -> Self:
+        """A sink on the primary's own instance is a mirror an attacker who
+        owns the primary also owns - configuration that looks like the control
+        while providing none of it. Refused at boot rather than discovered in
+        the incident the sink exists for."""
+        if self.audit_sink_url is None:
+            return self
+        sink = self.audit_sink_url.hosts()[0]
+        for other in (self.database_url, self.platform_database_url):
+            primary = other.hosts()[0]
+            if (sink.get("host"), sink.get("port")) == (primary.get("host"), primary.get("port")):
+                msg = (
+                    "CAIRN_AUDIT_SINK_URL points at the same PostgreSQL instance "
+                    "as the application database. The sink's whole purpose is a "
+                    "second trust domain; on the same instance it is a copy the "
+                    "same owner can delete. Point it at a separate instance."
+                )
+                raise ValueError(msg)
+        return self
 
     @property
     def is_deployed(self) -> bool:

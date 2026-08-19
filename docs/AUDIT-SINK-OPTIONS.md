@@ -1,6 +1,6 @@
 # The audit sink: options for the one gate that is ours and unstarted
 
-**A decision note, not an implementation.** 2026-08-19, AI/infrastructure track.
+**Decided 2026-08-19, implemented the same day** - `internal/audit_sink.py`, `infra/audit-sink-init.sql`, the `audit-sink` compose service, `test_audit_sink.py`. This note stays as the record of the alternatives.
 
 ## Where it stands
 
