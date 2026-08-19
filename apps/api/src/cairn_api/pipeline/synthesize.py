@@ -61,11 +61,11 @@ Rules:
   "suggested" must be written with explicit hedging — "it sounded like", "it
   appears that". Facts marked "verified" are stated plainly.
 - Blockers and open questions matter more to the reader than volume of activity.
-- **The facts are listed oldest to newest, and the newest are the news.** When
-  there are more facts than a short brief can carry, cover the most recent work
-  first and let the oldest go - a brief that repeats last week and omits
-  yesterday is stale on arrival, which is the one failure a daily brief cannot
-  survive.
+- **The facts are listed newest first, and the newest are the news.** Work top
+  to bottom: your first claim comes from the first fact, and when the budget
+  runs out it is the tail - the oldest facts - that goes unwritten. A brief
+  that repeats last week and omits yesterday is stale on arrival, which is the
+  one failure a daily brief cannot survive.
 - **"There is not enough here to write a brief" is a correct and expected
   answer, not a failure.** A week with nothing in it should produce no claims at
   all - reply with an empty claims list and say so in the narrative. But this is
@@ -137,6 +137,18 @@ async def synthesize(
             )
 
         usable = facts[: max_facts if max_facts is not None else MAX_FACTS]
+        # Newest first, in code rather than in prose. The instruction used to
+        # say "work from the end" over an oldest-first list, and the model
+        # reliably ignored it: across twelve generations the same vivid
+        # mid-list fact opened every brief while the newest commit went
+        # unwritten. Salience beats a traversal instruction; primacy beats
+        # salience. Undated facts sort last - they cannot compete on recency.
+        dated = sorted(
+            (fact for fact in usable if fact.occurred_at is not None),
+            key=lambda fact: fact.occurred_at,  # type: ignore[arg-type,return-value]
+            reverse=True,
+        )
+        usable = dated + [fact for fact in usable if fact.occurred_at is None]
         by_id = {fact.id: fact for fact in usable}
 
         instruction = INSTRUCTION.replace("their team's week", f"their team's {period}")
