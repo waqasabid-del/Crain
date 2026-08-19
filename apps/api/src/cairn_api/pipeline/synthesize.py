@@ -35,6 +35,11 @@ Rules:
   "suggested" must be written with explicit hedging — "it sounded like", "it
   appears that". Facts marked "verified" are stated plainly.
 - Blockers and open questions matter more to the reader than volume of activity.
+- **The facts are listed oldest to newest, and the newest are the news.** When
+  there are more facts than a short brief can carry, cover the most recent work
+  first and let the oldest go - a brief that repeats last week and omits
+  yesterday is stale on arrival, which is the one failure a daily brief cannot
+  survive.
 - **"There is not enough here to write a brief" is a correct and expected
   answer, not a failure.** A week with nothing in it should produce no claims at
   all - reply with an empty claims list and say so in the narrative. But this is
