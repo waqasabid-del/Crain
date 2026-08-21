@@ -20,6 +20,7 @@ import { contentSourceFor, IS_SAMPLE_CONTENT, type ContentSource } from "../brie
 import type { Fact, FactKind } from "../brief/types.js";
 import { ClaimList, type ClaimEntry } from "../components/ClaimList.js";
 import { PageHeader } from "../components/PageHeader.js";
+import { RelatedWorkFinder } from "../components/RelatedWorkFinder.js";
 import { SampleBanner } from "../components/SampleBanner.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { describeError, type DescribedError } from "../errors.js";
@@ -253,6 +254,13 @@ function WorkspaceFeed({ workspaceId }: { workspaceId: string }): ReactNode {
       ) : (
         <Results content={content} workspaceId={workspaceId} narrowing={applied} onClear={clear} />
       )}
+
+      {/* The finder moved here from the Team page, and this is where it always
+        belonged: it asks a question about WORK - "who has touched this topic"
+        - and under a list of PEOPLE it read as a directory search over
+        colleagues. Activity is the work surface, so the question is in
+        context. */}
+      <RelatedWorkFinder workspaceId={workspaceId} />
     </>
   );
 }

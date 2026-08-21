@@ -281,9 +281,11 @@ describe("a project's detail", () => {
     );
 
     const main = await screen.findByRole("main");
-    const delivered = await within(main).findByRole("region", { name: /delivered work/i });
-    expect(within(delivered).getByText(/rate limiting shipped/i)).toBeVisible();
-    expect(within(delivered).getByRole("link", { name: /ev-482/i })).toHaveAttribute(
+    // The four rollup groups are one "Work" grid now, each tile labelled with
+    // the kind it came from.
+    const work = await within(main).findByRole("region", { name: /^work$/i });
+    expect(within(work).getByText(/rate limiting shipped/i)).toBeVisible();
+    expect(within(work).getByRole("link", { name: /ev-482/i })).toHaveAttribute(
       "href",
       "https://github.com/x/y/pull/1",
     );
@@ -298,12 +300,12 @@ describe("a project's detail", () => {
     );
 
     const main = await screen.findByRole("main");
-    const planned = await within(main).findByRole("region", {
-      name: /in progress and planned work/i,
-    });
-    expect(within(planned).getByText(/does not track planned work/i)).toBeVisible();
-    // The honest absence, not a placeholder metric.
-    expect(planned.textContent).not.toMatch(/\d+\s?%/);
+    // The absence is one honest line inside Work rather than a whole card
+    // announcing what the product does not do.
+    const work = await within(main).findByRole("region", { name: /^work$/i });
+    expect(within(work).getByText(/planned work is not/i)).toBeVisible();
+    // The honest absence, never a placeholder metric.
+    expect(work.textContent).not.toMatch(/\d+\s?%/);
   });
 
   it("lists membership as context, with who added whom and nothing measured", async () => {
@@ -315,13 +317,16 @@ describe("a project's detail", () => {
     );
 
     const main = await screen.findByRole("main");
-    const people = await within(main).findByRole("region", { name: /^people$/i });
-    expect(within(people).getByText("Priya Nair")).toBeVisible();
-    expect(within(people).getByText("Backend")).toBeVisible();
-    expect(within(people).getByText(/added by ali rahman/i)).toBeVisible();
+    // "Team" now, and each member is a card that opens their page.
+    const team = await within(main).findByRole("region", { name: /^team$/i });
+    expect(within(team).getByRole("link", { name: "Priya Nair" })).toHaveAttribute(
+      "href",
+      "/people/person-1",
+    );
+    expect(within(team).getByText("Backend")).toBeVisible();
     // No number is attached to the person anywhere in the section.
     expect(
-      within(people).queryByText(/\b\d+\s+(?:facts?|commits?|deliveries|updates?)\b/i),
+      within(team).queryByText(/\b\d+\s+(?:facts?|commits?|deliveries|updates?)\b/i),
     ).toBeNull();
   });
 
@@ -346,11 +351,11 @@ describe("a project's detail", () => {
     );
 
     const main = await screen.findByRole("main");
-    const people = await within(main).findByRole("region", { name: /^people$/i });
+    const team = await within(main).findByRole("region", { name: /^team$/i });
     // Still listed: a shrinking list that drops people reads as a project that
     // never had them.
-    expect(within(people).getByText("Priya Nair")).toBeVisible();
-    expect(within(people).getByText(/removed by ali rahman/i)).toBeVisible();
+    expect(within(team).getByText("Priya Nair")).toBeVisible();
+    expect(within(team).getByText(/removed/i)).toBeVisible();
   });
 
   it("offers a retry and a way back when the project cannot be loaded", async () => {

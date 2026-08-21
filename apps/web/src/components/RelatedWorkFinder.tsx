@@ -82,7 +82,11 @@ export function RelatedWorkFinder({ workspaceId }: { workspaceId: string }): Rea
           type="submit"
           disabled={state.status === "searching" || topic.trim().length < 2}
         >
-          {state.status === "searching" ? "Searching…" : "Search"}
+          {/* "Find related work", not "Search": this now sits on the Activity
+            page, which already has a Search button for the feed's own filters.
+            Two buttons with one name is what a screen-reader user hears as
+            "Search, Search" with no way to tell which does what. */}
+          {state.status === "searching" ? "Searching…" : "Find related work"}
         </button>
       </form>
 

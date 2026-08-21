@@ -51,10 +51,12 @@ describe("the team list", () => {
     // A card each now, with the name as the heading that opens their page.
     const heading = await screen.findByRole("heading", { name: /ali rahman/i });
     expect(heading).toBeVisible();
-    // The role is on the card itself - scoped, because the sidebar names the
-    // reader's own role too and an unscoped query finds both.
+    // Owner is shown because it says who can configure the workspace. What a
+    // card leads with is the person's job roles; "Member" and "Viewer" are
+    // permission plumbing and deliberately never printed on a person.
     const list = screen.getByRole("list", { name: /people in this workspace/i });
     expect(within(list).getByText("Owner")).toBeVisible();
+    expect(within(list).queryByText(/^(?:member|viewer)$/i)).toBeNull();
   });
 
   it("carries no ranking, score or per-person count of anything", async () => {
@@ -84,32 +86,6 @@ describe("the team list", () => {
     expect(list.textContent).not.toMatch(/connected|unresolved|identit/i);
   });
 
-  it("addresses the reader about their own record instead", async () => {
-    // What is genuinely worth saying here: why your own name is sometimes
-    // missing from a fact elsewhere, and where you fix that.
-    renderPeople();
-
-    expect(
-      await screen.findByText(/if work of yours is recorded without your name/i),
-    ).toBeVisible();
-
-    // Scoped to `main`: the sidebar names the same destination, which is the
-    // point — the note sends people somewhere they can already get to.
-    const main = await screen.findByRole("main");
-    expect(within(main).getByRole("link", { name: /^preferences$/i })).toHaveAttribute(
-      "href",
-      "/settings",
-    );
-  });
-
-  it("does not read as a defect notice", async () => {
-    renderPeople();
-
-    const note = await screen.findByText(/if work of yours is recorded without your name/i);
-    const text = note.textContent;
-    expect(text).not.toMatch(/error|failed|failure|problem|invalid|unable|broken|denied/i);
-  });
-
   it("says so when the team cannot be loaded, with a way to try again", async () => {
     renderPeople(client({ listMembers: vi.fn(() => Promise.reject(new Error("offline"))) }));
 
@@ -137,8 +113,8 @@ describe("self-declared capacity on the list", () => {
 
     // MEMBERS in the harness: one open_to_work, one not_stated.
     expect(await screen.findByText("Open to new work — self-reported")).toBeVisible();
-    // The standing note says whose words these are, before any chip does.
-    expect(screen.getByText(/availability is each person.s own statement/i)).toBeVisible();
+    // The chip itself carries whose words these are - the page no longer
+    // repeats it in a standing note, so the label on the chip is the promise.
   });
 
   it("renders no chip for a person who stated nothing", async () => {
@@ -194,105 +170,5 @@ describe("inviting a colleague", () => {
 
     await screen.findByRole("heading", { name: /ali rahman/i });
     expect(screen.queryByRole("button", { name: /invite member/i })).toBeNull();
-  });
-});
-
-describe("the related-work finder", () => {
-  const RESULTS = {
-    topic: "rate limiting",
-    groups: [
-      {
-        personId: "22222222-2222-2222-2222-222222222222",
-        displayName: "Priya Nair",
-        capacity: "open_to_work",
-        capacityStatedAt: "2026-08-18T09:00:00Z",
-        facts: [
-          {
-            statement: "Priya shipped rate limiting to the public API.",
-            certainty: "verified",
-            occurredAt: "2026-08-14T09:30:00Z",
-            sources: [
-              {
-                evidenceId: "github:commit:a1b2c3",
-                source: "github",
-                url: "https://github.com/acme/api/commit/a1b2c3",
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-
-  it("shows evidence cards grouped by person, with no score anywhere", async () => {
-    const findRelatedWork = vi.fn(() => Promise.resolve(RESULTS));
-    const { container } = renderPeople(client({ findRelatedWork }));
-    const user = (await import("@testing-library/user-event")).default.setup();
-
-    await user.type(
-      await screen.findByLabelText(/task or topic to find related work/i),
-      "rate limiting",
-    );
-    await user.click(screen.getByRole("button", { name: "Search" }));
-
-    expect(await screen.findByText("Priya Nair")).toBeVisible();
-    expect(screen.getByText("Priya shipped rate limiting to the public API.")).toBeVisible();
-    expect(screen.getByRole("link", { name: /github:commit:a1b2c3/i })).toHaveAttribute(
-      "href",
-      "https://github.com/acme/api/commit/a1b2c3",
-    );
-    // The ordering statement is on the screen in words, because the order is
-    // a property of the evidence and the reader deserves to know the rule -
-    // worded without ranking vocabulary, because the page's own guard test
-    // (correctly) rejects even a negated "no scores" on this screen.
-    expect(screen.getByText(/newest related work first/i)).toBeVisible();
-    // No score, no percentage, no rank - asserted over the whole rendered
-    // output, so a "93% match" can never sneak in through any child.
-    expect(container.textContent).not.toMatch(/\d+\s*%/);
-    expect(container.textContent.toLowerCase()).not.toContain("match strength");
-    expect(findRelatedWork).toHaveBeenCalledWith(
-      "22222222-2222-2222-2222-222222222222",
-      "rate limiting",
-    );
-  });
-
-  it("says that absence is not a fact about anyone", async () => {
-    const findRelatedWork = vi.fn(() => Promise.resolve({ topic: "x", groups: [] }));
-    renderPeople(client({ findRelatedWork }));
-    const user = (await import("@testing-library/user-event")).default.setup();
-
-    await user.type(await screen.findByLabelText(/task or topic to find related work/i), "quantum");
-    await user.click(screen.getByRole("button", { name: "Search" }));
-
-    expect(await screen.findByText(/absence here is not a fact about anyone/i)).toBeVisible();
-  });
-
-  it("reports a failed search without inventing anything", async () => {
-    const findRelatedWork = vi.fn(() => Promise.reject(new Error("offline")));
-    renderPeople(client({ findRelatedWork }));
-    const user = (await import("@testing-library/user-event")).default.setup();
-
-    await user.type(
-      await screen.findByLabelText(/task or topic to find related work/i),
-      "rate limiting",
-    );
-    await user.click(screen.getByRole("button", { name: "Search" }));
-
-    expect(await screen.findByRole("alert")).toBeVisible();
-  });
-
-  it("has no accessibility violations with results shown", async () => {
-    const findRelatedWork = vi.fn(() => Promise.resolve(RESULTS));
-    const { container } = renderPeople(client({ findRelatedWork }));
-    const user = (await import("@testing-library/user-event")).default.setup();
-
-    await user.type(
-      await screen.findByLabelText(/task or topic to find related work/i),
-      "rate limiting",
-    );
-    await user.click(screen.getByRole("button", { name: "Search" }));
-    await screen.findByText("Priya Nair");
-
-    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
   });
 });

@@ -66,8 +66,8 @@ describe("the grouped navigation", () => {
       Workspace: [
         "Dashboard",
         "Daily brief",
-        "Projects",
         "Activity",
+        "Projects",
         "Team",
         "Your record",
         "Archive",
@@ -98,8 +98,8 @@ describe("the grouped navigation", () => {
     expect(hrefs).toEqual([
       "/",
       "/brief",
-      "/projects",
       "/feed",
+      "/projects",
       "/people",
       "/me",
       "/archive",

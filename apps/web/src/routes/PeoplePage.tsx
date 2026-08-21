@@ -13,9 +13,8 @@ import { Card } from "../components/Card.js";
 import { Field } from "../components/Field.js";
 import { InlineProblem } from "../components/InlineProblem.js";
 import { PageHeader } from "../components/PageHeader.js";
-import { RelatedWorkFinder } from "../components/RelatedWorkFinder.js";
-import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { StatusNote } from "../components/StatusNote.js";
+import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { describeError, type DescribedError } from "../errors.js";
 import { useAsync } from "../hooks/useAsync.js";
 import utility from "../styles/utility.module.css";
@@ -60,18 +59,67 @@ export function PeoplePage(): ReactNode {
   return <WorkspaceMembers workspaceId={activeWorkspace.id} />;
 }
 
-const ROLE_LABEL: Readonly<Record<string, string>> = {
+/**
+ * How many projects are examined to collect people's job roles.
+ *
+ * BACKEND GAP: there is no endpoint that returns a person's project
+ * memberships, so the roles shown on these cards are collected by reading the
+ * portfolio and then each project. Bounded, because the cost is one request
+ * per project. When an endpoint lands, this fan-out and its cap go with it.
+ */
+const PROJECTS_EXAMINED = 20;
+
+/**
+ * The two workspace roles worth showing, and why the other two are not.
+ *
+ * "Owner" and "Admin" say who can configure the workspace, which is genuinely
+ * useful to know before you ask somebody for something. "Member" and "Viewer"
+ * say nothing a colleague needs — they are permission plumbing, and printing
+ * them on a person's card labels people by their access level. What belongs
+ * there is the work they do, which is their project roles below.
+ */
+const PERMISSION_LABEL: Readonly<Record<string, string>> = {
   owner: "Owner",
   admin: "Admin",
-  member: "Member",
-  viewer: "Viewer",
 };
+
+interface Roster {
+  members: Member[];
+  /** person id -> the job roles they hold, in the order projects were read. */
+  rolesByPerson: Map<string, string[]>;
+}
 
 function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
   const client = useApiClient();
   const { activeRole } = useAuth();
   const load = useCallback(
-    (signal: AbortSignal): Promise<Member[]> => client.listMembers(workspaceId, { signal }),
+    async (signal: AbortSignal): Promise<Roster> => {
+      const options = { signal };
+      const [members, portfolio] = await Promise.all([
+        client.listMembers(workspaceId, options),
+        client.listProjects(workspaceId, undefined, options),
+      ]);
+
+      const projects = (portfolio.projects ?? []).slice(0, PROJECTS_EXAMINED);
+      const details = await Promise.all(
+        projects.map((project) => client.getProject(workspaceId, project.id, options)),
+      );
+
+      const rolesByPerson = new Map<string, string[]>();
+      for (const detail of details) {
+        for (const membership of detail.members ?? []) {
+          // A closed membership is history: the role is no longer held.
+          if (membership.removedAt != null) continue;
+          const role = membership.projectRole;
+          if (role == null || role.trim() === "") continue;
+          const held = rolesByPerson.get(membership.personId) ?? [];
+          if (!held.includes(role)) held.push(role);
+          rolesByPerson.set(membership.personId, held);
+        }
+      }
+
+      return { members, rolesByPerson };
+    },
     [client, workspaceId],
   );
   const { state, reload } = useAsync(load, "load the people in this workspace");
@@ -84,8 +132,8 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
     <>
       <PageHeader
         title="Team"
-        description="Everyone in this workspace. A role decides what somebody can configure, never how much CAIRN shows about them."
-        meta={state.status === "ready" ? membersLabel(state.data.length) : undefined}
+        description="Everyone in this workspace, and what they work on."
+        meta={state.status === "ready" ? membersLabel(state.data.members.length) : undefined}
         actions={
           <Link className={utility.actionLink} href="/trust">
             Trust Center
@@ -113,7 +161,7 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
       )}
 
       {state.status === "ready" &&
-        (state.data.length === 0 ? (
+        (state.data.members.length === 0 ? (
           <EmptyState
             title="Nobody here yet"
             action={
@@ -130,42 +178,19 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
               page, and a grid of links reads better to both eyes and screen
               readers than a table whose every row has one actionable cell. */}
             <ul className={styles.grid} aria-label="People in this workspace">
-              {state.data.map((member) => (
+              {state.data.members.map((member) => (
                 <li key={member.userId}>
-                  <MemberCard member={member} />
+                  <MemberCard
+                    member={member}
+                    roles={
+                      member.personId == null
+                        ? []
+                        : (state.data.rolesByPerson.get(member.personId) ?? [])
+                    }
+                  />
                 </li>
               ))}
             </ul>
-
-            <div className={styles.readOnly}>
-              {/*
-                `live={false}`: standing guidance on first paint, not the result
-                of an action. A live region that was never live is noise a
-                screen-reader user cannot mute.
-              */}
-              <StatusNote live={false}>
-                Availability is each person&rsquo;s own statement. Roles are changed in Workspace
-                settings, by an admin.
-              </StatusNote>
-              {/*
-                The one thing this screen says about identity, and it is about
-                the reader alone. Nothing here is per colleague — an indicator
-                of who has connected what would be a connection leaderboard by
-                another name (md/05 §B.3.3).
-              */}
-              <StatusNote live={false}>
-                Nothing on this page describes how much anyone has done. If work of yours is
-                recorded without your name on it, connecting your own accounts is what links it up.{" "}
-                <Link className={utility.actionLink} href="/settings">
-                  Preferences
-                </Link>
-              </StatusNote>
-            </div>
-
-            {/* Below the list, deliberately: the finder is a question about
-              WORK, and putting it above a list of PEOPLE would read as a
-              directory search over colleagues. */}
-            <RelatedWorkFinder workspaceId={workspaceId} />
           </>
         ))}
     </>
@@ -180,9 +205,10 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
  * entire card's text, which is how a screen reader ends up announcing a
  * paragraph where a name belongs.
  */
-function MemberCard({ member }: { member: Member }): ReactNode {
+function MemberCard({ member, roles }: { member: Member; roles: string[] }): ReactNode {
   const name = member.displayName ?? member.email;
   const personId = member.personId ?? null;
+  const permission = PERMISSION_LABEL[member.role];
 
   return (
     <article className={styles.card}>
@@ -197,9 +223,22 @@ function MemberCard({ member }: { member: Member }): ReactNode {
             </Link>
           )}
         </h2>
-        <p className={styles.cardRole}>{ROLE_LABEL[member.role] ?? member.role}</p>
+        {roles.length === 0 ? (
+          <p className={styles.cardRole}>No role set</p>
+        ) : (
+          <ul className={styles.roles}>
+            {roles.map((role) => (
+              <li className={styles.rolePill} key={role}>
+                {role}
+              </li>
+            ))}
+          </ul>
+        )}
         <p className={styles.cardEmail}>{member.email}</p>
-        <CapacityChip capacity={member.capacity} />
+        <div className={styles.cardFoot}>
+          <CapacityChip capacity={member.capacity} />
+          {permission !== undefined && <span className={styles.permission}>{permission}</span>}
+        </div>
       </div>
     </article>
   );

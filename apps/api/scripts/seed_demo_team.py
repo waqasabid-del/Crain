@@ -2,9 +2,13 @@
 
 `cairn_api.db.seed` builds the *minimum* workspace two tenants need to prove
 isolation. This script builds the workspace a person is shown: ten colleagues,
-four projects with real membership, and three weeks of facts spread across
-them, so the dashboard, the Team page and a person page each have something
-honest to render instead of an empty state.
+nine projects with real membership, and a month of facts spread across them,
+so the dashboard, the Team page and a person page each have something honest
+to render instead of an empty state.
+
+Five of those projects are created here, named the way a company names work
+rather than after a repo, each with a declared state and one claimed source
+string so its evidence resolves. The other four come from the base seed.
 
 Deliberate contrasts, because each one is a screen that has to work:
 
@@ -15,7 +19,9 @@ Deliberate contrasts, because each one is a screen that has to work:
 * **Unstated capacity.** Four people have never declared availability, so
   their ``capacity_stated_at`` is null. Capacity is self-declared (see
   `PersonCapacity`); a demo that states it for everybody hides the default.
-* **One person on no project**, so the empty membership state is reachable.
+* **Declared state, never inferred.** Every project this script creates
+  records who declared its state and when, because a state with no declarer is
+  the derived judgement `ProjectState` exists to refuse.
 * **One unlinked citation per meeting fact**: a meeting has an
   ``evidence_id`` and no ``url``. Citations that cannot be clicked through are
   real, and the fact card must survive one.
@@ -41,7 +47,12 @@ from cairn_api.db.auth_models import PasswordCredential
 from cairn_api.db.fact_models import Fact, FactPerson, FactSource
 from cairn_api.db.identity_models import Identity, IdentityKind, Person, PersonCapacity
 from cairn_api.db.models import Membership, TenantRole, User, WorkRole
-from cairn_api.db.project_models import Project, ProjectMember
+from cairn_api.db.project_models import (
+    Project,
+    ProjectMember,
+    ProjectSource,
+    ProjectState,
+)
 from cairn_api.db.seed import SEED_PASSWORD
 from cairn_api.db.session import dispose_engines, platform_session
 from cairn_api.db.tenancy import tenant_session
@@ -62,6 +73,21 @@ GATEWAY = "acme-inc/gateway"
 PAYMENTS = "acme-inc/payments"
 PROOF = "acme-inc/cairn-proof"
 CRAIN = "waqasabid-del/Crain"
+
+#: The five projects this script *creates* (the four above are the base seed's,
+#: named after the repo string they claim). These are named the way a company
+#: names work, and each claims one distinct source string of its own.
+ONBOARDING_NAME = "Customer Onboarding"
+MOBILE_NAME = "Mobile App"
+BILLING_NAME = "Billing Migration"
+DESIGN_SYSTEM_NAME = "Design System"
+DATA_PLATFORM_NAME = "Data Platform"
+
+ONBOARDING = "acme-inc/onboarding"
+MOBILE = "acme-inc/mobile"
+BILLING = "acme-inc/billing-migration"
+DESIGN_SYSTEM = "acme-inc/design-system"
+DATA_PLATFORM = "acme-inc/data-platform"
 
 
 @dataclass(frozen=True)
@@ -87,6 +113,25 @@ class Assignment:
     project_name: str
     display_name: str
     project_role: str
+
+
+@dataclass(frozen=True)
+class NewProject:
+    """A project to create, with the one source string it claims.
+
+    ``state`` is a *declared* value: the seed records the owner as the person
+    who declared it and when, because a state with no declarer is exactly the
+    inferred judgement `ProjectState` refuses to make. Only `active`, `paused`
+    and `completed` appear here.
+    """
+
+    name: str
+    purpose: str
+    state: ProjectState
+    source: str
+
+    #: How long ago the owner declared that state, in days back from now.
+    declared_days_ago: int
 
 
 @dataclass(frozen=True)
@@ -187,9 +232,64 @@ ROSTER: tuple[Colleague, ...] = (
 )
 
 
-#: Lucas Fernandes is deliberately absent: a person on no project is a state
-#: the Team page has to render, and it cannot be reviewed if no seed produces
-#: one.
+PROJECTS: tuple[NewProject, ...] = (
+    NewProject(
+        name=ONBOARDING_NAME,
+        purpose=(
+            "Get a new customer from signup to a working workspace in one sitting, "
+            "without a human in the loop."
+        ),
+        state=ProjectState.ACTIVE,
+        source=ONBOARDING,
+        declared_days_ago=6,
+    ),
+    NewProject(
+        name=MOBILE_NAME,
+        purpose=(
+            "Give people on phones the read-and-review half of the product, so a brief "
+            "can be caught up on away from a desk."
+        ),
+        state=ProjectState.ACTIVE,
+        source=MOBILE,
+        declared_days_ago=9,
+    ),
+    NewProject(
+        name=BILLING_NAME,
+        purpose=(
+            "Move every subscription off the legacy invoicing system and retire it "
+            "without a gap in customer billing."
+        ),
+        state=ProjectState.COMPLETED,
+        source=BILLING,
+        declared_days_ago=3,
+    ),
+    NewProject(
+        name=DESIGN_SYSTEM_NAME,
+        purpose=(
+            "Publish one set of tokens and components that the web and mobile apps both "
+            "consume, so a change lands in both places at once."
+        ),
+        state=ProjectState.PAUSED,
+        source=DESIGN_SYSTEM,
+        declared_days_ago=12,
+    ),
+    NewProject(
+        name=DATA_PLATFORM_NAME,
+        purpose=(
+            "Land product and billing events in one warehouse the whole company can "
+            "query, with the freshness stated on every table."
+        ),
+        state=ProjectState.ACTIVE,
+        source=DATA_PLATFORM,
+        declared_days_ago=5,
+    ),
+)
+
+
+#: Lucas Fernandes belongs to exactly one project (Mobile App) and no other:
+#: one membership is enough to prove a person page renders the link, and the
+#: "no projects" empty state stays reachable through people who are not on the
+#: roster at all.
 ASSIGNMENTS: tuple[Assignment, ...] = (
     Assignment(GATEWAY, "Priya Nair", "Backend"),
     Assignment(GATEWAY, "Yusuf Demir", "Infrastructure"),
@@ -204,6 +304,25 @@ ASSIGNMENTS: tuple[Assignment, ...] = (
     Assignment(PROOF, "Ana Gómez", "Product"),
     Assignment(CRAIN, "Jonas Weber", "Infrastructure"),
     Assignment(CRAIN, "Mei Lin Chen", "Data"),
+    Assignment(ONBOARDING_NAME, "Tom Reilly", "Frontend"),
+    Assignment(ONBOARDING_NAME, "Priya Nair", "Backend"),
+    Assignment(ONBOARDING_NAME, "Aisha Rahman", "UI/UX Design"),
+    Assignment(ONBOARDING_NAME, "Ana Gómez", "Product"),
+    Assignment(MOBILE_NAME, "Mei Lin Chen", "Frontend"),
+    Assignment(MOBILE_NAME, "Aisha Rahman", "UI/UX Design"),
+    Assignment(MOBILE_NAME, "Lucas Fernandes", "QA"),
+    Assignment(MOBILE_NAME, "Ana Gómez", "Product"),
+    Assignment(BILLING_NAME, "Daniel Okonkwo", "Backend"),
+    Assignment(BILLING_NAME, "Priya Nair", "Backend"),
+    Assignment(BILLING_NAME, "Sofia Rossi", "QA"),
+    Assignment(DESIGN_SYSTEM_NAME, "Aisha Rahman", "UI/UX Design"),
+    Assignment(DESIGN_SYSTEM_NAME, "Tom Reilly", "Frontend"),
+    Assignment(DESIGN_SYSTEM_NAME, "Jonas Weber", "DevOps"),
+    Assignment(DATA_PLATFORM_NAME, "Mei Lin Chen", "Data"),
+    Assignment(DATA_PLATFORM_NAME, "Yusuf Demir", "DevOps"),
+    Assignment(DATA_PLATFORM_NAME, "Jonas Weber", "Backend"),
+    Assignment(DATA_PLATFORM_NAME, "Daniel Okonkwo", "Backend"),
+    Assignment(DATA_PLATFORM_NAME, "Ana Gómez", "Product"),
 )
 
 
@@ -566,6 +685,353 @@ STATEMENTS: tuple[Statement, ...] = (
         days_ago=1,
         hour=9,
     ),
+    # ---- Customer Onboarding -------------------------------------------
+    Statement(
+        kind="delivery",
+        statement=(
+            "The onboarding flow now sends a verification email before the first "
+            "workspace is created."
+        ),
+        certainty="verified",
+        citation=_github(ONBOARDING, 62),
+        people=("Priya Nair",),
+        days_ago=24,
+        hour=10,
+    ),
+    Statement(
+        kind="decision",
+        statement=(
+            "Signup will ask for a workspace name up front instead of generating one "
+            "from the email domain."
+        ),
+        certainty="verified",
+        citation=_meeting("2026-07-30-onboarding-kickoff", ONBOARDING),
+        people=("Ana Gómez", "Aisha Rahman"),
+        days_ago=23,
+        hour=14,
+    ),
+    Statement(
+        kind="delivery",
+        statement="The invite screen was cut from four steps to two after the first usability run.",
+        certainty="verified",
+        citation=_github(ONBOARDING, 70),
+        people=("Tom Reilly", "Aisha Rahman"),
+        days_ago=18,
+        hour=11,
+    ),
+    Statement(
+        kind="blocker",
+        statement=(
+            "Onboarding emails are landing in spam for one corporate domain until the "
+            "sending record is updated."
+        ),
+        certainty="observed",
+        citation=_chat("C08ONBOARD", "1755050000", ONBOARDING),
+        people=("Priya Nair", "Ana Gómez"),
+        days_ago=14,
+        hour=16,
+    ),
+    Statement(
+        kind="in_progress",
+        statement="A guided checklist for the first session is being built into the empty workspace.",
+        certainty="observed",
+        citation=_github(ONBOARDING, 78),
+        people=("Tom Reilly",),
+        days_ago=9,
+        hour=13,
+    ),
+    Statement(
+        kind="open_question",
+        statement="Whether a trial workspace expires or simply goes read-only has not been settled.",
+        certainty="suggested",
+        citation=_chat("C08ONBOARD", "1755500000", ONBOARDING),
+        people=("Ana Gómez",),
+        days_ago=6,
+        hour=15,
+    ),
+    Statement(
+        kind="delivery",
+        statement="Signup now recovers a half-finished workspace instead of starting a second one.",
+        certainty="verified",
+        citation=_github(ONBOARDING, 84),
+        people=("Priya Nair", "Tom Reilly"),
+        days_ago=2,
+        hour=9,
+    ),
+    # ---- Mobile App ------------------------------------------------------
+    Statement(
+        kind="decision",
+        statement="The team decided to ship the mobile app to TestFlight before the public beta.",
+        certainty="verified",
+        citation=_meeting("2026-08-02-mobile-planning", MOBILE),
+        people=("Ana Gómez", "Mei Lin Chen"),
+        days_ago=21,
+        hour=14,
+    ),
+    Statement(
+        kind="delivery",
+        statement="The brief screen was rebuilt as a native list so long feeds scroll without jank.",
+        certainty="verified",
+        citation=_github(MOBILE, 12),
+        people=("Mei Lin Chen",),
+        days_ago=19,
+        hour=10,
+    ),
+    Statement(
+        kind="delivery",
+        statement="Offline reading was added so a cached brief opens without a network connection.",
+        certainty="verified",
+        citation=_github(MOBILE, 19),
+        people=("Mei Lin Chen", "Aisha Rahman"),
+        days_ago=15,
+        hour=12,
+    ),
+    Statement(
+        kind="blocker",
+        statement=(
+            "The iOS build is waiting on a provisioning profile that expired with the old "
+            "developer account."
+        ),
+        certainty="verified",
+        citation=_chat("C08MOBILE", "1755150000", MOBILE),
+        people=("Lucas Fernandes", "Mei Lin Chen"),
+        days_ago=12,
+        hour=16,
+    ),
+    Statement(
+        kind="in_progress",
+        statement="A device matrix covering the last three OS versions is being set up for release checks.",
+        certainty="observed",
+        citation=_github(MOBILE, 24),
+        people=("Lucas Fernandes",),
+        days_ago=8,
+        hour=11,
+    ),
+    Statement(
+        kind="open_question",
+        statement="It is undecided whether push notifications ship in the first beta or the one after.",
+        certainty="suggested",
+        citation=_meeting("2026-08-16-mobile-sync", MOBILE),
+        people=("Ana Gómez", "Lucas Fernandes"),
+        days_ago=5,
+        hour=15,
+    ),
+    Statement(
+        kind="delivery",
+        statement="Dark mode on mobile now follows the system setting instead of an in-app toggle.",
+        certainty="observed",
+        citation=_github(MOBILE, 31),
+        people=("Aisha Rahman",),
+        days_ago=1,
+        hour=10,
+    ),
+    # ---- Billing Migration ----------------------------------------------
+    Statement(
+        kind="decision",
+        statement=(
+            "Subscriptions will be migrated in cohorts by renewal date rather than all on "
+            "one night."
+        ),
+        certainty="verified",
+        citation=_meeting("2026-07-28-billing-migration-plan", BILLING),
+        people=("Ana Gómez", "Daniel Okonkwo"),
+        days_ago=26,
+        hour=14,
+    ),
+    Statement(
+        kind="delivery",
+        statement="Legacy invoice history was imported and reconciled to the cent for every account.",
+        certainty="verified",
+        citation=_github(BILLING, 140),
+        people=("Daniel Okonkwo",),
+        days_ago=22,
+        hour=9,
+    ),
+    Statement(
+        kind="delivery",
+        statement="A dry run migrated the first cohort into the staging billing system without a mismatch.",
+        certainty="verified",
+        citation=_github(BILLING, 148),
+        people=("Priya Nair", "Sofia Rossi"),
+        days_ago=17,
+        hour=11,
+    ),
+    Statement(
+        kind="blocker",
+        statement=(
+            "The final cohort was held for a week while three accounts with manual "
+            "discounts were repriced."
+        ),
+        certainty="observed",
+        citation=_chat("C08BILLING", "1755250000", BILLING),
+        people=("Daniel Okonkwo",),
+        days_ago=13,
+        hour=16,
+    ),
+    Statement(
+        kind="delivery",
+        statement="All remaining subscriptions were cut over and the legacy invoicing job was switched off.",
+        certainty="verified",
+        citation=_github(BILLING, 161),
+        people=("Priya Nair", "Daniel Okonkwo"),
+        days_ago=7,
+        hour=12,
+    ),
+    Statement(
+        kind="delivery",
+        statement="The first full billing cycle on the new system closed with no failed invoices.",
+        certainty="verified",
+        citation=_github(BILLING, 166),
+        people=("Sofia Rossi",),
+        days_ago=4,
+        hour=10,
+    ),
+    Statement(
+        kind="decision",
+        statement="The legacy billing database will be kept read-only for one year before deletion.",
+        certainty="verified",
+        citation=_meeting("2026-08-19-billing-closeout", BILLING),
+        people=("Ana Gómez", "Priya Nair"),
+        days_ago=3,
+        hour=15,
+    ),
+    # ---- Design System ---------------------------------------------------
+    Statement(
+        kind="delivery",
+        statement="Design tokens were exported to the shared package so both apps consume one source.",
+        certainty="verified",
+        citation=_github(DESIGN_SYSTEM, 27),
+        people=("Aisha Rahman", "Tom Reilly"),
+        days_ago=27,
+        hour=10,
+    ),
+    Statement(
+        kind="decision",
+        statement="Components will ship as unstyled primitives with tokens applied at the app layer.",
+        certainty="verified",
+        citation=_meeting("2026-07-27-design-system-review", DESIGN_SYSTEM),
+        people=("Aisha Rahman", "Tom Reilly"),
+        days_ago=26,
+        hour=14,
+    ),
+    Statement(
+        kind="delivery",
+        statement="Button, field and dialog were documented with a live example for each state.",
+        certainty="verified",
+        citation=_github(DESIGN_SYSTEM, 33),
+        people=("Tom Reilly",),
+        days_ago=20,
+        hour=11,
+    ),
+    Statement(
+        kind="delivery",
+        statement="A contrast check was added to the package build so a failing token stops the release.",
+        certainty="observed",
+        citation=_github(DESIGN_SYSTEM, 38),
+        people=("Jonas Weber", "Aisha Rahman"),
+        days_ago=16,
+        hour=13,
+    ),
+    Statement(
+        kind="blocker",
+        statement=(
+            "The token package cannot publish because the registry credential belongs to a "
+            "closed account."
+        ),
+        certainty="verified",
+        citation=_chat("C08DESIGN", "1755350000", DESIGN_SYSTEM),
+        people=("Jonas Weber",),
+        days_ago=14,
+        hour=16,
+    ),
+    Statement(
+        kind="decision",
+        statement=(
+            "Design system work was paused until the mobile beta ships so the two do not "
+            "compete for the same reviewers."
+        ),
+        certainty="verified",
+        citation=_meeting("2026-08-10-design-system-review", DESIGN_SYSTEM),
+        people=("Ana Gómez", "Aisha Rahman"),
+        days_ago=12,
+        hour=15,
+    ),
+    Statement(
+        kind="open_question",
+        statement="Whether the icon set is redrawn or licensed is still open.",
+        certainty="suggested",
+        citation=_chat("C08DESIGN", "1755450000", DESIGN_SYSTEM),
+        people=("Aisha Rahman",),
+        days_ago=11,
+        hour=9,
+    ),
+    # ---- Data Platform ---------------------------------------------------
+    Statement(
+        kind="decision",
+        statement="Product and billing events will land in one warehouse rather than two per-team stores.",
+        certainty="verified",
+        citation=_meeting("2026-08-01-data-platform-kickoff", DATA_PLATFORM),
+        people=("Mei Lin Chen", "Ana Gómez"),
+        days_ago=22,
+        hour=14,
+    ),
+    Statement(
+        kind="delivery",
+        statement="The event ingestion pipeline was moved onto the managed scheduler and runs hourly.",
+        certainty="verified",
+        citation=_github(DATA_PLATFORM, 55),
+        people=("Yusuf Demir",),
+        days_ago=18,
+        hour=9,
+    ),
+    Statement(
+        kind="delivery",
+        statement="Every published table now carries a freshness stamp readers can see before querying.",
+        certainty="verified",
+        citation=_github(DATA_PLATFORM, 61),
+        people=("Mei Lin Chen",),
+        days_ago=15,
+        hour=11,
+    ),
+    Statement(
+        kind="blocker",
+        statement=(
+            "The billing extract is stalled because the warehouse service account has no "
+            "read grant on the new schema."
+        ),
+        certainty="verified",
+        citation=_chat("C08DATA", "1755550000", DATA_PLATFORM),
+        people=("Daniel Okonkwo", "Yusuf Demir"),
+        days_ago=10,
+        hour=16,
+    ),
+    Statement(
+        kind="in_progress",
+        statement="Backfill of two years of historical events is running behind the current-day load.",
+        certainty="observed",
+        citation=_github(DATA_PLATFORM, 68),
+        people=("Jonas Weber", "Mei Lin Chen"),
+        days_ago=7,
+        hour=12,
+    ),
+    Statement(
+        kind="open_question",
+        statement="How long raw event payloads are kept before aggregation has not been agreed.",
+        certainty="suggested",
+        citation=_meeting("2026-08-18-data-platform-sync", DATA_PLATFORM),
+        people=("Mei Lin Chen", "Jonas Weber"),
+        days_ago=4,
+        hour=15,
+    ),
+    Statement(
+        kind="delivery",
+        statement="A daily freshness alert was wired to the on-call channel for the three core tables.",
+        certainty="observed",
+        citation=_github(DATA_PLATFORM, 74),
+        people=("Yusuf Demir",),
+        days_ago=2,
+        hour=10,
+    ),
 )
 
 
@@ -739,12 +1205,70 @@ async def _claim_identity(
     counts.add("identities", created=True)
 
 
+async def _seed_projects(owner_id: uuid.UUID, counts: Counts) -> None:
+    """Create the named projects and the one source string each of them claims.
+
+    Guarded twice over, because the two rows have different natural keys: the
+    project on its name within the tenant (the schema enforces that
+    case-insensitively), the claim on ``(tenant, value)``. A second run finds
+    both and writes nothing.
+    """
+    now = datetime.now(UTC)
+
+    async with tenant_session(TENANT_ID) as session:
+        for spec in PROJECTS:
+            project = await session.scalar(
+                select(Project).where(
+                    Project.tenant_id == TENANT_ID,
+                    Project.name == spec.name,
+                )
+            )
+            if project is None:
+                declared = (now - timedelta(days=spec.declared_days_ago)).replace(
+                    hour=11, minute=0, second=0, microsecond=0
+                )
+                project = Project(
+                    tenant_id=TENANT_ID,
+                    name=spec.name,
+                    purpose=spec.purpose,
+                    state=spec.state,
+                    state_declared_by_user_id=owner_id,
+                    state_declared_at=declared,
+                )
+                session.add(project)
+                await session.flush()
+                counts.add("projects", created=True)
+            else:
+                counts.add("projects", created=False)
+
+            claimed = await session.scalar(
+                select(ProjectSource.id).where(
+                    ProjectSource.tenant_id == TENANT_ID,
+                    ProjectSource.value == spec.source,
+                )
+            )
+            if claimed is None:
+                session.add(
+                    ProjectSource(
+                        tenant_id=TENANT_ID,
+                        project_id=project.id,
+                        value=spec.source,
+                        added_by_user_id=owner_id,
+                    )
+                )
+                counts.add("project_sources", created=True)
+            else:
+                counts.add("project_sources", created=False)
+
+        await session.commit()
+
+
 async def _seed_project_members(
     people: dict[str, uuid.UUID],
     owner_id: uuid.UUID,
     counts: Counts,
 ) -> None:
-    """Attach people to the four existing projects."""
+    """Attach people to every project this workspace has."""
     async with tenant_session(TENANT_ID) as session:
         projects = {
             project.name: project.id
@@ -848,7 +1372,16 @@ def _report(counts: Counts) -> None:
     # ASCII only: this runs in a Windows console under cp1252, where an em dash
     # is a UnicodeEncodeError rather than a character.
     print("Demo team seed for Acme Corp:")
-    for label in ("users", "memberships", "people", "identities", "project_members", "facts"):
+    for label in (
+        "users",
+        "memberships",
+        "people",
+        "identities",
+        "projects",
+        "project_sources",
+        "project_members",
+        "facts",
+    ):
         created = counts.total(label, created=True)
         skipped = counts.total(label, created=False)
         print(f"  {label:<16} created {created:>3}   already present {skipped:>3}")
@@ -864,6 +1397,7 @@ async def seed_demo_team() -> None:
     counts = Counts()
     owner_id = await _seed_accounts(counts)
     people = await _seed_people(counts)
+    await _seed_projects(owner_id, counts)
     await _seed_project_members(people, owner_id, counts)
     await _seed_facts(people, counts)
     _report(counts)

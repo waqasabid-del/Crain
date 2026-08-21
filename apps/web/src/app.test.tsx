@@ -41,10 +41,10 @@ const AXE_OPTIONS = {
 const DESTINATIONS = [
   "Dashboard",
   "Daily brief",
-  "Projects",
-  "Your record",
   "Activity",
+  "Projects",
   "Team",
+  "Your record",
   "Archive",
   "Workspace settings",
   "Preferences",

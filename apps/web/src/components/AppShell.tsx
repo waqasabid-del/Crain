@@ -57,8 +57,8 @@ const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { href: "/", label: "Dashboard", exact: true, admin: false, icon: "overview" },
       { href: "/brief", label: "Daily brief", exact: false, admin: false, icon: "brief" },
-      { href: "/projects", label: "Projects", exact: false, admin: false, icon: "projects" },
       { href: "/feed", label: "Activity", exact: false, admin: false, icon: "activity" },
+      { href: "/projects", label: "Projects", exact: false, admin: false, icon: "projects" },
       { href: "/people", label: "Team", exact: false, admin: false, icon: "team" },
       { href: "/me", label: "Your record", exact: false, admin: false, icon: "record" },
       { href: "/archive", label: "Archive", exact: false, admin: false, icon: "archive" },

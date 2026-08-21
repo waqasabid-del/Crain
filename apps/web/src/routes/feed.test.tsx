@@ -551,3 +551,116 @@ describe("accessibility", () => {
     expect(await screen.findByRole("search", { name: /feed/i })).toBeInTheDocument();
   });
 });
+
+/**
+ * The finder moved here from the Team page: it asks who has touched a topic,
+ * which is a question about WORK. Under a list of PEOPLE it read as a
+ * directory search over colleagues; on Activity it is in context. The
+ * assertions are unchanged - what the finder must never do did not move.
+ */
+describe("the related-work finder", () => {
+  const RESULTS = {
+    topic: "rate limiting",
+    groups: [
+      {
+        personId: "22222222-2222-2222-2222-222222222222",
+        displayName: "Priya Nair",
+        capacity: "open_to_work",
+        capacityStatedAt: "2026-08-18T09:00:00Z",
+        facts: [
+          {
+            statement: "Priya shipped rate limiting to the public API.",
+            certainty: "verified",
+            occurredAt: "2026-08-14T09:30:00Z",
+            sources: [
+              {
+                evidenceId: "github:commit:a1b2c3",
+                source: "github",
+                url: "https://github.com/acme/api/commit/a1b2c3",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("shows evidence cards grouped by person, with no score anywhere", async () => {
+    const findRelatedWork = vi.fn(() => Promise.resolve(RESULTS));
+    const { container } = renderFeed(client({ findRelatedWork }));
+    const user = (await import("@testing-library/user-event")).default.setup();
+
+    await user.type(
+      await screen.findByLabelText(/task or topic to find related work/i),
+      "rate limiting",
+    );
+    await user.click(screen.getByRole("button", { name: /find related work/i }));
+
+    const results = await screen.findByRole("list", {
+      name: /people with related work/i,
+    });
+    expect(within(results).getByText("Priya Nair")).toBeVisible();
+    expect(
+      within(results).getByText("Priya shipped rate limiting to the public API."),
+    ).toBeVisible();
+    expect(within(results).getByRole("link", { name: /github:commit:a1b2c3/i })).toHaveAttribute(
+      "href",
+      "https://github.com/acme/api/commit/a1b2c3",
+    );
+    // The ordering statement is on the screen in words, because the order is
+    // a property of the evidence and the reader deserves to know the rule -
+    // worded without ranking vocabulary, because the page's own guard test
+    // (correctly) rejects even a negated "no scores" on this screen.
+    expect(screen.getByText(/newest related work first/i)).toBeVisible();
+    // No score, no percentage, no rank - asserted over the whole rendered
+    // output, so a "93% match" can never sneak in through any child.
+    expect(container.textContent).not.toMatch(/\d+\s*%/);
+    expect(container.textContent.toLowerCase()).not.toContain("match strength");
+    expect(findRelatedWork).toHaveBeenCalledWith(
+      "22222222-2222-2222-2222-222222222222",
+      "rate limiting",
+    );
+  });
+
+  it("says that absence is not a fact about anyone", async () => {
+    const findRelatedWork = vi.fn(() => Promise.resolve({ topic: "x", groups: [] }));
+    renderFeed(client({ findRelatedWork }));
+    const user = (await import("@testing-library/user-event")).default.setup();
+
+    await user.type(await screen.findByLabelText(/task or topic to find related work/i), "quantum");
+    await user.click(screen.getByRole("button", { name: /find related work/i }));
+
+    expect(await screen.findByText(/absence here is not a fact about anyone/i)).toBeVisible();
+  });
+
+  it("reports a failed search without inventing anything", async () => {
+    const findRelatedWork = vi.fn(() => Promise.reject(new Error("offline")));
+    renderFeed(client({ findRelatedWork }));
+    const user = (await import("@testing-library/user-event")).default.setup();
+
+    await user.type(
+      await screen.findByLabelText(/task or topic to find related work/i),
+      "rate limiting",
+    );
+    await user.click(screen.getByRole("button", { name: /find related work/i }));
+
+    expect(await screen.findByRole("alert")).toBeVisible();
+  });
+
+  it("has no accessibility violations with results shown", async () => {
+    const findRelatedWork = vi.fn(() => Promise.resolve(RESULTS));
+    const { container } = renderFeed(client({ findRelatedWork }));
+    const user = (await import("@testing-library/user-event")).default.setup();
+
+    await user.type(
+      await screen.findByLabelText(/task or topic to find related work/i),
+      "rate limiting",
+    );
+    await user.click(screen.getByRole("button", { name: /find related work/i }));
+    // Scoped: the feed's own stream names Priya Nair too, so waiting on the
+    // bare text would resolve before the finder had rendered anything.
+    await screen.findByRole("list", { name: /people with related work/i });
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+  });
+});

@@ -116,3 +116,37 @@
   color: var(--fg-subtle);
   font-size: var(--text-xs);
 }
+
+/* Create a project. Same disclosure shape as the team page's invite. */
+.create {
+  margin-bottom: var(--space-6);
+}
+
+.createHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.createTitle {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+}
+
+.createNote {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.createForm {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 32rem;
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: var(--border-thin) solid var(--border-subtle);
+}
