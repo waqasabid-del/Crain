@@ -2272,6 +2272,158 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/workspaces/{workspace_id}/projects": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The workspace's projects, alphabetically
+     * @description Archived projects are excluded by default and included on request -
+     *     excluded is not deleted, and their facts stay cited either way.
+     */
+    get: operations["list_projects_v1_workspaces__workspace_id__projects_get"];
+    put?: never;
+    /** Create a project, optionally claiming citation strings */
+    post: operations["create_project_v1_workspaces__workspace_id__projects_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/projects/{project_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One project: claims, membership history, evidence rollup */
+    get: operations["get_project_v1_workspaces__workspace_id__projects__project_id__get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** Declare a state or reword the purpose */
+    patch: operations["update_project_v1_workspaces__workspace_id__projects__project_id__patch"];
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/projects/{project_id}/archive": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Archive a project - close it, never delete it */
+    post: operations["archive_project_v1_workspaces__workspace_id__projects__project_id__archive_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/projects/{project_id}/members": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Add a person to the project's context - recorded, never silent */
+    post: operations["add_member_v1_workspaces__workspace_id__projects__project_id__members_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/projects/{project_id}/members/{person_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Remove a person from the context - the history remains
+     * @description Removal closes the row - `removed_at`, `removed_by` - and the entry
+     *     stays in the members list as history. A shrinking list must never look
+     *     like a project that never had the person.
+     */
+    delete: operations["remove_member_v1_workspaces__workspace_id__projects__project_id__members__person_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/projects/{project_id}/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Restore an archived project */
+    post: operations["restore_project_v1_workspaces__workspace_id__projects__project_id__restore_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/projects/{project_id}/sources": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Claim a citation string for this project */
+    post: operations["claim_source_v1_workspaces__workspace_id__projects__project_id__sources_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/projects/{project_id}/sources/release": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Release a claimed string - the citations keep it as provenance
+     * @description A body-carrying POST rather than a DELETE with the value in the path:
+     *     the values are repo names, and a slash in a path segment is a routing
+     *     ambiguity nobody should have to escape their way around.
+     */
+    post: operations["release_source_v1_workspaces__workspace_id__projects__project_id__sources_release_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/workspaces/{workspace_id}/related-work": {
     parameters: {
       query?: never;
@@ -3955,6 +4107,187 @@ export interface components {
     PrivacyUpdate: {
       /** Retentiondays */
       retentionDays: number;
+    };
+    /**
+     * ProjectCreate
+     * @description A new project, optionally claiming citation strings from day one.
+     */
+    ProjectCreate: {
+      /** Name */
+      name: string;
+      /** Purpose */
+      purpose?: string | null;
+      /** Sourcestrings */
+      sourceStrings?: string[];
+    };
+    /**
+     * ProjectDetailResponse
+     * @description Everything the workspace may know about one project. Symmetric: every
+     *     role receives identical bytes, enforced the finder's way — the payload
+     *     function takes no role.
+     */
+    ProjectDetailResponse: {
+      /** Archivedat */
+      archivedAt?: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Members */
+      members?: components["schemas"]["ProjectMemberEntry"][];
+      /** Name */
+      name: string;
+      /** Purpose */
+      purpose?: string | null;
+      rollup: components["schemas"]["ProjectRollup"];
+      /** Sources */
+      sources?: components["schemas"]["ProjectSourceClaim"][];
+      /** State */
+      state: string;
+      /** Statedeclaredat */
+      stateDeclaredAt?: string | null;
+      /** Statedeclaredby */
+      stateDeclaredBy?: string | null;
+    };
+    /**
+     * ProjectFact
+     * @description One piece of evidence in a project's rollup: statement, certainty tier,
+     *     citations. Same shape as the finder's facts, for the same reason — nothing
+     *     here is generated, everything is checkable.
+     */
+    ProjectFact: {
+      /** Certainty */
+      certainty: string;
+      /** Occurredat */
+      occurredAt?: string | null;
+      /** Sources */
+      sources?: components["schemas"]["RelatedFactSource"][];
+      /** Statement */
+      statement: string;
+    };
+    /** ProjectListResponse */
+    ProjectListResponse: {
+      /** Projects */
+      projects?: components["schemas"]["ProjectSummary"][];
+    };
+    /** ProjectMemberAdd */
+    ProjectMemberAdd: {
+      /**
+       * Personid
+       * Format: uuid
+       */
+      personId: string;
+      /** Projectrole */
+      projectRole?: string | null;
+    };
+    /**
+     * ProjectMemberEntry
+     * @description One person's place in the project, past or present.
+     *
+     *     **The whole field set is the boundary.** Identity, a self-recognisable
+     *     role, and the audit trail of how the row came to be — and nothing else. No
+     *     activity, no counts, no dates-of-last-anything: a membership row that
+     *     measures its member has changed products. A test pins this exact field set.
+     */
+    ProjectMemberEntry: {
+      /**
+       * Addedat
+       * Format: date-time
+       */
+      addedAt: string;
+      /** Addedby */
+      addedBy?: string | null;
+      /** Displayname */
+      displayName: string;
+      /**
+       * Personid
+       * Format: uuid
+       */
+      personId: string;
+      /** Projectrole */
+      projectRole?: string | null;
+      /** Removedat */
+      removedAt?: string | null;
+      /** Removedby */
+      removedBy?: string | null;
+    };
+    /**
+     * ProjectRollup
+     * @description What the evidence says happened, grouped by what kind of thing it is.
+     *
+     *     Four groups, derived from fact kinds, each newest-first and cited. There is
+     *     deliberately no completion figure, no velocity, and **no remaining-work
+     *     field of any kind** — CAIRN has no planned-work model, and a "remaining"
+     *     number computed without one would be an invention. The field does not
+     *     exist, so no client can render it.
+     */
+    ProjectRollup: {
+      /** Blockers */
+      blockers?: components["schemas"]["ProjectFact"][];
+      /** Decisions */
+      decisions?: components["schemas"]["ProjectFact"][];
+      /** Delivered */
+      delivered?: components["schemas"]["ProjectFact"][];
+      /** Openquestions */
+      openQuestions?: components["schemas"]["ProjectFact"][];
+    };
+    /**
+     * ProjectSourceClaim
+     * @description One raw citation string this project claims. The string is the link
+     *     between the project and its evidence; who claimed it and when is the
+     *     audit.
+     */
+    ProjectSourceClaim: {
+      /**
+       * Addedat
+       * Format: date-time
+       */
+      addedAt: string;
+      /** Addedby */
+      addedBy?: string | null;
+      /** Value */
+      value: string;
+    };
+    /** ProjectSourceClaimRequest */
+    ProjectSourceClaimRequest: {
+      /** Value */
+      value: string;
+    };
+    /**
+     * ProjectSummary
+     * @description One project as the portfolio lists it.
+     *
+     *     No counts, no trends, no "last active" — a list ordered or decorated by
+     *     activity is a leaderboard of the people doing the activity. Projects list
+     *     alphabetically, and the state shown is the one a human declared.
+     */
+    ProjectSummary: {
+      /** Archivedat */
+      archivedAt?: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Name */
+      name: string;
+      /** Purpose */
+      purpose?: string | null;
+      /** State */
+      state: string;
+      /** Statedeclaredat */
+      stateDeclaredAt?: string | null;
+    };
+    /**
+     * ProjectUpdate
+     * @description Declared changes only. A state sent here is stamped with who and when.
+     */
+    ProjectUpdate: {
+      /** Purpose */
+      purpose?: string | null;
+      /** State */
+      state?: string | null;
     };
     /**
      * QueueHealth
@@ -8301,6 +8634,460 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  list_projects_v1_workspaces__workspace_id__projects_get: {
+    parameters: {
+      query?: {
+        state?: string | null;
+        q?: string | null;
+        include_archived?: boolean;
+      };
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectListResponse"];
+        };
+      };
+      /** @description No such workspace, or you are not a member. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  create_project_v1_workspaces__workspace_id__projects_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProjectCreate"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectDetailResponse"];
+        };
+      };
+      /** @description No such workspace, or you are not a member. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Name or source string already taken. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_project_v1_workspaces__workspace_id__projects__project_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectDetailResponse"];
+        };
+      };
+      /** @description No such workspace or project. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  update_project_v1_workspaces__workspace_id__projects__project_id__patch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProjectUpdate"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectDetailResponse"];
+        };
+      };
+      /** @description No such workspace or project. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  archive_project_v1_workspaces__workspace_id__projects__project_id__archive_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectDetailResponse"];
+        };
+      };
+      /** @description No such workspace or project. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  add_member_v1_workspaces__workspace_id__projects__project_id__members_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProjectMemberAdd"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectDetailResponse"];
+        };
+      };
+      /** @description No such workspace, project, or person. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Already an active member. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  remove_member_v1_workspaces__workspace_id__projects__project_id__members__person_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: string;
+        person_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectDetailResponse"];
+        };
+      };
+      /** @description No such workspace, project, or active membership. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  restore_project_v1_workspaces__workspace_id__projects__project_id__restore_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectDetailResponse"];
+        };
+      };
+      /** @description No such workspace or project. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  claim_source_v1_workspaces__workspace_id__projects__project_id__sources_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProjectSourceClaimRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectDetailResponse"];
+        };
+      };
+      /** @description No such workspace or project. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Another project already claims this string. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  release_source_v1_workspaces__workspace_id__projects__project_id__sources_release_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ProjectSourceClaimRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectDetailResponse"];
+        };
+      };
+      /** @description No such workspace, project, or claim. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
       };
     };
   };

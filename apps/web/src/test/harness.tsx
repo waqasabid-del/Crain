@@ -64,6 +64,20 @@ export function createStubClient(overrides: Partial<CairnClient> = {}): CairnCli
     signUp: vi.fn(unexpected("signUp")),
     logIn: vi.fn(unexpected("logIn")),
     verifyEmail: vi.fn(unexpected("verifyEmail")),
+    // Benign default, like `listFacts` above: the dashboard's portfolio panel
+    // renders on screens whose tests are about something else, and an empty
+    // portfolio is the honest default for a workspace nobody has filed work
+    // into. The project tests override it.
+    listProjects: vi.fn(() => Promise.resolve({ projects: [] })),
+    getProject: vi.fn(unexpected("getProject")),
+    createProject: vi.fn(unexpected("createProject")),
+    updateProject: vi.fn(unexpected("updateProject")),
+    archiveProject: vi.fn(unexpected("archiveProject")),
+    restoreProject: vi.fn(unexpected("restoreProject")),
+    claimProjectSource: vi.fn(unexpected("claimProjectSource")),
+    releaseProjectSource: vi.fn(unexpected("releaseProjectSource")),
+    addProjectMember: vi.fn(unexpected("addProjectMember")),
+    removeProjectMember: vi.fn(unexpected("removeProjectMember")),
     findRelatedWork: vi.fn(unexpected("findRelatedWork")),
     setMyCapacity: vi.fn(unexpected("setMyCapacity")),
     forgotPassword: vi.fn(unexpected("forgotPassword")),

@@ -19,6 +19,11 @@ from cairn_api.db.auth_models import (  # noqa: F401  (register metadata)
 )
 from cairn_api.db.base import Base
 from cairn_api.db.models import Membership, Tenant, User  # noqa: F401  (register metadata)
+from cairn_api.db.project_models import (  # noqa: F401  (register metadata)
+    Project,
+    ProjectMember,
+    ProjectSource,
+)
 from sqlalchemy import engine_from_config, pool
 
 config = context.config

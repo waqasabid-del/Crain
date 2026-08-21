@@ -87,3 +87,73 @@ these landed first - the page's own no-ranking-vocabulary guard test rejected
 even a negated "no scores" in the finder's copy, which is worth knowing before
 editing wording there. Evidence: `people.test.tsx` (the finder suite),
 `test_related_work.py` (symmetry, opt-out inheritance, never-computed).
+
+## 7. Projects are real data now (2026-08-21)
+
+Until today a "project" was a nullable string on a citation
+(`fact_sources.project`) — nothing a card could honestly render. There are now
+three tenant-scoped tables (`projects`, `project_members`, `project_sources`)
+and ten typed client methods, so the portfolio and project screens can show
+facts instead of placeholders.
+
+**The endpoints**, all under `/v1/workspaces/{id}` and all on the client as
+`listProjects`, `getProject`, `createProject`, `updateProject`,
+`archiveProject`, `restoreProject`, `claimProjectSource`,
+`releaseProjectSource`, `addProjectMember`, `removeProjectMember`:
+
+| Verb   | Path                                           | Note                                             |
+| ------ | ---------------------------------------------- | ------------------------------------------------ |
+| GET    | `/projects`                                    | `state`, `q`, `include_archived`; alphabetical   |
+| GET    | `/projects/{id}`                               | claims, membership history, evidence rollup      |
+| POST   | `/projects`                                    | 409 on a taken name or an already-claimed string |
+| PATCH  | `/projects/{id}`                               | declare state, reword purpose                    |
+| POST   | `/projects/{id}/archive` \| `/restore`         | archive, never delete                            |
+| POST   | `/projects/{id}/sources` \| `/sources/release` | claim/release a string                           |
+| POST   | `/projects/{id}/members`                       | 201; 409 if already active                       |
+| DELETE | `/projects/{id}/members/{personId}`            | closes the row, keeps the entry                  |
+
+**What you can rely on.**
+
+- _Symmetric._ Owner, Admin, Member and Viewer receive byte-identical project
+  data. The payload functions take no role at all, so there is no branch to
+  drift. Role gates writes only (`projects.manage`, Owner and Admin).
+- _Nothing measures a person._ `ProjectMemberEntry` is exactly
+  `personId, displayName, projectRole, addedBy, addedAt, removedBy, removedAt`
+  and a test pins that set. There is no per-member count, no "last active", no
+  comparison — do not add one on the client either; the People page's
+  vocabulary guard will reject the copy before the reviewer does.
+- _No silent membership._ Every add and remove carries who did it and when,
+  returned to every member. Removal closes the interval; the entry stays in the
+  list. A shrinking member list must not read as a project that never had the
+  person, so render removed entries as history rather than dropping them.
+- _State is declared, never inferred._ `state` is one of
+  `active | paused | blocked | completed | unknown`, written only by PATCH and
+  stamped with `stateDeclaredBy` / `stateDeclaredAt`. `unknown` is the honest
+  default and must render as unknown — never as a guess, and never as a colour
+  that implies trouble.
+- _Evidence resolves through the claim, at read time._ A project claims raw
+  citation strings; the rollup joins on them live. Claim a string today and
+  every fact that ever carried it appears; release it and they stop appearing,
+  with the raw string still on every citation as provenance.
+
+**Deliberately absent, and please keep it that way.**
+
+- No `remaining`, `planned`, `progress` or `completion` field anywhere on the
+  rollup. CAIRN holds no planned-work model, so any such number would be an
+  invention. Where a card wants one, show an honest empty state instead.
+- No per-member metrics of any kind (see above).
+- `in_progress` facts are not grouped under a project: a live "what everyone is
+  doing right now" list under a project banner is a workload view of the people
+  in it. Those facts remain in the feed, on each person's own record.
+
+**Which cards this makes truthful today**: the portfolio (name, purpose, state
+badge, member list with declared roles), project detail (Delivered / Blockers /
+Open questions / Decisions, each cited), and any workspace count of _work
+states_ (e.g. "open blockers") derived from the rollup. Counts of people are
+still not available and are not coming.
+
+The backfill minted one `unknown` project per distinct existing citation string
+per workspace, so the portfolio is populated rather than empty on first load —
+locally that is four projects, including the real `waqasabid-del/Crain`.
+Evidence: `test_projects.py` (22 tests: isolation, symmetry, vocabulary, audit,
+backfill idempotency, archive semantics).

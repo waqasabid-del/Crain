@@ -339,6 +339,17 @@ export interface RequestOptions {
 
 type SignUpBody = paths["/v1/auth/signup"]["post"]["requestBody"]["content"]["application/json"];
 type LogInBody = paths["/v1/auth/login"]["post"]["requestBody"]["content"]["application/json"];
+export type ProjectList =
+  paths["/v1/workspaces/{workspace_id}/projects"]["get"]["responses"]["200"]["content"]["application/json"];
+export type ProjectSummary = NonNullable<ProjectList["projects"]>[number];
+export type ProjectDetail =
+  paths["/v1/workspaces/{workspace_id}/projects/{project_id}"]["get"]["responses"]["200"]["content"]["application/json"];
+export type ProjectState = ProjectSummary["state"];
+export type ProjectCreateBody =
+  paths["/v1/workspaces/{workspace_id}/projects"]["post"]["requestBody"]["content"]["application/json"];
+export type ProjectUpdateBody =
+  paths["/v1/workspaces/{workspace_id}/projects/{project_id}"]["patch"]["requestBody"]["content"]["application/json"];
+
 export type Capacity = "open_to_work" | "at_capacity" | "not_stated";
 export type RelatedWork =
   paths["/v1/workspaces/{workspace_id}/related-work"]["get"]["responses"]["200"]["content"]["application/json"];
@@ -419,6 +430,76 @@ export interface CairnClient {
   /** Create an account and its first workspace. Signs the caller in. */
   signUp(body: SignUpBody, options?: RequestOptions): Promise<Session>;
   logIn(body: LogInBody, options?: RequestOptions): Promise<Session>;
+  /** The workspace's projects, alphabetically. Ordering is deliberate: any
+   * activity-derived order would rank the work, and through it the people
+   * doing it. Archived projects are excluded unless asked for. */
+  listProjects(
+    workspaceId: string,
+    query?: { state?: ProjectState; q?: string; includeArchived?: boolean },
+    options?: RequestOptions,
+  ): Promise<ProjectList>;
+  /** One project: its claimed citation strings, its membership history, and a
+   * rollup grouped from live facts (delivered / blockers / open questions /
+   * decisions), each cited and newest first. Symmetric - every role receives
+   * identical bytes. There is no remaining-work field, deliberately: CAIRN
+   * holds no planned-work model and will not invent one. */
+  getProject(
+    workspaceId: string,
+    projectId: string,
+    options?: RequestOptions,
+  ): Promise<ProjectDetail>;
+  createProject(
+    workspaceId: string,
+    body: ProjectCreateBody,
+    options?: RequestOptions,
+  ): Promise<ProjectDetail>;
+  /** Declare a state or reword the purpose. A state is stamped with who
+   * declared it and when - it is never inferred from activity. */
+  updateProject(
+    workspaceId: string,
+    projectId: string,
+    body: ProjectUpdateBody,
+    options?: RequestOptions,
+  ): Promise<ProjectDetail>;
+  archiveProject(
+    workspaceId: string,
+    projectId: string,
+    options?: RequestOptions,
+  ): Promise<ProjectDetail>;
+  restoreProject(
+    workspaceId: string,
+    projectId: string,
+    options?: RequestOptions,
+  ): Promise<ProjectDetail>;
+  claimProjectSource(
+    workspaceId: string,
+    projectId: string,
+    value: string,
+    options?: RequestOptions,
+  ): Promise<ProjectDetail>;
+  releaseProjectSource(
+    workspaceId: string,
+    projectId: string,
+    value: string,
+    options?: RequestOptions,
+  ): Promise<ProjectDetail>;
+  /** Add a person to the project's context. Context, never assignment - and
+   * never silent: the row records who added them and when, and every member
+   * can see it. */
+  addProjectMember(
+    workspaceId: string,
+    projectId: string,
+    body: { personId: string; projectRole?: string },
+    options?: RequestOptions,
+  ): Promise<ProjectDetail>;
+  /** Remove a person from the context. History-preserving: the entry stays in
+   * the list, closed, with who removed them. */
+  removeProjectMember(
+    workspaceId: string,
+    projectId: string,
+    personId: string,
+    options?: RequestOptions,
+  ): Promise<ProjectDetail>;
   /** Evidence of who has worked on related things. Deterministic retrieval
    * over facts - no score, no rank, no model call; groups order by most recent
    * related fact and every fact carries its citations. People appear only
@@ -811,6 +892,116 @@ export function createClient(options: ClientOptions): CairnClient {
       body: paths["/v1/auth/login"]["post"]["requestBody"]["content"]["application/json"],
       options?: RequestOptions,
     ) => request<Session>("POST", "/v1/auth/login", body, options),
+
+    listProjects: (
+      workspaceId: string,
+      query?: { state?: ProjectState; q?: string; includeArchived?: boolean },
+      options?: RequestOptions,
+    ) => {
+      const search = new URLSearchParams();
+      if (query?.state) search.set("state", query.state);
+      if (query?.q) search.set("q", query.q);
+      if (query?.includeArchived) search.set("include_archived", "true");
+      const suffix = search.toString() === "" ? "" : `?${search.toString()}`;
+      return request<ProjectList>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/projects${suffix}`,
+        undefined,
+        options,
+      );
+    },
+
+    getProject: (workspaceId: string, projectId: string, options?: RequestOptions) =>
+      request<ProjectDetail>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/projects/${projectId}`,
+        undefined,
+        options,
+      ),
+
+    createProject: (workspaceId: string, body: ProjectCreateBody, options?: RequestOptions) =>
+      request<ProjectDetail>("POST", `/v1/workspaces/${workspaceId}/projects`, body, options),
+
+    updateProject: (
+      workspaceId: string,
+      projectId: string,
+      body: ProjectUpdateBody,
+      options?: RequestOptions,
+    ) =>
+      request<ProjectDetail>(
+        "PATCH",
+        `/v1/workspaces/${workspaceId}/projects/${projectId}`,
+        body,
+        options,
+      ),
+
+    archiveProject: (workspaceId: string, projectId: string, options?: RequestOptions) =>
+      request<ProjectDetail>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/projects/${projectId}/archive`,
+        undefined,
+        options,
+      ),
+
+    restoreProject: (workspaceId: string, projectId: string, options?: RequestOptions) =>
+      request<ProjectDetail>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/projects/${projectId}/restore`,
+        undefined,
+        options,
+      ),
+
+    claimProjectSource: (
+      workspaceId: string,
+      projectId: string,
+      value: string,
+      options?: RequestOptions,
+    ) =>
+      request<ProjectDetail>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/projects/${projectId}/sources`,
+        { value },
+        options,
+      ),
+
+    releaseProjectSource: (
+      workspaceId: string,
+      projectId: string,
+      value: string,
+      options?: RequestOptions,
+    ) =>
+      request<ProjectDetail>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/projects/${projectId}/sources/release`,
+        { value },
+        options,
+      ),
+
+    addProjectMember: (
+      workspaceId: string,
+      projectId: string,
+      body: { personId: string; projectRole?: string },
+      options?: RequestOptions,
+    ) =>
+      request<ProjectDetail>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/projects/${projectId}/members`,
+        body,
+        options,
+      ),
+
+    removeProjectMember: (
+      workspaceId: string,
+      projectId: string,
+      personId: string,
+      options?: RequestOptions,
+    ) =>
+      request<ProjectDetail>(
+        "DELETE",
+        `/v1/workspaces/${workspaceId}/projects/${projectId}/members/${personId}`,
+        undefined,
+        options,
+      ),
 
     findRelatedWork: (workspaceId: string, topic: string, options?: RequestOptions) =>
       request<RelatedWork>(

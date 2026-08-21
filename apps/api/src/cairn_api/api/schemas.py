@@ -2088,3 +2088,122 @@ class MyMeetingRequestListResponse(ApiModel):
 
     #: The promise this screen makes, in the payload so every client states it.
     notice: str
+
+
+# --- Projects ---------------------------------------------------------------
+
+
+class ProjectSummary(ApiModel):
+    """One project as the portfolio lists it.
+
+    No counts, no trends, no "last active" — a list ordered or decorated by
+    activity is a leaderboard of the people doing the activity. Projects list
+    alphabetically, and the state shown is the one a human declared.
+    """
+
+    id: uuid.UUID
+    name: str
+    purpose: str | None = None
+    state: str
+    state_declared_at: datetime | None = None
+    archived_at: datetime | None = None
+
+
+class ProjectListResponse(ApiModel):
+    projects: list[ProjectSummary] = Field(default_factory=list)
+
+
+class ProjectSourceClaim(ApiModel):
+    """One raw citation string this project claims. The string is the link
+    between the project and its evidence; who claimed it and when is the
+    audit."""
+
+    value: str
+    added_by: str | None = None
+    added_at: datetime
+
+
+class ProjectMemberEntry(ApiModel):
+    """One person's place in the project, past or present.
+
+    **The whole field set is the boundary.** Identity, a self-recognisable
+    role, and the audit trail of how the row came to be — and nothing else. No
+    activity, no counts, no dates-of-last-anything: a membership row that
+    measures its member has changed products. A test pins this exact field set.
+    """
+
+    person_id: uuid.UUID
+    display_name: str
+    project_role: str | None = None
+    added_by: str | None = None
+    added_at: datetime
+    removed_by: str | None = None
+    removed_at: datetime | None = None
+
+
+class ProjectFact(ApiModel):
+    """One piece of evidence in a project's rollup: statement, certainty tier,
+    citations. Same shape as the finder's facts, for the same reason — nothing
+    here is generated, everything is checkable."""
+
+    statement: str
+    certainty: str
+    occurred_at: datetime | None = None
+    sources: list[RelatedFactSource] = Field(default_factory=list)
+
+
+class ProjectRollup(ApiModel):
+    """What the evidence says happened, grouped by what kind of thing it is.
+
+    Four groups, derived from fact kinds, each newest-first and cited. There is
+    deliberately no completion figure, no velocity, and **no remaining-work
+    field of any kind** — CAIRN has no planned-work model, and a "remaining"
+    number computed without one would be an invention. The field does not
+    exist, so no client can render it.
+    """
+
+    delivered: list[ProjectFact] = Field(default_factory=list)
+    blockers: list[ProjectFact] = Field(default_factory=list)
+    open_questions: list[ProjectFact] = Field(default_factory=list)
+    decisions: list[ProjectFact] = Field(default_factory=list)
+
+
+class ProjectDetailResponse(ApiModel):
+    """Everything the workspace may know about one project. Symmetric: every
+    role receives identical bytes, enforced the finder's way — the payload
+    function takes no role."""
+
+    id: uuid.UUID
+    name: str
+    purpose: str | None = None
+    state: str
+    state_declared_by: str | None = None
+    state_declared_at: datetime | None = None
+    archived_at: datetime | None = None
+    sources: list[ProjectSourceClaim] = Field(default_factory=list)
+    members: list[ProjectMemberEntry] = Field(default_factory=list)
+    rollup: ProjectRollup
+
+
+class ProjectCreate(ApiModel):
+    """A new project, optionally claiming citation strings from day one."""
+
+    name: str = Field(min_length=1, max_length=200)
+    purpose: str | None = Field(default=None, max_length=500)
+    source_strings: list[str] = Field(default_factory=list, max_length=50)
+
+
+class ProjectUpdate(ApiModel):
+    """Declared changes only. A state sent here is stamped with who and when."""
+
+    purpose: str | None = Field(default=None, max_length=500)
+    state: str | None = Field(default=None, pattern="^(active|paused|blocked|completed|unknown)$")
+
+
+class ProjectSourceClaimRequest(ApiModel):
+    value: str = Field(min_length=1, max_length=200)
+
+
+class ProjectMemberAdd(ApiModel):
+    person_id: uuid.UUID
+    project_role: str | None = Field(default=None, max_length=100)
