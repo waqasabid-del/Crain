@@ -1,0 +1,118 @@
+/* The portfolio. Filters as a row of links, then a responsive card grid. */
+
+.filters {
+  margin-bottom: var(--space-6);
+}
+
+.filterList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * A filter is a link, not a tab: each has a real URL, so the back button works
+ * and a filtered portfolio can be sent to somebody. The current one is carried
+ * by weight, a filled surface and `aria-current` together — never by colour
+ * alone (WCAG 1.4.1).
+ */
+.filter {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--min-target);
+  padding: 0 var(--space-4);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+
+@media (hover: hover) {
+  .filter:hover {
+    color: var(--fg-default);
+    background: var(--bg-muted);
+  }
+}
+
+.filter:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.filter[aria-current="true"] {
+  color: var(--fg-inverse);
+  font-weight: var(--weight-semibold);
+  background: var(--fg-default);
+  border-color: var(--fg-default);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  height: 100%;
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+/*
+ * The project's name is the card's heading, and the heading is the link. A
+ * card-wide click target would swallow the source links inside it; a heading
+ * link is what a screen reader lists when the reader asks for the links on the
+ * page, and "Payments" is a better entry there than "Read more".
+ */
+.cardTitle {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+}
+
+.cardLink {
+  color: var(--fg-default);
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .cardLink:hover {
+    text-decoration: underline;
+  }
+}
+
+.cardLink:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+  border-radius: var(--radius-sm);
+}
+
+.purpose {
+  margin: 0 0 var(--space-4);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.cardMeta {
+  margin: 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}

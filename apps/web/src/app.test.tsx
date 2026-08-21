@@ -39,7 +39,9 @@ const AXE_OPTIONS = {
 /** Every label in the primary navigation, so a destination added to the shell
  * without being reachable on a phone fails here rather than in the field. */
 const DESTINATIONS = [
+  "Dashboard",
   "Daily brief",
+  "Projects",
   "Your record",
   "Activity",
   "Team",
@@ -207,13 +209,13 @@ describe("the narrow-viewport navigation", () => {
     // Focus lands inside the panel, so the next key press acts on the menu the
     // reader just opened rather than on the page behind it.
     const nav = screen.getByRole("navigation", { name: /primary/i });
-    expect(within(nav).getByRole("link", { name: "Daily brief" })).toHaveFocus();
+    expect(within(nav).getByRole("link", { name: "Dashboard" })).toHaveFocus();
 
     // Tab continues through the destinations in order. The cycle is closed —
     // the panel covers the top of the page at this width — but it is closed
     // around the trigger, so the way out is one Shift+Tab away.
     await userEvent.tab();
-    expect(within(nav).getByRole("link", { name: "Your record" })).toHaveFocus();
+    expect(within(nav).getByRole("link", { name: "Daily brief" })).toHaveFocus();
   });
 
   it("closes on Escape and returns focus to the trigger", async () => {

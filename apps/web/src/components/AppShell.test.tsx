@@ -59,7 +59,19 @@ describe("the grouped navigation", () => {
     const nav = await primaryNav();
 
     const groups: Record<string, string[]> = {
-      Workspace: ["Daily brief", "Your record", "Activity", "Team", "Archive"],
+      // The overview is the home screen and the brief has its own route: the
+      // dashboard answers "what is happening", the brief is the document a
+      // reader sits down with, and Projects is the surface the project layer
+      // made truthful.
+      Workspace: [
+        "Dashboard",
+        "Daily brief",
+        "Projects",
+        "Activity",
+        "Team",
+        "Your record",
+        "Archive",
+      ],
       Administration: ["Workspace settings", "Preferences"],
       "Trust & privacy": ["Trust Center"],
     };
@@ -80,11 +92,16 @@ describe("the grouped navigation", () => {
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));
 
+    // Every path that existed before is still here; `/brief` and `/projects`
+    // are additions, not replacements - the brief moved off `/` when the
+    // overview took the home slot, and its old content is one click away.
     expect(hrefs).toEqual([
       "/",
-      "/me",
+      "/brief",
+      "/projects",
       "/feed",
       "/people",
+      "/me",
       "/archive",
       "/admin",
       "/settings",
@@ -186,7 +203,7 @@ describe("the current location", () => {
     renderShell({ route: "/archive" });
     const nav = await primaryNav();
 
-    expect(within(nav).getByRole("link", { name: "Daily brief" })).not.toHaveAttribute(
+    expect(within(nav).getByRole("link", { name: "Dashboard" })).not.toHaveAttribute(
       "aria-current",
     );
     expect(within(nav).getByRole("link", { name: "Archive" })).toHaveAttribute(
@@ -219,7 +236,7 @@ describe("the narrow-viewport menu", () => {
     // Focus enters the panel, so the next key press acts on the menu rather
     // than on the page behind it.
     const nav = await primaryNav();
-    expect(within(nav).getByRole("link", { name: "Daily brief" })).toHaveFocus();
+    expect(within(nav).getByRole("link", { name: "Dashboard" })).toHaveFocus();
 
     await userEvent.keyboard("{Escape}");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -235,7 +252,7 @@ describe("the narrow-viewport menu", () => {
     await userEvent.click(trigger);
 
     const nav = await primaryNav();
-    expect(within(nav).getByRole("link", { name: "Daily brief" })).toHaveFocus();
+    expect(within(nav).getByRole("link", { name: "Dashboard" })).toHaveFocus();
 
     await userEvent.tab({ shift: true });
     expect(trigger).toHaveFocus();

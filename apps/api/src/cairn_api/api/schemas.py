@@ -175,6 +175,16 @@ class MembershipResponse(ApiModel):
     capacity: str = "not_stated"
     capacity_stated_at: datetime | None = None
 
+    #: The person record this member is linked to, so a client can open the
+    #: colleague's page from the members list without guessing at an identity.
+    #:
+    #: A Person row exists once anything has been attributed to a member, so
+    #: this is null until then. Nullable rather than absent on purpose: a client
+    #: must be able to tell "no record yet" from "the field was not loaded", and
+    #: an omitted key cannot say which. An identifier only - it says who, never
+    #: how much.
+    person_id: uuid.UUID | None = None
+
 
 class SessionResponse(ApiModel):
     """Who the caller is, and where they can go."""

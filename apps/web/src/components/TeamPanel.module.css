@@ -1,0 +1,52 @@
+/*
+ * A list of people, set as rows rather than a table.
+ *
+ * Three things per row and no columns to align across them: a table here would
+ * promise a comparison between the rows, and there is nothing about a person on
+ * this panel that is meant to be compared.
+ */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* --min-target on the row, not on a control inside it: nothing here is
+   clickable, but a row shorter than a finger is where a dense list starts
+   feeling like a spreadsheet. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--min-target);
+}
+
+/* Takes the slack so the capacity chip sits at the right edge. */
+.identity {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+}
+
+.name {
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Quieter than the name, and the same weight as it is everywhere else: a role
+   governs settings, so it should not look like a standing. */
+.role {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+}

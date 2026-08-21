@@ -3844,6 +3844,8 @@ export interface components {
        * Format: date-time
        */
       joinedAt: string;
+      /** Personid */
+      personId?: string | null;
       role: components["schemas"]["TenantRole"];
       /**
        * Userid

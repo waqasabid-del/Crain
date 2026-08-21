@@ -287,7 +287,8 @@ class TestARoleIsNotAPermission:
             # Capacity is the one self-description that IS on the list - by
             # design, not by leak: it is shown identically to every role, set
             # only by its owner, and the work role stays off precisely because
-            # it never got that contract.
+            # it never got that contract. `personId` is an identifier rather
+            # than a self-description, which is why it may sit alongside it.
             assert set(entry) == {
                 "userId",
                 "email",
@@ -296,6 +297,7 @@ class TestARoleIsNotAPermission:
                 "joinedAt",
                 "capacity",
                 "capacityStatedAt",
+                "personId",
             }
 
     async def test_nobody_can_set_somebody_else_s_role(

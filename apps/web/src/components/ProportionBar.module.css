@@ -1,0 +1,16 @@
+/* A hairline track with a solid fill. No gradient, no rounded cap beyond the
+   token radius, no animation: it is a measurement, not an effect. */
+.track {
+  block-size: var(--border-thick);
+  inline-size: 100%;
+  margin-top: var(--space-3);
+  background: var(--border-subtle);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.fill {
+  block-size: 100%;
+  background: var(--fg-default);
+  border-radius: var(--radius-full);
+}

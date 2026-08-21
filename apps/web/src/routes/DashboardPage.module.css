@@ -1,0 +1,289 @@
+/*
+ * The Overview.
+ *
+ * Three bands: a row of counts, the portfolio strip, then two detail columns.
+ * Every value is a token; the only accent in the file is `--fg-default` on the
+ * primary action, which is the one filled element on the page.
+ */
+
+.stack {
+  display: grid;
+  gap: var(--space-6);
+}
+
+/*
+ * Four across, then two, then one. `auto-fit` with a floor rather than three
+ * media queries: the trigger is how much room the cards actually have, which
+ * changes with the sidebar's own breakpoint as well as the viewport's.
+ */
+.statRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-5);
+}
+
+.statCard {
+  min-width: 0;
+}
+
+/*
+ * The one place in the product that sets type this large. It is a count of
+ * work items, never of people, and it is always accompanied by the sublabel
+ * saying which — a bare number beside a workspace is exactly the shape a
+ * reader mistakes for a performance figure.
+ */
+.statValue {
+  margin: 0;
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.statSublabel {
+  margin: var(--space-2) 0 var(--space-4);
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+/* The portfolio strip: five cells, wrapping rather than scrolling. */
+.strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stripCell {
+  min-width: 0;
+}
+
+/*
+ * The whole cell is the target, not the number: a 44px-tall link with the
+ * count and the state badge inside it, so the touch target is the block a
+ * reader is already aiming at.
+ */
+.stripLink {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-height: var(--min-target);
+  color: var(--fg-default);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+}
+
+.stripLink:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+@media (hover: hover) {
+  .stripLink:hover .stripCount {
+    text-decoration: underline;
+  }
+}
+
+.stripCount {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Two columns on a wide viewport, stacked below it. */
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+}
+
+@media (min-width: 64rem) {
+  .columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.rows {
+  display: grid;
+  gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  padding-bottom: var(--space-5);
+  border-bottom: var(--border-thin) solid var(--border-subtle);
+}
+
+.row:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.rowStatement {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.rowMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--fg-subtle);
+}
+
+/* A source chip. Outlined rather than filled, and identical whether or not it
+   links — a citation without a permalink is still provenance. */
+.rowSource {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--min-target-inline);
+  padding: 0 var(--space-2);
+  color: var(--fg-muted);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.rowTime {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The page's single filled element. `--fg-default` on `--bg-default` text is
+ * the accent in this product: there is no brand hue, and introducing one here
+ * would be the first colour a reader sees on every screen.
+ */
+.primaryAction {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--min-target);
+  padding: 0 var(--space-5);
+  color: var(--fg-inverse);
+  background: var(--fg-default);
+  border: var(--border-thin) solid var(--fg-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  transition: opacity var(--duration-fast) var(--easing-standard);
+}
+
+@media (hover: hover) {
+  .primaryAction:hover {
+    opacity: 0.9;
+  }
+}
+
+.primaryAction:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+/*
+ * The main band: projects beside the team.
+ *
+ * Two thirds to one third, because a project tile carries a name, a purpose
+ * and a meta line while a team row carries one. Stacked below 64rem, projects
+ * first — on a phone the work is what somebody opened the app for.
+ */
+.main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+}
+
+@media (min-width: 64rem) {
+  .main {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+}
+
+/* Two tiles across inside the panel, one when the panel itself is narrow. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Person cards: a monogram beside a name, three lines at most. */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.personCard {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  height: 100%;
+  padding: var(--space-4);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+
+/* Guarded, like every hover in this codebase: a tap on a touch device leaves a
+   sticky hover that reads as a stuck state. */
+@media (hover: hover) {
+  .personCard:hover {
+    background: var(--bg-subtle);
+  }
+}
+
+.personBody {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.personName {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.personLink {
+  color: var(--fg-default);
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .personLink:hover {
+    text-decoration: underline;
+  }
+}
+
+.personLink:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+  border-radius: var(--radius-sm);
+}
+
+/* The workspace role. A word, not a badge: a badge here would compete with the
+   capacity chip beneath it, which is the one thing on this card the person
+   said about themselves. */
+.personRole {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}

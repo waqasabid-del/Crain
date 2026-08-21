@@ -1,0 +1,98 @@
+/*
+ * One row of evidence.
+ *
+ * Two lines with a clear hierarchy rather than a paragraph: the statement at
+ * reading size on the prose measure, then a quieter line of qualifiers. Same
+ * palette as the card it sits in — no fill, no shadow, one hairline. The
+ * separation between rows comes from the gap and a single border, because a
+ * stack of boxed rows reads as a table of scores rather than as a list of
+ * things that happened.
+ */
+.row {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/*
+ * Clamped to two lines. A long statement that pushes its own citation below the
+ * fold hides the part of the row that makes it checkable, and the full text is
+ * always one click away on the evidence itself.
+ */
+.statement {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  max-width: var(--prose-max-width);
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/* Wraps rather than scrolls: on a narrow screen the citations drop to their own
+   line instead of being clipped out of reach. */
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--fg-subtle);
+}
+
+/*
+ * A credit, deliberately styled as text and not as a chip or a link. Anything
+ * clickable here would imply a per-person page behind it.
+ */
+.mention {
+  color: var(--fg-muted);
+  font-weight: var(--weight-medium);
+}
+
+/*
+ * A source chip: outlined, never filled. One rule for both the `<a>` and the
+ * `<span>` so an unlinked citation is visually identical to a linked one.
+ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--min-target-inline);
+  padding: 0 var(--space-2);
+  max-width: 12ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fg-muted);
+  background: var(--bg-default);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  text-decoration: none;
+  transition: border-color var(--duration-fast) var(--easing-standard);
+}
+
+/* Only the linked chip responds, and only where a real pointer exists —
+   otherwise a touch device latches the hover state after a tap. */
+@media (hover: hover) {
+  a.chip:hover {
+    color: var(--fg-default);
+    border-color: var(--border-interactive);
+  }
+}
+
+a.chip:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+/* Pushed to the trailing edge, and tabular so a column of rows lines up. */
+.time {
+  margin-left: auto;
+  padding-left: var(--space-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}

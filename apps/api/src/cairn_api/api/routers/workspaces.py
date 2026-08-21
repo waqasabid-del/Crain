@@ -148,6 +148,10 @@ async def list_members(context: CurrentMembership, db: TenantDb) -> list[Members
                 if membership.user_id in people
                 else None
             ),
+            # Already loaded above; surfaced so a client can open the person's
+            # page from this list. None for a member nothing has been attributed
+            # to yet - the same value for every role, like everything else here.
+            person_id=(people[membership.user_id].id if membership.user_id in people else None),
         )
         for membership in memberships
     ]

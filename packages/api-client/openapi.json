@@ -2215,6 +2215,18 @@
             "title": "Joinedat",
             "type": "string"
           },
+          "personId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Personid"
+          },
           "role": {
             "$ref": "#/components/schemas/TenantRole"
           },

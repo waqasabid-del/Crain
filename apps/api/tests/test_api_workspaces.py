@@ -274,8 +274,11 @@ class TestAuthorisation:
         fields = set(response.json()[0])
         # `capacity` and `capacityStatedAt` joined 2026-08-19: the person's own
         # statement about availability, symmetric by design - every role sees
-        # the same two fields carrying the same self-reported words. Anything
-        # else appearing here is still the defect this guard exists for.
+        # the same two fields carrying the same self-reported words.
+        # `personId` joined 2026-08-21: an identifier, so the members list can
+        # link to a colleague's page - null until something has been attributed
+        # to them, and the same value for every role. Anything else appearing
+        # here is still the defect this guard exists for.
         assert fields == {
             "userId",
             "email",
@@ -284,6 +287,7 @@ class TestAuthorisation:
             "joinedAt",
             "capacity",
             "capacityStatedAt",
+            "personId",
         }
 
 

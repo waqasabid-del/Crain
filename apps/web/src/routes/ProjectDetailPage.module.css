@@ -1,0 +1,161 @@
+/* One project, as a stack of labelled cards. */
+
+.stack {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.overview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.archived {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* A real h3 inside a card whose title is an h2 — the document outline stays
+   navigable by heading, which is how most screen-reader users move. */
+.subheading {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.note {
+  margin: 0;
+  max-width: var(--prose-max-width);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A claimed source string, shown verbatim: it is the exact value that appears
+   on citations, and paraphrasing it would break the reader's ability to match
+   the two. Monospace for the same reason. */
+.chip {
+  padding: var(--space-1) var(--space-3);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.chipMeta {
+  font-family: var(--font-sans);
+  color: var(--fg-subtle);
+}
+
+.facts {
+  display: grid;
+  gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fact {
+  padding-bottom: var(--space-5);
+  border-bottom: var(--border-thin) solid var(--border-subtle);
+}
+
+.fact:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.factStatement {
+  margin: 0 0 var(--space-3);
+  max-width: var(--prose-max-width);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.factMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--fg-subtle);
+}
+
+/* The evidence id, in full: it is what somebody types into GitHub or their
+   chat client to find the thing itself. */
+.source {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--min-target-inline);
+  padding: 0 var(--space-2);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.factTime {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.people {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.person {
+  padding-bottom: var(--space-4);
+  border-bottom: var(--border-thin) solid var(--border-subtle);
+}
+
+.person:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.personName {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+/* The role the person would use for themselves on this project ("Frontend").
+   A label, not a permission - the sidebar's role chip is a different thing and
+   deliberately looks different. */
+.personRole {
+  padding: var(--space-1) var(--space-3);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-full);
+}
+
+.personMeta {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}

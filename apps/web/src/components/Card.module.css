@@ -1,0 +1,54 @@
+/*
+ * The dashboard's surface.
+ *
+ * White on the shell's tinted canvas, one hairline, one radius, and no shadow.
+ * The elevation in this product comes from the contrast between the card and
+ * the canvas behind it, not from a blur: a page of shadowed cards reads as
+ * decoration competing with the content, and the content here is evidence.
+ */
+.card {
+  padding: var(--space-6);
+  background: var(--bg-default);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.headText {
+  min-width: 0;
+}
+
+/*
+ * A card title is a label, not a headline: uppercase and tracked, matching the
+ * sidebar's group headings and the page eyebrow. It is the product's one
+ * typographic flourish, used only where something labels rather than says.
+ */
+.title {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+.description {
+  margin: var(--space-2) 0 0;
+  max-width: var(--prose-max-width);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/* Never squeezed: the action keeps its width and the title wraps first. */
+.action {
+  flex: none;
+  font-size: var(--text-sm);
+}

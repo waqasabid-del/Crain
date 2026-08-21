@@ -1,0 +1,37 @@
+/*
+ * One monogram, two sizes.
+ *
+ * The circle is drawn in --bg-muted rather than given a border: a hairline ring
+ * at this diameter reads as a status ring, and a ring around a person is one
+ * step from a ring that means something.
+ */
+.base {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-muted);
+  color: var(--fg-default);
+  border-radius: var(--radius-full);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  /* Tabular figures and lining letterforms keep every monogram optically
+     centred, so a column of avatars does not visibly jitter. */
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.sm {
+  composes: base;
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: var(--text-xs);
+}
+
+.md {
+  composes: base;
+  width: 2.25rem;
+  height: 2.25rem;
+  font-size: var(--text-sm);
+}

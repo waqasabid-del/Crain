@@ -1,0 +1,154 @@
+/*
+ * A project's tile.
+ *
+ * It fills whatever `Card` it is dropped into rather than drawing a second
+ * surface of its own: the elevation in this product is the contrast between the
+ * card and the canvas, and a tile with its own border inside a bordered card
+ * reads as two boxes for one thing.
+ *
+ * The column ends in the meta line, and `margin-top: auto` pins that line to
+ * the bottom so a grid of tiles with purposes of different lengths still has
+ * one straight baseline across the row.
+ */
+.tile {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: var(--space-4);
+  border-radius: var(--radius-md);
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+
+/*
+ * Hover is behind `(hover: hover)` everywhere in this codebase: a tap on a
+ * touch screen leaves the :hover state stuck on the element until something
+ * else is tapped, so an unguarded wash reads as a selection nobody made.
+ */
+@media (hover: hover) {
+  .tile:hover {
+    background: var(--bg-subtle);
+  }
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+/*
+ * Square, not round. A circle is the shape this interface uses for a person;
+ * keeping the project mark square means the two are never confused at a glance
+ * in a list that mixes them.
+ */
+.monogram {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-10);
+  height: var(--space-10);
+  background: var(--bg-muted);
+  color: var(--fg-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+}
+
+/* `min-width: 0` so a long unbroken name wraps instead of pushing the badge
+   off the edge of the card — flex items refuse to shrink below their content
+   without it. */
+.headText {
+  min-width: 0;
+  flex: 1;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+}
+
+.link {
+  color: var(--fg-default);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+
+@media (hover: hover) {
+  .link:hover {
+    text-decoration: underline;
+  }
+}
+
+/* Stated rather than inherited: the tile is a hover target, and a link whose
+   only affordance is an underline needs its own visible ring when the reader
+   is on the keyboard (WCAG 2.4.7). */
+.link:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+/*
+ * The full source string, verbatim. Monospace because it is an identifier to be
+ * matched character by character against a citation, not prose to be read.
+ */
+.qualifier {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+}
+
+/* Never squeezed: the badge keeps its width and the name wraps first. */
+.state {
+  flex: none;
+}
+
+/*
+ * Two lines, then an ellipsis. The clamp is a preview, not a truncation of the
+ * record — the whole purpose is on the project's own page, one click away.
+ */
+.purpose {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+/* Quieter than a written purpose, because an absence should not look like a
+   statement somebody made. */
+.noPurpose {
+  margin: 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+  font-style: italic;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: auto 0 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}
+
+/* A hairline chip, so "Archived" reads as a fact about the project rather than
+   as part of the same sentence as the date. */
+.archived {
+  padding: 0 var(--space-2);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-full);
+}

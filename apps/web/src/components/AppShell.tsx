@@ -14,12 +14,16 @@ import styles from "./AppShell.module.css";
 interface Destination {
   readonly href: string;
   readonly label: string;
-  /** Only the daily brief: without it "/" prefix-matches every path and two links
+  /** Only the overview: without it "/" prefix-matches every path and two links
    * claim `aria-current="page"` at once. */
   readonly exact: boolean;
   /** Decides what to *offer*, never what to allow — the API enforces. A hidden
    * link is a courtesy, not a control. */
   readonly admin: boolean;
+  /** Key into `NAV_ICONS`. A destination whose key is missing renders its
+   * label alone rather than a gap - the icon is redundant with the label by
+   * design, so its absence costs nothing. */
+  readonly icon: string;
 }
 
 interface NavGroup {
@@ -51,27 +55,79 @@ const NAV_GROUPS: readonly NavGroup[] = [
     key: "workspace",
     label: "Workspace",
     items: [
-      { href: "/", label: "Daily brief", exact: true, admin: false },
-      { href: "/me", label: "Your record", exact: false, admin: false },
-      { href: "/feed", label: "Activity", exact: false, admin: false },
-      { href: "/people", label: "Team", exact: false, admin: false },
-      { href: "/archive", label: "Archive", exact: false, admin: false },
+      { href: "/", label: "Dashboard", exact: true, admin: false, icon: "overview" },
+      { href: "/brief", label: "Daily brief", exact: false, admin: false, icon: "brief" },
+      { href: "/projects", label: "Projects", exact: false, admin: false, icon: "projects" },
+      { href: "/feed", label: "Activity", exact: false, admin: false, icon: "activity" },
+      { href: "/people", label: "Team", exact: false, admin: false, icon: "team" },
+      { href: "/me", label: "Your record", exact: false, admin: false, icon: "record" },
+      { href: "/archive", label: "Archive", exact: false, admin: false, icon: "archive" },
     ],
   },
   {
     key: "management",
     label: "Administration",
     items: [
-      { href: "/admin", label: "Workspace settings", exact: false, admin: true },
-      { href: "/settings", label: "Preferences", exact: false, admin: false },
+      {
+        href: "/admin",
+        label: "Workspace settings",
+        exact: false,
+        admin: true,
+        icon: "settings",
+      },
+      { href: "/settings", label: "Preferences", exact: false, admin: false, icon: "preferences" },
     ],
   },
   {
     key: "trust",
     label: "Trust & privacy",
-    items: [{ href: "/trust", label: "Trust Center", exact: false, admin: false }],
+    items: [{ href: "/trust", label: "Trust Center", exact: false, admin: false, icon: "trust" }],
   },
 ];
+
+/**
+ * One line-drawing per destination, on a 24-unit grid, stroked in
+ * `currentColor` so each follows its row's own colour and state for free.
+ *
+ * `aria-hidden`, always: the label beside it is the accessible name, and an
+ * icon that also announced itself would double every destination in a screen
+ * reader's list.
+ */
+const NAV_ICONS: Readonly<Record<string, string>> = {
+  overview: "M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-4H4zM14 8h6V4h-6z",
+  brief: "M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7",
+  projects: "M4 7h5l2 2h9v10H4zM4 7V5h5l2 2",
+  activity: "M4 12h3l2.5-6 3 12 2.5-6h5",
+  team: "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6M3 20a6 6 0 0 1 12 0M17 11a3 3 0 1 0 0-6M21 20a6 6 0 0 0-4-5.6",
+  record: "M7 3h10v18l-5-3-5 3zM10 8h4",
+  archive: "M3 7h18v4H3zM5 11v9h14v-9M10 15h4",
+  settings:
+    "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14.2 3H9.8l-.4 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12a7 7 0 0 0 .1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2l.4 2.7h4.4l.4-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5A7 7 0 0 0 19 12",
+  preferences: "M4 6h16M4 12h16M4 18h16M9 4v4M15 10v4M7 16v4",
+  trust: "M12 3l7 3v6c0 4.4-3 8-7 9-4-1-7-4.6-7-9V6z",
+};
+
+function NavIcon({ name }: { name: string }): ReactNode {
+  const path = NAV_ICONS[name];
+  if (path === undefined) return null;
+  return (
+    <svg
+      className={styles.navIcon}
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d={path} />
+    </svg>
+  );
+}
 
 /** Tenant roles as md/15 §2.2 names them. A lookup rather than a capitalisation
  * helper: the label is copy, and copy is not derived from an identifier. */
@@ -351,6 +407,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
                             }}
                           >
                             <span className={styles.navMarker} aria-hidden="true" />
+                            <NavIcon name={destination.icon} />
                             <span className={styles.navLabel}>{destination.label}</span>
                           </Link>
                         </li>

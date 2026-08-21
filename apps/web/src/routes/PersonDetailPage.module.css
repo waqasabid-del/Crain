@@ -1,0 +1,114 @@
+/* One colleague, as two labelled cards. */
+
+.stack {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.profile {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.identity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.name {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+/* The workspace role governs what somebody can configure, never what CAIRN
+   shows about them — so it is a quiet line of text here, not a badge competing
+   with the name above it. */
+.role {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.email {
+  margin: 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.projects {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+  border-bottom: var(--border-thin) solid var(--border-subtle);
+}
+
+.project:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.projectName {
+  min-height: var(--min-target-inline);
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+/* Behind `(hover: hover)`, as everywhere in this codebase: on a touch screen a
+   tap leaves the hover style stuck on the row the reader just left. */
+@media (hover: hover) {
+  .projectName:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+}
+
+.projectName:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+  border-radius: var(--radius-sm);
+}
+
+/* The role this person declared on the project ("Backend"). A label they would
+   recognise as their own words, not a permission. */
+.projectRole {
+  padding: var(--space-1) var(--space-3);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-full);
+}
+
+/* Closed history, so it reads as the quietest thing in the row rather than as
+   a warning about the person. */
+.removed {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}
+
+.caveat {
+  margin: var(--space-4) 0 0;
+  max-width: var(--prose-max-width);
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}

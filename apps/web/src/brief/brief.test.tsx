@@ -228,6 +228,8 @@ describe("the overview rail", () => {
     kind: "decision",
     statement: "The team decided to stage the payments cutover.",
     certainty: "verified" as const,
+    origin: "extracted" as const,
+    validFrom: "2026-08-19T09:00:00Z",
     resolvedActors: 0,
     unresolvedActors: 0,
     people: [],
