@@ -40,7 +40,7 @@
   height: 100dvh;
   padding: var(--space-5) var(--space-4);
 
-  background: var(--bg-subtle);
+  background: var(--bg-default);
   /*
    * A single hairline is the only thing separating navigation from content.
    * `border-default` is deliberately low contrast: this rule is decorative —
@@ -256,6 +256,7 @@
   min-height: calc(var(--space-8) + var(--space-1));
   padding: 0 var(--space-3);
 
+  gap: var(--space-3);
   color: var(--fg-muted);
   font-size: var(--text-sm);
   text-decoration: none;
@@ -317,6 +318,17 @@
   background: var(--fg-default);
 }
 
+/* The destination's mark: quiet line icons, `currentColor` so they follow the
+ * row's own states for free and never introduce a colour of their own. */
+.navIcon {
+  flex: none;
+  opacity: 0.8;
+}
+
+.navLink[aria-current="page"] .navIcon {
+  opacity: 1;
+}
+
 /* The label, so a long destination truncates inside the row rather than pushing
    the sidebar wider than its column. */
 .navLabel {
@@ -368,6 +380,7 @@
 .main {
   min-width: 0;
   padding: var(--space-12) var(--space-10) var(--space-20);
+  background: var(--bg-subtle);
 }
 
 .content {
