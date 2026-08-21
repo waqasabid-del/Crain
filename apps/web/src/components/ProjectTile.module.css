@@ -11,6 +11,7 @@
  * one straight baseline across the row.
  */
 .tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -72,10 +73,25 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * The whole tile is the target, but the *link* stays the project's name.
+ *
+ * A stretched pseudo-element covers the tile so a click anywhere opens the
+ * project, while the accessible name of the link remains "gateway" rather than
+ * the tile's whole text - which is what a wrapping anchor produces, and is how
+ * a screen reader ends up reading a paragraph where a name belongs.
+ */
 .link {
   color: var(--fg-default);
   text-decoration: none;
   border-radius: var(--radius-sm);
+}
+
+.link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-md);
 }
 
 @media (hover: hover) {
@@ -87,7 +103,7 @@
 /* Stated rather than inherited: the tile is a hover target, and a link whose
    only affordance is an underline needs its own visible ring when the reader
    is on the keyboard (WCAG 2.4.7). */
-.link:focus-visible {
+.link:focus-visible::after {
   outline: var(--focus-width) var(--focus-style) var(--border-focus);
   outline-offset: var(--focus-offset);
 }

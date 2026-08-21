@@ -1,45 +1,121 @@
-/* One colleague, as two labelled cards. */
+/*
+ * One colleague, as three cards: who they are, where they are, what cites them.
+ *
+ * Every value is a theme token. The hierarchy here is made from size, weight
+ * and space alone — no tint, no accent, no per-person colour — because the
+ * moment a profile is coloured, people can be told apart at a glance by
+ * something other than their name.
+ */
 
 .stack {
   display: grid;
   gap: var(--space-6);
 }
 
-.profile {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-4);
+/*
+ * The hero reads as the head of the page rather than as another panel in the
+ * stack: a touch more room inside it, and the subtler border the rest of the
+ * page uses would make it float, so it keeps a real one.
+ */
+.hero {
+  padding: var(--space-8);
+  border-color: var(--border-default);
 }
 
-.identity {
+/*
+ * Avatar, identity, and the way back — one band on a wide screen. It stacks on
+ * a narrow one because a monogram, a name that wraps and a link squeezed into
+ * three columns is worse than the same three things in a column.
+ */
+.heroBand {
   display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+}
+
+.heroText {
+  display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-2);
   min-width: 0;
 }
 
-.name {
+/* The section this screen belongs to, in the same label style as a card title
+   and the sidebar's group headings. Orientation, not content. */
+.eyebrow {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The one large thing on the page. `anywhere` because a single long token —
+   an address used as a name — must wrap rather than widen the card. */
+.heroName {
   margin: 0;
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium);
+  color: var(--fg-default);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
   overflow-wrap: anywhere;
 }
 
-/* The workspace role governs what somebody can configure, never what CAIRN
-   shows about them — so it is a quiet line of text here, not a badge competing
-   with the name above it. */
-.role {
-  margin: 0;
+.heroFacts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/*
+ * The workspace role governs what somebody can configure, never what CAIRN
+ * shows about them — so it is a quiet outlined word, sized and weighted like
+ * the capacity chip beside it rather than competing with the name above.
+ */
+.roleWord {
+  padding: var(--space-1) var(--space-3);
   color: var(--fg-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+  border: var(--border-thin) solid var(--border-default);
+  border-radius: var(--radius-full);
 }
 
 .email {
+  min-height: var(--min-target-inline);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+/* Behind `(hover: hover)`, as everywhere in this codebase: on a touch screen a
+   tap leaves the hover style stuck on whatever the reader last touched. */
+@media (hover: hover) {
+  .email:hover {
+    color: var(--fg-default);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+}
+
+.email:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+  border-radius: var(--radius-sm);
+}
+
+/* Somebody a source named who has never signed in. The quietest line in the
+   card: it explains an absence, and an explained absence should not draw more
+   attention than the things that are actually there. */
+.noAccount {
   margin: 0;
+  max-width: var(--prose-max-width);
   color: var(--fg-subtle);
   font-size: var(--text-sm);
-  overflow-wrap: anywhere;
+  line-height: var(--leading-relaxed);
 }
 
 .projects {
@@ -64,7 +140,12 @@
   border-bottom: none;
 }
 
+/* The project name takes the row's spare width, so the role, state and any
+   closed-history note settle at the right-hand end instead of drifting with
+   the length of the name. */
 .projectName {
+  flex: 1;
+  min-width: 0;
   min-height: var(--min-target-inline);
   color: var(--fg-default);
   font-size: var(--text-sm);
@@ -73,8 +154,6 @@
   overflow-wrap: anywhere;
 }
 
-/* Behind `(hover: hover)`, as everywhere in this codebase: on a touch screen a
-   tap leaves the hover style stuck on the row the reader just left. */
 @media (hover: hover) {
   .projectName:hover {
     text-decoration: underline;
@@ -91,6 +170,7 @@
 /* The role this person declared on the project ("Backend"). A label they would
    recognise as their own words, not a permission. */
 .projectRole {
+  flex: none;
   padding: var(--space-1) var(--space-3);
   color: var(--fg-muted);
   font-size: var(--text-xs);
@@ -101,6 +181,7 @@
 /* Closed history, so it reads as the quietest thing in the row rather than as
    a warning about the person. */
 .removed {
+  flex: none;
   color: var(--fg-subtle);
   font-size: var(--text-xs);
 }
@@ -111,4 +192,45 @@
   color: var(--fg-subtle);
   font-size: var(--text-xs);
   line-height: var(--leading-relaxed);
+}
+
+.work {
+  display: grid;
+  gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One hairline between rows and nothing else. Boxing each piece of evidence
+   would turn the section into a table, and a table of a person's work is read
+   as a table of results. */
+.workItem {
+  padding-bottom: var(--space-5);
+  border-bottom: var(--border-thin) solid var(--border-subtle);
+  min-width: 0;
+}
+
+.workItem:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+/*
+ * Narrow viewports: the hero becomes a column. The avatar leads, and the way
+ * back sits under the identity rather than being crushed against the edge.
+ */
+@media (max-width: 40rem) {
+  .hero {
+    padding: var(--space-6);
+  }
+
+  .heroBand {
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .heroName {
+    font-size: var(--text-xl);
+  }
 }

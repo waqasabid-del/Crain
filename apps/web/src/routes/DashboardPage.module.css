@@ -229,6 +229,7 @@
 }
 
 .personCard {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: var(--space-4);
@@ -262,9 +263,25 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * The whole card is the target, but the *link* is still just the name.
+ *
+ * A stretched pseudo-element covers the card so a click anywhere opens the
+ * person, while the accessible name of the link stays "Priya Nair" rather than
+ * the card's entire text - which is what happens when the anchor is wrapped
+ * around everything and is how a screen reader ends up reading a paragraph
+ * where a name belongs.
+ */
 .personLink {
   color: var(--fg-default);
   text-decoration: none;
+}
+
+.personLink::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-md);
 }
 
 @media (hover: hover) {
@@ -273,10 +290,11 @@
   }
 }
 
-.personLink:focus-visible {
+/* The ring is drawn around the whole card, because the whole card is what the
+   reader activates. */
+.personLink:focus-visible::after {
   outline: var(--focus-width) var(--focus-style) var(--border-focus);
   outline-offset: var(--focus-offset);
-  border-radius: var(--radius-sm);
 }
 
 /* The workspace role. A word, not a badge: a badge here would compete with the

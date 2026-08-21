@@ -75,11 +75,11 @@ describe("the dashboard", () => {
     );
 
     const main = await screen.findByRole("main");
-    const team = await within(main).findByRole("region", { name: /^team$/i });
-    expect(within(team).getByRole("link", { name: "Ali Rahman" })).toHaveAttribute(
-      "href",
-      "/people/person-1",
-    );
+    // The Card's region exists while its body is still loading, so awaiting
+    // the region proves nothing - wait for what the data actually produces.
+    const link = await within(main).findByRole("link", { name: "Ali Rahman" });
+    expect(link).toHaveAttribute("href", "/people/person-1");
+    const team = within(main).getByRole("region", { name: /^team$/i });
     expect(within(team).getByText("Owner")).toBeVisible();
   });
 
@@ -92,8 +92,7 @@ describe("the dashboard", () => {
     );
 
     const main = await screen.findByRole("main");
-    const projects = await within(main).findByRole("region", { name: /^projects$/i });
-    expect(within(projects).getByRole("link", { name: /payments/i })).toHaveAttribute(
+    expect(await within(main).findByRole("link", { name: /payments/i })).toHaveAttribute(
       "href",
       "/projects/p1",
     );
@@ -115,9 +114,9 @@ describe("the dashboard", () => {
     );
 
     const main = await screen.findByRole("main");
-    const team = await within(main).findByRole("region", { name: /^team$/i });
-    expect(within(team).getByText("Jo Blake")).toBeVisible();
-    expect(within(team).queryByRole("link", { name: "Jo Blake" })).toBeNull();
+    const name = await within(main).findByText("Jo Blake");
+    expect(name).toBeVisible();
+    expect(within(main).queryByRole("link", { name: "Jo Blake" })).toBeNull();
   });
 
   it("never ranks, scores or measures the people on it", async () => {
@@ -129,7 +128,8 @@ describe("the dashboard", () => {
     );
 
     const main = await screen.findByRole("main");
-    await within(main).findByRole("region", { name: /^team$/i });
+    // Wait for loaded content, not for the card that frames it.
+    await within(main).findByRole("link", { name: "Ali Rahman" });
     const text = main.textContent;
 
     // The vocabulary, including in negation: this product's People page
@@ -154,7 +154,8 @@ describe("the dashboard", () => {
 
     const main = await screen.findByRole("main");
     expect(await within(main).findAllByRole("alert")).not.toHaveLength(0);
-    expect(within(main).getByRole("region", { name: /^team$/i })).toBeVisible();
+    // The other section still rendered its data.
+    expect(await within(main).findByRole("link", { name: "Ali Rahman" })).toBeVisible();
   });
 
   it("passes an axe audit", async () => {
@@ -164,7 +165,7 @@ describe("the dashboard", () => {
       </AppLayout>,
       { client: dashboardClient(), route: "/" },
     );
-    await screen.findByRole("region", { name: /^team$/i });
+    await screen.findByRole("link", { name: "Ali Rahman" });
 
     expect(await axe(container, AXE)).toHaveNoViolations();
   });
@@ -205,9 +206,10 @@ describe("the projects portfolio", () => {
     );
 
     const main = await screen.findByRole("main");
-    // "Not declared" rather than a guess, and the absence is stated in words.
-    expect(await within(main).findByText(/not declared/i)).toBeVisible();
-    expect(within(main).getByText(/not set up yet/i)).toBeVisible();
+    // "Not set up yet" comes from the tile itself, so awaiting it proves the
+    // data arrived. ("Not declared" is also a filter link, present at once.)
+    expect(await within(main).findByText(/not set up yet/i)).toBeVisible();
+    expect(within(main).getByLabelText(/project state: not declared/i)).toBeVisible();
   });
 
   it("offers an empty state with a way out when a filter matches nothing", async () => {
