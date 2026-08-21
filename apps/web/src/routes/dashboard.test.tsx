@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import { describe, expect, it, vi } from "vitest";
 
@@ -210,6 +211,209 @@ describe("the projects portfolio", () => {
     // data arrived. ("Not declared" is also a filter link, present at once.)
     expect(await within(main).findByText(/not set up yet/i)).toBeVisible();
     expect(within(main).getByLabelText(/project state: not declared/i)).toBeVisible();
+  });
+
+  /** The project `createProject` hands back. Only what the panel reads matters,
+   * but the shape is the real one so a change to it fails here first. */
+  const CREATED = {
+    id: "p9",
+    name: "Ledger",
+    purpose: "The ledger behind payments.",
+    state: "unknown",
+    sources: [],
+    members: [],
+    rollup: { delivered: [], blockers: [], openQuestions: [], decisions: [] },
+  };
+
+  /** The same session, seen by somebody who cannot configure anything. */
+  const AS_MEMBER = {
+    ...SESSION,
+    workspaces: [{ ...SESSION.workspaces[0]!, role: "member" as const }],
+  };
+
+  const WORKSPACE = SESSION.workspaces[0]!.workspace.id;
+
+  /** Opens the disclosure and returns the panel's form controls' home. */
+  async function openNewProject(): Promise<HTMLElement> {
+    const main = await screen.findByRole("main");
+    await userEvent.click(within(main).getByRole("button", { name: /^new project$/i }));
+    return main;
+  }
+
+  it("offers creating a project to somebody who may configure the workspace", async () => {
+    renderRoute(
+      <AppLayout>
+        <ProjectsPage />
+      </AppLayout>,
+      { client: dashboardClient(), route: "/projects" },
+    );
+
+    const main = await screen.findByRole("main");
+    expect(within(main).getByRole("button", { name: /^new project$/i })).toBeVisible();
+  });
+
+  it("does not offer it to a member, who could only be refused by the API", async () => {
+    renderRoute(
+      <AppLayout>
+        <ProjectsPage />
+      </AppLayout>,
+      {
+        client: dashboardClient({ getSession: vi.fn(() => Promise.resolve(AS_MEMBER)) }),
+        route: "/projects",
+      },
+    );
+
+    const main = await screen.findByRole("main");
+    // Wait for the portfolio itself, so this is an absence on a loaded page
+    // rather than an absence on a page that had not rendered yet.
+    await within(main).findByRole("link", { name: "Payments" });
+    expect(within(main).queryByRole("button", { name: /^new project$/i })).toBeNull();
+  });
+
+  it("creates a project with the name, purpose and source string it was given", async () => {
+    const createProject = vi.fn(() => Promise.resolve(CREATED));
+    const updateProject = vi.fn(() => Promise.resolve(CREATED));
+
+    renderRoute(
+      <AppLayout>
+        <ProjectsPage />
+      </AppLayout>,
+      {
+        client: dashboardClient({
+          createProject,
+          updateProject,
+          getFacets: vi.fn(() =>
+            Promise.resolve({ people: [], projects: ["acme/ledger"], sources: [] }),
+          ),
+        }),
+        route: "/projects",
+      },
+    );
+
+    const main = await openNewProject();
+    await userEvent.type(within(main).getByLabelText(/^name$/i), "Ledger");
+    await userEvent.type(within(main).getByLabelText(/^purpose$/i), "The ledger behind payments.");
+    // The raw string, shown verbatim: it is what CAIRN matches a citation on.
+    await userEvent.click(await within(main).findByRole("checkbox", { name: "acme/ledger" }));
+    await userEvent.click(within(main).getByRole("button", { name: /create project/i }));
+
+    expect(createProject).toHaveBeenCalledWith(WORKSPACE, {
+      name: "Ledger",
+      purpose: "The ledger behind payments.",
+      sourceStrings: ["acme/ledger"],
+    });
+    // "Not set yet" was left alone, so nothing was declared on anybody's behalf.
+    expect(updateProject).not.toHaveBeenCalled();
+    // The way on: adding people happens on the project, not here.
+    expect(await within(main).findByRole("link", { name: /open ledger/i })).toHaveAttribute(
+      "href",
+      "/projects/p9",
+    );
+  });
+
+  it("declares a state only when the creator chose one", async () => {
+    const createProject = vi.fn(() => Promise.resolve(CREATED));
+    const updateProject = vi.fn(() => Promise.resolve(CREATED));
+
+    renderRoute(
+      <AppLayout>
+        <ProjectsPage />
+      </AppLayout>,
+      { client: dashboardClient({ createProject, updateProject }), route: "/projects" },
+    );
+
+    const main = await openNewProject();
+    await userEvent.type(within(main).getByLabelText(/^name$/i), "Ledger");
+    await userEvent.selectOptions(within(main).getByLabelText(/^state$/i), "Active");
+    await userEvent.click(within(main).getByRole("button", { name: /create project/i }));
+
+    expect(createProject).toHaveBeenCalledWith(WORKSPACE, { name: "Ledger" });
+    // A second call, because creation takes no state: the API stamps a
+    // declaration with who made it, and only the PATCH tells it that.
+    expect(updateProject).toHaveBeenCalledWith(WORKSPACE, "p9", { state: "active" });
+  });
+
+  it("says a project exists even when its state could not be declared", async () => {
+    renderRoute(
+      <AppLayout>
+        <ProjectsPage />
+      </AppLayout>,
+      {
+        client: dashboardClient({
+          createProject: vi.fn(() => Promise.resolve(CREATED)),
+          updateProject: vi.fn(() => Promise.reject(apiError(500))),
+        }),
+        route: "/projects",
+      },
+    );
+
+    const main = await openNewProject();
+    await userEvent.type(within(main).getByLabelText(/^name$/i), "Ledger");
+    await userEvent.selectOptions(within(main).getByLabelText(/^state$/i), "Active");
+    await userEvent.click(within(main).getByRole("button", { name: /create project/i }));
+
+    // Not a blanket failure: telling the creator that creation failed would
+    // send them to make the same project a second time.
+    const alert = await within(main).findByRole("alert");
+    expect(alert).toHaveTextContent(/created, but the state could not be set/i);
+    expect(within(main).getByText(/ledger was created/i)).toBeVisible();
+  });
+
+  it("reports a claimed source string as a claim, and keeps what was typed", async () => {
+    renderRoute(
+      <AppLayout>
+        <ProjectsPage />
+      </AppLayout>,
+      {
+        client: dashboardClient({
+          createProject: vi.fn(() => Promise.reject(apiError(409, "source-string-claimed"))),
+          getFacets: vi.fn(() =>
+            Promise.resolve({ people: [], projects: ["acme/ledger"], sources: [] }),
+          ),
+        }),
+        route: "/projects",
+      },
+    );
+
+    const main = await openNewProject();
+    await userEvent.type(within(main).getByLabelText(/^name$/i), "Ledger");
+    await userEvent.type(within(main).getByLabelText(/another source string/i), "acme/ledger");
+    await userEvent.click(within(main).getByRole("button", { name: /create project/i }));
+
+    const alert = await within(main).findByRole("alert");
+    expect(alert).toHaveTextContent(/another project in this workspace already claims/i);
+    // A conflict is something to adjust, so nothing typed is thrown away.
+    expect(within(main).getByLabelText(/^name$/i)).toHaveValue("Ledger");
+    expect(within(main).getByLabelText(/another source string/i)).toHaveValue("acme/ledger");
+  });
+
+  it("still creates a project when the suggested source strings cannot be read", async () => {
+    const createProject = vi.fn(() => Promise.resolve(CREATED));
+
+    renderRoute(
+      <AppLayout>
+        <ProjectsPage />
+      </AppLayout>,
+      {
+        client: dashboardClient({
+          createProject,
+          getFacets: vi.fn(() => Promise.reject(apiError(500))),
+        }),
+        route: "/projects",
+      },
+    );
+
+    const main = await openNewProject();
+    expect(await within(main).findByText(/suggestions are unavailable/i)).toBeVisible();
+
+    await userEvent.type(within(main).getByLabelText(/^name$/i), "Ledger");
+    await userEvent.type(within(main).getByLabelText(/another source string/i), "acme/ledger");
+    await userEvent.click(within(main).getByRole("button", { name: /create project/i }));
+
+    expect(createProject).toHaveBeenCalledWith(WORKSPACE, {
+      name: "Ledger",
+      sourceStrings: ["acme/ledger"],
+    });
   });
 
   it("offers an empty state with a way out when a filter matches nothing", async () => {

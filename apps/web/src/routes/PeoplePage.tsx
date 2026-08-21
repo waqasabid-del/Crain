@@ -1,12 +1,12 @@
 "use client";
 
-import type { Member } from "@cairn/api-client";
+import type { Invitation, Member } from "@cairn/api-client";
 import { Button } from "@cairn/ui";
 import Link from "next/link";
 import { useCallback, useId, useState, type ReactNode, type SyntheticEvent } from "react";
 
 import { useApiClient } from "../api/context.js";
-import { useAuth, type TenantRole } from "../auth/context.js";
+import { useAuth } from "../auth/context.js";
 import { Avatar } from "../components/Avatar.js";
 import { CapacityChip } from "../components/CapacityChip.js";
 import { Card } from "../components/Card.js";
@@ -16,7 +16,7 @@ import { PageHeader } from "../components/PageHeader.js";
 import { StatusNote } from "../components/StatusNote.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { describeError, type DescribedError } from "../errors.js";
-import { useAsync } from "../hooks/useAsync.js";
+import { useAsync, type AsyncState } from "../hooks/useAsync.js";
 import utility from "../styles/utility.module.css";
 import styles from "./PeoplePage.module.css";
 
@@ -141,7 +141,7 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
         }
       />
 
-      {canInvite && <InvitePanel workspaceId={workspaceId} onInvited={reload} />}
+      {canInvite && <InvitationArea workspaceId={workspaceId} onInvited={reload} />}
 
       {state.status === "loading" && (
         <LoadingState label="the people in this workspace" shape="rows" lines={4} />
@@ -245,6 +245,129 @@ function MemberCard({ member, roles }: { member: Member; roles: string[] }): Rea
 }
 
 /**
+ * The three roles an invitation can grant, said as what they let somebody do.
+ *
+ * The wire values are `member`, `admin` and `viewer` and stay exactly that;
+ * only the label changes. A bare "Viewer" in a dropdown asks the reader to
+ * guess, and the guess is usually wrong in the generous direction — which is
+ * the wrong direction for a permission.
+ *
+ * These are *permission* levels, not job titles. What somebody does — Frontend,
+ * Backend, DevOps, UI/UX Design — is set per project when they are added to
+ * one, which is why the form says so: an admin who came here looking for
+ * "Frontend" should leave knowing where it actually lives rather than picking
+ * the nearest-sounding permission.
+ */
+const ROLE_CHOICES = [
+  { value: "member", label: "Member — can read everything and correct their own record" },
+  { value: "admin", label: "Admin — can also change workspace settings and invite people" },
+  { value: "viewer", label: "Viewer — read only" },
+] as const;
+
+type InvitableRole = (typeof ROLE_CHOICES)[number]["value"];
+
+/** The same words on a pending row as in the dropdown that produced it, plus
+ * Owner, which no invitation issues here but which the API's role type allows
+ * and this screen should not render as a blank. */
+const ROLE_MEANING: Readonly<Record<string, string>> = {
+  member: "Member — can read everything and correct their own record",
+  admin: "Admin — can also change workspace settings and invite people",
+  viewer: "Viewer — read only",
+  owner: "Owner — can change anything in this workspace",
+};
+
+function roleMeaning(role: string): string {
+  return ROLE_MEANING[role] ?? "Access is set by the workspace";
+}
+
+/** The options the select renders are the only values it can produce; this
+ * keeps that true by checking rather than by asserting it. */
+function isInvitableRole(value: string): value is InvitableRole {
+  return ROLE_CHOICES.some((choice) => choice.value === value);
+}
+
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * When an invitation runs out, in whole days, exactly.
+ *
+ * Pure and calendar-based on purpose. "Expires today" means the expiry falls on
+ * today's date, not "some time in the next 24 hours", so the words on screen
+ * and the date the reader would see in their own calendar agree. The vague
+ * middle ground — "expires soon" — is the one wording this must never use: an
+ * admin deciding whether to re-invite somebody needs to know whether the link
+ * in that person's inbox still works.
+ *
+ * An unparseable timestamp says so rather than rendering "Invalid Date" or,
+ * worse, silently reading as "Expired".
+ */
+function expiryLabel(expiresAt: string, now: Date): string {
+  const expiry = new Date(expiresAt);
+  const at = expiry.getTime();
+  if (Number.isNaN(at)) return "Expiry unknown";
+  if (at <= now.getTime()) return "Expired";
+
+  const days = calendarDaysBetween(now, expiry);
+  if (days <= 0) return "Expires today";
+  if (days === 1) return "Expires tomorrow";
+  return `Expires in ${String(days)} days`;
+}
+
+/** Whole days between two calendar dates, local time. `Date.UTC` on the
+ * already-local parts sidesteps daylight saving, where a plain millisecond
+ * division is off by one twice a year. */
+function calendarDaysBetween(from: Date, to: Date): number {
+  const a = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+  const b = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((b - a) / MS_PER_DAY);
+}
+
+/**
+ * Issuing invitations, and the invitations already issued.
+ *
+ * The two live together because they are one question — "who is joining?" — and
+ * because sending one has to change the other. The list of outstanding
+ * invitations is read here rather than inside the form so that a successful
+ * send can refresh both this list and the member list without either of them
+ * knowing about the other.
+ */
+function InvitationArea({
+  workspaceId,
+  onInvited,
+}: {
+  workspaceId: string;
+  onInvited: () => void;
+}): ReactNode {
+  const client = useApiClient();
+  const load = useCallback(
+    (signal: AbortSignal): Promise<Invitation[]> => client.listInvitations(workspaceId, { signal }),
+    [client, workspaceId],
+  );
+  const { state, reload } = useAsync(load, "load the pending invitations");
+
+  return (
+    <>
+      <InvitePanel
+        workspaceId={workspaceId}
+        onInvited={() => {
+          // Both reads: the member list because an admin who just invited
+          // somebody expects the screen to have re-read itself, and this list
+          // because the invitation they just sent belongs in it now.
+          onInvited();
+          reload();
+        }}
+      />
+      <PendingInvitations
+        workspaceId={workspaceId}
+        state={state}
+        onWithdrawn={reload}
+        onRetry={reload}
+      />
+    </>
+  );
+}
+
+/**
  * Invite a colleague by email.
  *
  * A disclosure rather than a dialog: the panel takes the flow and pushes the
@@ -268,7 +391,7 @@ function InvitePanel({
   const roleId = useId();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Exclude<TenantRole, "owner">>("member");
+  const [role, setRole] = useState<InvitableRole>("member");
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<DescribedError | null>(null);
   const [sent, setSent] = useState<string | null>(null);
@@ -340,26 +463,190 @@ function InvitePanel({
                 // The options below are the only values this can produce, and
                 // the guard keeps that true rather than asserting it.
                 const chosen = event.target.value;
-                if (chosen === "member" || chosen === "admin" || chosen === "viewer") {
-                  setRole(chosen);
-                }
+                if (isInvitableRole(chosen)) setRole(chosen);
               }}
             >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-              <option value="viewer">Viewer</option>
+              {ROLE_CHOICES.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
             </select>
+            {/* Said here because this is where an admin looks for it and does
+              not find it. A permission is not a job title, and leaving the
+              difference unsaid makes somebody pick the nearest-sounding
+              permission instead of going to the project. */}
+            <p className={styles.formHint}>
+              This is what they may do, not what they work on. Job roles — Frontend, Backend,
+              DevOps, UI/UX Design — are set on a project, when somebody is added to it.
+            </p>
           </div>
 
           <Button type="submit" loading={sending}>
             Send invitation
           </Button>
 
+          {/* There is no resend endpoint, deliberately: re-issuing means a new
+            link and a new expiry, which is what inviting again already does. */}
+          <p className={styles.formHint}>
+            There is no resend button. To send a fresh link, invite the same address again.
+          </p>
+
           {problem !== null && <InlineProblem error={problem} />}
         </form>
       )}
 
       {sent !== null && <StatusNote>Invitation sent to {sent}.</StatusNote>}
+    </Card>
+  );
+}
+
+/**
+ * The invitations that have been sent and not yet accepted.
+ *
+ * Without this, "invite" was half a feature: an admin could issue an invitation
+ * and then had no way to see it existed, tell it apart from a colleague who had
+ * actually joined, or take it back. Each row says the address, what the
+ * invitation would grant in plain words, and exactly when it runs out.
+ *
+ * Withdrawing is two clicks in place rather than a dialog. A row with an
+ * address and a role does not justify an overlay, a focus trap, an inert
+ * background and a dismissal path — four obligations that go subtly wrong far
+ * more often than a mis-click on a reversible action does. The second click
+ * happens where the first one did, so the address the reader is deciding about
+ * never leaves the screen, and re-inviting undoes the mistake.
+ *
+ * The list never carries a count, an ordering or anything else that would
+ * compare one person with another; it is a queue of outstanding letters.
+ */
+function PendingInvitations({
+  workspaceId,
+  state,
+  onWithdrawn,
+  onRetry,
+}: {
+  workspaceId: string;
+  state: AsyncState<Invitation[]>;
+  onWithdrawn: () => void;
+  onRetry: () => void;
+}): ReactNode {
+  const client = useApiClient();
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [problem, setProblem] = useState<DescribedError | null>(null);
+  // Read once per render rather than per row, so every row on screen is
+  // measured against the same instant.
+  const now = new Date();
+
+  function withdraw(invitationId: string): void {
+    setBusy(invitationId);
+    setProblem(null);
+
+    client
+      .withdrawInvitation(workspaceId, invitationId)
+      .then(() => {
+        // Only now: nothing is removed from the list optimistically, because a
+        // refused withdrawal that had already erased the row would leave the
+        // reader believing an invitation was gone while its link still works.
+        setConfirming(null);
+        onWithdrawn();
+      })
+      .catch((error: unknown) => {
+        setProblem(describeError(error, "withdraw this invitation"));
+      })
+      .finally(() => {
+        setBusy(null);
+      });
+  }
+
+  return (
+    <Card
+      className={styles.pending}
+      title="Pending invitations"
+      description="Sent, and not accepted yet. Withdrawing stops the link in that person's inbox from working."
+    >
+      {state.status === "loading" && (
+        <LoadingState label="the pending invitations" shape="rows" lines={2} />
+      )}
+
+      {/* Its own failure, in its own card: the team below is a separate read and
+        stays on screen when this one cannot be loaded. */}
+      {state.status === "failed" && (
+        <ErrorState
+          title="Pending invitations could not be loaded"
+          error={state.error}
+          onRetry={onRetry}
+          headingLevel={3}
+        />
+      )}
+
+      {state.status === "ready" &&
+        (state.data.length === 0 ? (
+          <EmptyState title="No pending invitations" headingLevel={3}>
+            Everyone who has been invited has either joined or had their invitation withdrawn.
+          </EmptyState>
+        ) : (
+          <>
+            {problem !== null && (
+              <div className={styles.pendingProblem}>
+                <InlineProblem error={problem} />
+              </div>
+            )}
+            <ul className={styles.pendingList} aria-label="Pending invitations">
+              {state.data.map((invitation) => (
+                <li className={styles.pendingRow} key={invitation.id}>
+                  <div className={styles.pendingWho}>
+                    <p className={styles.pendingEmail}>{invitation.email}</p>
+                    <p className={styles.pendingRole}>{roleMeaning(invitation.role)}</p>
+                  </div>
+                  <time className={styles.pendingExpiry} dateTime={invitation.expiresAt}>
+                    {expiryLabel(invitation.expiresAt, now)}
+                  </time>
+                  {confirming === invitation.id ? (
+                    <span className={styles.pendingActions}>
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        loading={busy === invitation.id}
+                        aria-label={`Confirm withdrawing the invitation to ${invitation.email}`}
+                        onClick={() => {
+                          withdraw(invitation.id);
+                        }}
+                      >
+                        Confirm
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy === invitation.id}
+                        aria-label={`Keep the invitation to ${invitation.email}`}
+                        onClick={() => {
+                          setConfirming(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </span>
+                  ) : (
+                    <span className={styles.pendingActions}>
+                      <Button
+                        size="sm"
+                        disabled={busy !== null}
+                        aria-label={`Withdraw the invitation to ${invitation.email}`}
+                        onClick={() => {
+                          setProblem(null);
+                          setConfirming(invitation.id);
+                        }}
+                      >
+                        Withdraw
+                      </Button>
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        ))}
     </Card>
   );
 }

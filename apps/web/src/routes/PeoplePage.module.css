@@ -324,3 +324,91 @@
   border: var(--border-thin) solid var(--border-subtle);
   border-radius: var(--radius-sm);
 }
+
+/* --- Pending invitations ------------------------------------------------ */
+
+.pending {
+  margin-bottom: var(--space-6);
+}
+
+/*
+ * A hint under a control, and the two standing notes on the invite form. Same
+ * size as the form's other secondary text so it reads as guidance rather than
+ * as a second label competing with the one above it.
+ */
+.formHint {
+  margin: 0;
+  max-width: var(--prose-max-width);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.pendingProblem {
+  margin-bottom: var(--space-4);
+}
+
+.pendingList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * Wraps rather than scrolls. At 320px the address, the role and the control
+ * stack instead of pushing the page sideways, which WCAG 1.4.10 requires the
+ * layout to survive.
+ */
+.pendingRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+}
+
+.pendingList li + li {
+  border-top: var(--border-thin) solid var(--border-subtle);
+}
+
+.pendingWho {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.pendingEmail {
+  margin: 0;
+  color: var(--fg-default);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  /* An email address is a single unbreakable word to the line-breaker. */
+  overflow-wrap: anywhere;
+}
+
+/* What the invitation grants, in the same words as the dropdown that issued
+   it. Quiet, because it is a description and not a badge. */
+.pendingRole {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+/* The one thing on the row that must not break across lines: a date read over
+   two lines is read twice. */
+.pendingExpiry {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.pendingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

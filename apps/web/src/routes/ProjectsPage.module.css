@@ -150,3 +150,131 @@
   padding-top: var(--space-5);
   border-top: var(--border-thin) solid var(--border-subtle);
 }
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.controlLabel {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+/* No local `:focus-visible` rule: the global one in @cairn/ui draws the ring,
+   and a local override is how it stops matching every other control. */
+.select {
+  padding: var(--space-2) var(--space-3);
+  min-height: var(--min-target);
+  font: inherit;
+  color: var(--fg-default);
+  background: var(--bg-default);
+  /* `border-interactive`, not `border-default`: the outline of a control is
+     information required to identify it, so WCAG 1.4.11 asks 3:1 of it. The
+     decorative hairlines elsewhere are deliberately below that. */
+  border: var(--border-thin) solid var(--border-interactive);
+  border-radius: var(--radius-md);
+}
+
+.createHint {
+  margin: 0;
+  max-width: var(--prose-max-width);
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}
+
+/*
+ * A real `<fieldset>`, because the checkboxes and the free-text input are one
+ * question — "what does evidence for this project arrive on" — and a screen
+ * reader that meets them as five unrelated controls has been told less than the
+ * sighted reader was.
+ */
+.sources {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-4);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.sourcesLegend {
+  padding: 0 var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.sourceList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+/* The whole row is the label, so the click target is the string rather than a
+   14px box beside it (WCAG 2.5.8). */
+.sourceOption {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--min-target);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .sourceOption:hover {
+    background: var(--bg-muted);
+  }
+}
+
+/* The ring is drawn on the row rather than on the 14px box, so it is visible
+   at the size the reader is actually aiming at. */
+.sourceOption:focus-within {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.checkbox {
+  flex: none;
+  width: var(--min-target-inline);
+  height: var(--min-target-inline);
+  accent-color: var(--fg-default);
+}
+
+/* Monospace because these are raw strings a machine matches character for
+   character — a repository path, a channel name — and a proportional face makes
+   them look like prose that has been paraphrased. */
+.sourceValue {
+  color: var(--fg-default);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+/* The free-text input carries the same monospace as the strings above it: the
+   reader is typing one of the same things, and a proportional face here would
+   suggest otherwise. Reached by descendant selector because `Field` owns its
+   own input and its class hook is typed as possibly absent. */
+.sources input:not([type="checkbox"]) {
+  font-family: var(--font-mono);
+}
+
+.createDone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
