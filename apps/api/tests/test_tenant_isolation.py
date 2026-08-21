@@ -448,6 +448,25 @@ class TestRowLevelSecurity:
             # to one usefully.
             "google_meet_subscriptions": {"SELECT"},
             "google_meet_artifact_signals": {"SELECT"},
+            # -- The project layer -----------------------------------------
+            #
+            # SELECT, INSERT, UPDATE and **no DELETE** on `projects` and
+            # `project_members`. A project is archived (`archived_at`), never
+            # deleted, so its history and the citations under it stay
+            # answerable; a membership is closed (`removed_at`), never erased,
+            # because a deletable membership row is a silent membership and a
+            # shrinking list would read as a project that never had the person.
+            "projects": {"SELECT", "INSERT", "UPDATE"},
+            "project_members": {"SELECT", "INSERT", "UPDATE"},
+            #
+            # `project_sources` is the exception, and deliberately the other
+            # way round: SELECT, INSERT, **DELETE**, and no UPDATE. A claim
+            # over a citation string is configuration rather than evidence -
+            # releasing one deletes the mapping row while every citation keeps
+            # its raw string as provenance. No UPDATE, so a claim is never
+            # edited in place: release and claim are two audited actions, not
+            # one quiet rewrite that would silently move a project's evidence.
+            "project_sources": {"SELECT", "INSERT", "DELETE"},
             # -- Durable spend counters -----------------------------------
             #
             # SELECT, INSERT, UPDATE and **no DELETE**: a spend row is billing
