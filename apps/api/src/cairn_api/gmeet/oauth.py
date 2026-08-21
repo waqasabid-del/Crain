@@ -705,6 +705,20 @@ def code_challenge_for(verifier: str) -> str:
 # -- The authorise URL ------------------------------------------------------
 
 
+def is_configured(settings: Settings) -> bool:
+    """Whether this deployment holds Google Meet OAuth credentials.
+
+    Reads ``google_meet_client_id`` and never Chat's — the two connectors are
+    deliberately separate clients, and answering this question from the wrong one
+    would tell a workspace Meet is set up because Chat is.
+
+    One predicate, shared by the install route's 503 and by the integrations
+    status route's ``configured`` flag, so a screen can never say "set up" about
+    something the install endpoint would refuse.
+    """
+    return bool(settings.google_meet_client_id)
+
+
 def build_authorize_url(settings: Settings, *, state: str, code_verifier: str) -> str:
     """Where to send the customer's browser.
 
@@ -726,7 +740,7 @@ def build_authorize_url(settings: Settings, *, state: str, code_verifier: str) -
     the precise mechanism that breaks two connectors sharing a client. Asking for
     incremental authorisation on a connector with exactly one scope buys nothing.
     """
-    if not settings.google_meet_client_id:
+    if not is_configured(settings):
         raise GoogleMeetInstallError(GoogleMeetInstallFailure.NOT_CONFIGURED)
 
     query = urlencode(

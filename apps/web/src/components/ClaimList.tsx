@@ -1,6 +1,5 @@
 import { CertaintyBadge } from "@cairn/ui";
 import clsx from "clsx";
-import Link from "next/link";
 import type { ReactNode } from "react";
 
 import type { Claim, SourceRef } from "../brief/types.js";
@@ -130,13 +129,6 @@ function sentenceCase(word: string): string {
 
 export interface AttributionNoteProps {
   attribution: Attribution | undefined;
-  /**
-   * Offer the way out as well as the fact. Set where the reader is looking at
-   * their own record and the link is the next thing they would want; left off
-   * where a page shows the same route once above a whole list, so a long feed
-   * does not repeat one link forty times.
-   */
-  route?: boolean;
   className?: string;
 }
 
@@ -154,11 +146,7 @@ export interface AttributionNoteProps {
  * that is already there. A live region announcing a fact nobody just changed is
  * noise a screen reader user cannot switch off.
  */
-export function AttributionNote({
-  attribution,
-  route = false,
-  className,
-}: AttributionNoteProps): ReactNode {
+export function AttributionNote({ attribution, className }: AttributionNoteProps): ReactNode {
   const resolved = attribution?.resolvedActors ?? 0;
   const unresolved = attribution?.unresolvedActors ?? 0;
 
@@ -177,14 +165,6 @@ export function AttributionNote({
         (unresolved === 1
           ? "One contributor here has not connected their account to CAIRN yet, so CAIRN cannot name them."
           : `${sentenceCase(inWords(unresolved))} contributors here have not connected their accounts to CAIRN yet, so CAIRN cannot name them.`)}
-      {route && unresolved > 0 && (
-        <>
-          {" "}
-          <Link className={utility.actionLink} href="/settings">
-            Connect your own accounts
-          </Link>
-        </>
-      )}
     </p>
   );
 }

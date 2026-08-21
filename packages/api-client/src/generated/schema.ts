@@ -1523,6 +1523,48 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/workspaces/{workspace_id}/integrations/providers": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Which sources this deployment could connect at all
+     * @description Whether each source has credentials on this deployment.
+     *
+     *     **A question about the deployment, answered before the click.** The install
+     *     routes refuse with a 503 when a client id is missing, and a 5xx is rendered
+     *     by every client as "something on CAIRN's side failed" — an apology, and a
+     *     reference id, for a deployment an operator simply has not given credentials
+     *     to. Nothing failed. With this the screen can say "Not set up" plainly and
+     *     switch the control off, and the 503 becomes the defensive case rather than
+     *     the first thing a customer sees.
+     *
+     *     Read-only, and it reads nothing about the workspace: the answer is the same
+     *     for every workspace on this deployment. It is still gated on membership, the
+     *     same as `list_integrations`, because it is part of the same record and there
+     *     is no reason for it to be the one connector fact a stranger can enumerate.
+     *
+     *     **No secret is read.** Each predicate tests a client id — a value that
+     *     already appears in the authorise URL a customer's own browser is sent to —
+     *     and never a client secret, so nothing here could put one in a response, a log
+     *     or a cache.
+     *
+     *     Sorted for a stable payload. `context` is taken for the membership check and
+     *     not otherwise read, which is what makes "the same for every workspace" true
+     *     rather than merely intended.
+     */
+    get: operations["list_integration_providers_v1_workspaces__workspace_id__integrations_providers_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/workspaces/{workspace_id}/integrations/slack/channels": {
     parameters: {
       query?: never;
@@ -3567,6 +3609,32 @@ export interface components {
      * @enum {string}
      */
     IdentityVerification: "verified_email_match" | "self_confirmed";
+    /**
+     * IntegrationProviderResponse
+     * @description One source CAIRN can read, and whether this deployment could connect it.
+     *
+     *     **Separate from `IntegrationResponse` because the interesting case has no
+     *     connection to hang a field on.** A workspace that has never connected Slack
+     *     has no row anywhere, and "can Slack be connected here at all?" is a question
+     *     about the deployment rather than about the workspace — so it is answered per
+     *     provider, listed whether or not anything is connected.
+     *
+     *     It exists because the interface could not answer it before the click. A
+     *     deployment with no Slack client id refuses `POST .../slack/install` with a
+     *     503, and a 5xx reads to a customer as "CAIRN broke" — an apology and a
+     *     reference id for a fault that is nothing of the kind. Nothing failed: an
+     *     operator has not given this deployment credentials, and the screen can say so
+     *     calmly, in advance, with the control switched off.
+     *
+     *     Read-only and additive. Nothing here changes what is requested from a
+     *     provider, and no scope is added to make anything work.
+     */
+    IntegrationProviderResponse: {
+      /** Configured */
+      configured: boolean;
+      /** Source */
+      source: string;
+    };
     /**
      * IntegrationResponse
      * @description One source, and whether it is currently reading.
@@ -7339,6 +7407,46 @@ export interface operations {
         content?: never;
       };
       /** @description No Google Meet account is connected. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  list_integration_providers_v1_workspaces__workspace_id__integrations_providers_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IntegrationProviderResponse"][];
+        };
+      };
+      /** @description No such workspace, or you are not a member. */
       404: {
         headers: {
           [name: string]: unknown;

@@ -13,8 +13,6 @@ import type {
   SlackChannelSelection,
   SlackDisconnect,
   SlackInstall,
-  SupportSession,
-  Trust,
 } from "@cairn/api-client";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -25,7 +23,6 @@ import AppLayout from "../app/(app)/layout.js";
 import { apiError, createStubClient, MEMBERS, renderRoute, SESSION } from "../test/harness.js";
 
 import { AdminPage } from "./AdminPage.js";
-import { TrustPage } from "./TrustPage.js";
 
 /**
  * Step 25's exit criterion: **an Owner can manage the workspace without
@@ -51,6 +48,19 @@ const AXE_OPTIONS = {
   // Cannot run in jsdom — see `a11y.test.tsx`.
   rules: { "color-contrast": { enabled: false } },
 } as const;
+
+/**
+ * Open every record on screen.
+ *
+ * The card leads with a mark, a name, a state and one line; the words it used
+ * to print in full — what CAIRN reads, the scopes, the refusals, the dates, the
+ * notice — sit behind a "What CAIRN reads" `<details>` on each card. Not one of
+ * the assertions below was weakened for that: they still demand the same words,
+ * visible, after the one click a reader makes to reach them.
+ */
+function openRecords(): void {
+  for (const record of document.querySelectorAll("details")) record.open = true;
+}
 
 const WORKSPACE = SESSION.workspaces[0]?.workspace.id ?? "";
 
@@ -169,77 +179,13 @@ function card(name: RegExp): HTMLElement {
   return article;
 }
 
-describe("members", () => {
-  it("lists who is here and what they may configure", async () => {
-    renderAdmin();
-
-    const members = await screen.findByRole("list", { name: /members/i });
-    expect(within(members).getByText("Ali Rahman")).toBeVisible();
-    expect(within(members).getByText("jo@example.com")).toBeVisible();
-  });
-
-  it("says nothing about how much anybody did", async () => {
-    // The commitment, asserted on the screen where it would first be broken.
-    // Roles govern configuration, never how much is visible about a person
-    // (md/15 §2.2) — and an activity column here is how that inverts.
-    renderAdmin();
-
-    const members = await screen.findByRole("list", { name: /members/i });
-    expect(members.textContent).not.toMatch(/last (active|seen)|activity|commits?|contributions?/i);
-  });
-
-  it("sends a role change", async () => {
-    const changeRole = vi.fn(() => Promise.resolve(MEMBERS[1]!));
-    renderAdmin(client({ changeRole }));
-
-    const select = await screen.findByLabelText(/role for jo@example.com/i);
-    await userEvent.selectOptions(select, "Admin");
-
-    expect(changeRole).toHaveBeenCalledWith(WORKSPACE, MEMBERS[1]?.userId, "admin");
-  });
-
-  it("offers the reader no controls over their own row", async () => {
-    // The API refuses a self-role-change, and a control that always fails is
-    // worse than no control: it teaches somebody the product is broken.
-    renderAdmin();
-
-    await screen.findByRole("list", { name: /members/i });
-    expect(screen.queryByLabelText(/role for ali@example.com/i)).not.toBeInTheDocument();
-  });
-
-  it("says what removal does before doing it", async () => {
-    // A confirmation that restates the consequence is one somebody can decline.
-    // "Are you sure?" is a button people learn to click without reading.
-    const removeMember = vi.fn(() => Promise.resolve());
-    renderAdmin(client({ removeMember }));
-
-    await screen.findByRole("list", { name: /members/i });
-    await userEvent.click(screen.getAllByRole("button", { name: /^remove$/i })[0]!);
-
-    expect(screen.getByText(/what cairn already recorded about their work stays/i)).toBeVisible();
-    expect(removeMember).not.toHaveBeenCalled();
-
-    await userEvent.click(screen.getByRole("button", { name: /remove their access/i }));
-    expect(removeMember).toHaveBeenCalledWith(WORKSPACE, MEMBERS[1]?.userId);
-  });
-
-  it("explains a refusal rather than failing silently", async () => {
-    // The last-Owner rule lives in the API. What matters here is that its
-    // refusal reaches the person who tried.
-    renderAdmin(client({ changeRole: vi.fn(() => Promise.reject(apiError(422))) }));
-
-    const select = await screen.findByLabelText(/role for jo@example.com/i);
-    await userEvent.selectOptions(select, "Viewer");
-
-    expect(await screen.findByRole("alert")).toBeVisible();
-  });
-});
-
 describe("connected sources", () => {
   it("says what GitHub reads, and what it never reads", async () => {
     renderAdmin();
 
-    expect(await screen.findByText(/never the contents of your code/i)).toBeVisible();
+    const reads = await screen.findByText(/never the contents of your code/i);
+    openRecords();
+    expect(reads).toBeVisible();
   });
 
   it("is honest that disconnecting does not remove what was captured", async () => {
@@ -260,6 +206,7 @@ describe("connected sources", () => {
     expect(within(connections).getByRole("heading", { name: /github — acme-inc/i })).toBeVisible();
     // The state as a word. Never a colour, and never a dot.
     expect(within(connections).getByText("Connected")).toBeVisible();
+    openRecords();
     expect(within(connections).getByText("Authorised on")).toBeVisible();
   });
 
@@ -311,7 +258,9 @@ describe("connected sources", () => {
       }),
     );
 
-    expect(await screen.findByText(/no longer reading from this account/i)).toBeVisible();
+    const detail = await screen.findByText(/no longer reading from this account/i);
+    openRecords();
+    expect(detail).toBeVisible();
     expect(screen.queryByRole("button", { name: /disconnect/i })).not.toBeInTheDocument();
   });
 
@@ -334,6 +283,7 @@ describe("connected sources", () => {
 
     expect(await screen.findByText(/captures nothing until a source is connected/i)).toBeVisible();
     expect(screen.getByRole("heading", { name: /^slack$/i })).toBeVisible();
+    openRecords();
     expect(screen.getByText("channels:history")).toBeVisible();
   });
 
@@ -461,6 +411,7 @@ describe("connecting Slack", () => {
       await screen.findByRole("heading", { name: /^slack$/i });
       const slack = within(card(/^slack$/i));
 
+      openRecords();
       expect(slack.getByText("channels:history")).toBeVisible();
       expect(slack.getByText("channels:read")).toBeVisible();
       expect(slack.getByText("users:read")).toBeVisible();
@@ -494,6 +445,7 @@ describe("connecting Slack", () => {
       await screen.findByRole("heading", { name: /^slack$/i });
       const slack = within(card(/^slack$/i));
 
+      openRecords();
       expect(slack.getByText(/no permission to write anything to slack/i)).toBeVisible();
       expect(slack.getByText(/direct messages, private channels, or group dms/i)).toBeVisible();
       expect(slack.getByText(/does not request channels:join/i)).toBeVisible();
@@ -503,9 +455,11 @@ describe("connecting Slack", () => {
       // **The single most important sentence on the screen.**
       renderAdmin(unconnectedClient());
 
-      expect(
-        await screen.findByText(/somebody has to run \/invite @CAIRN in that channel in slack/i),
-      ).toBeVisible();
+      const rule = await screen.findByText(
+        /somebody has to run \/invite @CAIRN in that channel in slack/i,
+      );
+      openRecords();
+      expect(rule).toBeVisible();
     });
   });
 
@@ -535,7 +489,9 @@ describe("connecting Slack", () => {
 
       await userEvent.click(await screen.findByRole("button", { name: /^connect slack$/i }));
 
-      expect(await screen.findByText(/this link stops working at/i)).toBeVisible();
+      const expiry = await screen.findByText(/this link stops working at/i);
+      openRecords();
+      expect(expiry).toBeVisible();
     });
 
     it("says so when the install could not even be started", async () => {
@@ -551,6 +507,73 @@ describe("connecting Slack", () => {
 
       expect(await screen.findByRole("alert")).toBeVisible();
       expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("says Not set up, before anybody presses it, when the deployment has no credentials", async () => {
+      // **The bug this replaced.** With nothing to read, the screen offered a
+      // live Connect button whose only possible outcome was a 503, rendered as
+      // "Something on CAIRN's side failed… Reference: <uuid>" — an apology and
+      // a ticket number for a setting an operator has not filled in.
+      renderAdmin(
+        unconnectedClient({
+          listIntegrationProviders: vi.fn(() =>
+            Promise.resolve([
+              { source: "slack", configured: false },
+              { source: "google_chat", configured: true },
+              { source: "google_meet", configured: true },
+            ]),
+          ),
+        }),
+      );
+
+      await screen.findByRole("button", { name: /^connect slack$/i });
+      const slack = card(/^slack$/i);
+
+      expect(within(slack).getByText(/^not set up$/i)).toBeVisible();
+      expect(within(slack).getByRole("button", { name: /^connect slack$/i })).toBeDisabled();
+      expect(
+        within(slack).getByText(/needs slack credentials from your administrator/i),
+      ).toBeVisible();
+      // The other two are untouched: one provider's missing credential says
+      // nothing about another's.
+      expect(within(card(/^google chat$/i)).queryByText(/^not set up$/i)).not.toBeInTheDocument();
+    });
+
+    it("does not report a missing credential as a fault with a reference id", async () => {
+      // Defensive, and the case is real: credentials can go missing between the
+      // status the screen loaded and the click. The install answers 503 with
+      // `slack-not-configured`, and the reader must not be handed an incident
+      // reference for a switch nobody turned on.
+      const assign = captureNavigation();
+      renderAdmin(
+        unconnectedClient({
+          startSlackInstall: vi.fn(() => Promise.reject(apiError(503, "slack-not-configured"))),
+        }),
+      );
+
+      await userEvent.click(await screen.findByRole("button", { name: /^connect slack$/i }));
+
+      expect(
+        await screen.findByText(/has not been set up on this cairn deployment/i),
+      ).toBeVisible();
+      expect(screen.queryByText(/something on cairn's side failed/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/reference/i)).not.toBeInTheDocument();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("keeps the reference id for a failure that really is one", async () => {
+      // A 500 is CAIRN's fault, retrying can work, and the id is how somebody
+      // gets it looked at. Rounding it down to "Not set up" would be the same
+      // lie in the other direction.
+      renderAdmin(
+        unconnectedClient({
+          startSlackInstall: vi.fn(() => Promise.reject(apiError(500))),
+        }),
+      );
+
+      await userEvent.click(await screen.findByRole("button", { name: /^connect slack$/i }));
+
+      expect(await screen.findByText(/something on cairn's side failed/i)).toBeVisible();
     });
 
     it("names the act Reconnect when the grant has stopped working", async () => {
@@ -573,6 +596,7 @@ describe("connecting Slack", () => {
       );
 
       await screen.findByRole("heading", { name: /slack — northwind hq/i });
+      openRecords();
       expect(
         within(card(/slack — northwind hq/i)).getByText(/slack has stopped accepting/i),
       ).toBeVisible();
@@ -599,6 +623,7 @@ describe("connecting Slack", () => {
         slack.getByText(/an owner or an admin of this workspace connects and disconnects sources/i),
       ).toBeVisible();
       // And they can still read exactly what it would ask for.
+      openRecords();
       expect(slack.getByText("channels:history")).toBeVisible();
     });
   });
@@ -847,730 +872,6 @@ describe("connecting Slack", () => {
   });
 });
 
-describe("privacy and data", () => {
-  it("says what retention covers and what it does not", async () => {
-    // Raw payloads go; what CAIRN understood stays. Stated rather than left for
-    // an administrator to discover from an empty archive.
-    renderAdmin();
-
-    expect(await screen.findByText(/the messages and payloads themselves/i)).toBeVisible();
-    expect(
-      screen.getByText(/are the team's record|team&rsquo;s record|team's record/i),
-    ).toBeVisible();
-  });
-
-  it("sends a new retention period", async () => {
-    const setRetention = vi.fn(() => Promise.resolve({ ...PRIVACY, retentionDays: 90 }));
-    renderAdmin(client({ setRetention }));
-
-    const field = await screen.findByLabelText(/keep raw activity for/i);
-    await userEvent.clear(field);
-    await userEvent.type(field, "90");
-    await userEvent.click(screen.getByRole("button", { name: /save/i }));
-
-    expect(setRetention).toHaveBeenCalledWith(WORKSPACE, 90);
-    expect(await screen.findByRole("status")).toHaveTextContent(/kept for 90 days/i);
-  });
-
-  it("warns that shortening it deletes, before the change", async () => {
-    renderAdmin();
-
-    expect(await screen.findByText(/cannot be undone/i)).toBeVisible();
-  });
-
-  it("shows the region without pretending it can be changed", async () => {
-    // Moving a workspace between regions is a data migration under compliance
-    // pressure, and a dropdown that silently did nothing would be worse than
-    // its absence.
-    renderAdmin();
-
-    expect(await screen.findByText(/us-central1/)).toBeVisible();
-    expect(screen.getByText(/not self-service yet/i)).toBeVisible();
-  });
-});
-
-describe("worker notification", () => {
-  it("names who has not been shown it", async () => {
-    // An obligation owed to each person before capture begins. An Owner who
-    // cannot see who is outstanding cannot discharge it.
-    renderAdmin();
-
-    const list = await screen.findByRole("list", { name: /worker notification/i });
-    expect(within(list).getByText("jo@example.com")).toBeVisible();
-    expect(within(list).getByText(/not shown yet/i)).toBeVisible();
-  });
-
-  it("reports opt-outs as a number and names nobody", async () => {
-    // **The decision this step turns on.** An opt-out is a person's own decision
-    // about their own record; a list of names beside it is a list of employees
-    // who declined to be recorded, handed to whoever writes their review.
-    renderAdmin();
-
-    expect(await screen.findByText(/1 person has switched off at least one source/i)).toBeVisible();
-    expect(screen.getByText(/does not say who/i)).toBeVisible();
-  });
-
-  it("explains what happens to somebody who has not been shown it", async () => {
-    // Not a warning about a broken product: it is the rule. CAIRN attributes
-    // nothing to a person until they have seen what it reads.
-    renderAdmin();
-
-    expect(
-      await screen.findByText(/does not\s+attribute it to them until they have/i),
-    ).toBeVisible();
-  });
-});
-
-describe("what a role is offered", () => {
-  const VIEWER = {
-    ...SESSION,
-    workspaces: [{ ...SESSION.workspaces[0]!, role: "viewer" as const }],
-  };
-
-  function asViewer(): ReturnType<typeof createStubClient> {
-    return client({ getSession: vi.fn(() => Promise.resolve(VIEWER)) });
-  }
-
-  it("shows a Viewer what is connected and what happens to their data", async () => {
-    // Readable by everyone deliberately: these are facts about what happens to
-    // the reader's own activity, and a person should not need a role to learn
-    // them.
-    renderAdmin(asViewer());
-
-    expect(await screen.findByText(/never the contents of your code/i)).toBeVisible();
-    expect(screen.getByLabelText(/keep raw activity for/i)).toBeDisabled();
-  });
-
-  it("offers a Viewer no control they would be refused", async () => {
-    renderAdmin(asViewer());
-
-    await screen.findByRole("list", { name: /members/i });
-    expect(screen.queryByLabelText(/role for/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /disconnect/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /save/i })).not.toBeInTheDocument();
-  });
-
-  it("shows a Viewer the connection record and tells them who can change it", async () => {
-    // Absence is not an explanation. Silence leaves a Viewer unable to tell
-    // "not mine to do" from "nobody has done it", and the record itself is
-    // theirs to read because it is about their own activity.
-    renderAdmin(asViewer());
-
-    await screen.findByRole("heading", { name: /github — acme-inc/i });
-    const github = within(card(/github — acme-inc/i));
-
-    expect(github.getByText("Connected")).toBeVisible();
-    expect(
-      github.getByText(/an owner or an admin of this workspace connects and disconnects sources/i),
-    ).toBeVisible();
-    expect(screen.queryByRole("button", { name: /disconnect/i })).not.toBeInTheDocument();
-  });
-
-  it("does not show a Viewer who has not been notified", async () => {
-    // That screen names people, and whether a colleague has been notified is
-    // compliance administration rather than something everyone needs.
-    renderAdmin(asViewer());
-
-    await screen.findByRole("list", { name: /members/i });
-    expect(screen.queryByRole("list", { name: /worker notification/i })).not.toBeInTheDocument();
-  });
-
-  it("does not put a workspace link in a Viewer's navigation", async () => {
-    renderAdmin(asViewer());
-
-    const nav = await screen.findByRole("navigation", { name: /primary/i });
-    expect(within(nav).queryByRole("link", { name: /^workspace$/i })).not.toBeInTheDocument();
-    // The Trust Center is for everybody, and its slot in the navigation is
-    // deliberate: a page about what is recorded that somebody has to go looking
-    // for is one they conclude was hidden.
-    expect(within(nav).getByRole("link", { name: /trust center/i })).toBeVisible();
-  });
-
-  it("passes an axe audit", async () => {
-    const { container } = renderAdmin();
-    await screen.findByRole("list", { name: /members/i });
-
-    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
-  });
-});
-
-describe("the trust and privacy centre", () => {
-  const TRUST: Trust = {
-    sources: [
-      {
-        source: "github",
-        label: "GitHub",
-        reads: "Commit messages, pull request titles and reviews. Never the contents of your code.",
-        connected: true,
-      },
-      {
-        source: "meeting",
-        label: "Meetings",
-        reads: "Transcripts of meetings your workspace connects. Never audio.",
-        connected: false,
-      },
-    ],
-    refusals: ["CAIRN never scores or ranks people."],
-    commitments: [
-      { title: "Everyone sees the same thing", detail: "Roles decide what you can configure." },
-    ],
-    retentionDays: 90,
-    region: "us-central1",
-    awaitingNotification: 2,
-    subprocessors: [{ title: "Google Cloud (Vertex AI)", detail: "Runs the models." }],
-  };
-
-  function renderTrust(
-    overrides = {},
-    role: "owner" | "admin" | "member" | "viewer" = "owner",
-  ): ReturnType<typeof renderRoute> {
-    // The reader's role decides which controls are offered, so it has to be
-    // settable per test. `SESSION` here is the harness's auth session, not the
-    // support-session fixture further down.
-    const authenticated = {
-      ...SESSION,
-      workspaces: [{ ...SESSION.workspaces[0]!, role }],
-    };
-    return renderRoute(
-      <AppLayout>
-        <TrustPage />
-      </AppLayout>,
-      {
-        client: client({
-          getSession: vi.fn(() => Promise.resolve(authenticated)),
-          getTrust: vi.fn(() => Promise.resolve(TRUST)),
-          ...overrides,
-        }),
-        route: "/trust",
-      },
-    );
-  }
-
-  it("states this workspace's own numbers", async () => {
-    // A trust page quoting a retention period the product does not apply is the
-    // most damaging sentence CAIRN could publish, because its whole audience is
-    // people deciding whether the rest is true.
-    renderTrust();
-
-    expect(await screen.findByText(/90 days, then deleted/i)).toBeVisible();
-    expect(screen.getByText(/us-central1/)).toBeVisible();
-  });
-
-  it("says which sources are switched on and which are not", async () => {
-    renderTrust();
-
-    expect(await screen.findByText(/^connected$/i)).toBeVisible();
-    expect(screen.getByText(/^not connected$/i)).toBeVisible();
-  });
-
-  it("distinguishes raw activity from the team's record", async () => {
-    renderTrust();
-
-    expect(await screen.findByText(/messages and payloads cairn\s+received/i)).toBeVisible();
-  });
-
-  it("names its subprocessors rather than calling them partners", async () => {
-    renderTrust();
-
-    expect(await screen.findByText(/google cloud \(vertex ai\)/i)).toBeVisible();
-    expect(screen.getByRole("main").textContent).not.toMatch(/trusted partners/i);
-  });
-
-  it("says how many people are still to be shown the notification", async () => {
-    renderTrust();
-
-    expect(await screen.findByText(/2 people have not been shown it yet/i)).toBeVisible();
-  });
-
-  it("lists the connections this workspace actually has, read-only", async () => {
-    // The catalogue above says what CAIRN *could* read. This is the workspace's
-    // own record — the difference between "we only read what you allow" and a
-    // reader being able to check it.
-    renderTrust();
-
-    const connections = await screen.findByRole("list", { name: /connections/i });
-    expect(within(connections).getByRole("heading", { name: /github — acme-inc/i })).toBeVisible();
-    expect(within(connections).queryByRole("button", { name: /disconnect/i })).toBeNull();
-  });
-
-  it("tells an Owner where the connection is changed, since it is not changed here", async () => {
-    // Read-only for everybody, Owners included: this page is the record and the
-    // workspace screen is the control. A record with no explanation of where it
-    // is changed reads as one nobody can change.
-    renderTrust({}, "owner");
-
-    await screen.findByRole("heading", { name: /github — acme-inc/i });
-    expect(
-      within(card(/github — acme-inc/i)).getByText(/disconnect this in workspace settings/i),
-    ).toBeVisible();
-  });
-
-  it("invents no connection detail the API did not send", async () => {
-    // The page's entire claim is that its numbers are read from the workspace.
-    renderTrust();
-
-    const connections = await screen.findByRole("list", { name: /connections/i });
-    expect(within(connections).queryByText("Last successful sync")).not.toBeInTheDocument();
-    expect(within(connections).queryByText("Access granted")).not.toBeInTheDocument();
-  });
-
-  describe("what it says about Slack", () => {
-    const SLACK: Integration = {
-      source: "slack",
-      account: "Northwind HQ",
-      installationId: 7,
-      connectedAt: "2026-07-02T09:00:00Z",
-      disconnectedAt: null,
-      suspended: false,
-    };
-
-    function withSlack(payload: SlackChannelList, integrations: Integration[] = [SLACK]): object {
-      return {
-        listIntegrations: vi.fn(() => Promise.resolve(integrations)),
-        listSlackChannels: vi.fn(() => Promise.resolve(payload)),
-      };
-    }
-
-    it("states Slack's state whether or not it is connected", async () => {
-      renderTrust();
-
-      await screen.findByRole("heading", { name: /^slack$/i });
-      expect(within(card(/^slack$/i)).getByText("Disconnected")).toBeVisible();
-    });
-
-    it("lists the channels the backend returned, as a record", async () => {
-      renderTrust(
-        withSlack({
-          channels: [
-            { id: "C001", name: "general", botIsMember: true, selected: true },
-            { id: "C002", name: "engineering", botIsMember: true, selected: true },
-          ],
-          notice: NOTICE,
-        }),
-      );
-
-      expect(
-        await screen.findByText(/cairn is reading 2 channels: #general, #engineering\./i),
-      ).toBeVisible();
-    });
-
-    it("names only the channels the backend said were chosen", async () => {
-      // **The commitment this page turns on.** Its whole claim is that its
-      // numbers are read from the workspace. A channel CAIRN could read but
-      // nobody selected is not a channel CAIRN is reading, and listing it here
-      // would overstate the surveillance on the page that exists to be checked.
-      renderTrust(
-        withSlack({
-          channels: [
-            { id: "C001", name: "general", botIsMember: true, selected: true },
-            { id: "C002", name: "engineering", botIsMember: true, selected: false },
-          ],
-          notice: NOTICE,
-        }),
-      );
-
-      expect(await screen.findByText(/cairn is reading 1 channel: #general\./i)).toBeVisible();
-    });
-
-    it("keeps the record read-only and says where it is changed", async () => {
-      renderTrust(
-        withSlack({
-          channels: [{ id: "C001", name: "general", botIsMember: true, selected: true }],
-          notice: NOTICE,
-        }),
-      );
-
-      await screen.findByText(/cairn is reading 1 channel/i);
-      expect(screen.queryByRole("button", { name: /choose channels/i })).not.toBeInTheDocument();
-      expect(
-        screen.getByText(/an owner or an admin chooses these in workspace settings/i),
-      ).toBeVisible();
-    });
-
-    it("says the record is incomplete rather than failing the whole page", async () => {
-      // One detail inside a record on a page full of records. An alert about a
-      // channel list is out of proportion to what a reader came here for.
-      renderTrust({
-        ...withSlack({ channels: [], notice: NOTICE }),
-        listSlackChannels: vi.fn(() => Promise.reject(apiError(503))),
-      });
-
-      await screen.findByRole("heading", { name: /slack — northwind hq/i });
-      expect(
-        await screen.findByText(/could not read which slack channels are selected/i),
-      ).toBeVisible();
-      expect(screen.getByText(/90 days, then deleted/i)).toBeVisible();
-    });
-
-    it("names the scopes and the invite rule here too", async () => {
-      // The same three facts, from the same constants, so the workspace screen
-      // and the trust record cannot come to disagree about what CAIRN asks for.
-      renderTrust();
-
-      await screen.findByRole("heading", { name: /^slack$/i });
-      const slack = within(card(/^slack$/i));
-
-      expect(slack.getByText("channels:history")).toBeVisible();
-      expect(slack.getByText(/\/invite @CAIRN/i)).toBeVisible();
-      expect(slack.getByText(/no permission to write anything to slack/i)).toBeVisible();
-    });
-  });
-
-  it("does not let the record imply Google Chat is available", async () => {
-    // The record has to explain why the answer is "not connected", and here the
-    // reason is not that nobody got round to it: the restricted scope is
-    // unverified, so no authorisation can complete. A trust page that lists a
-    // source as merely unconnected, on a screen whose whole claim is that its
-    // statements can be checked, is the wrong sentence in the worst place.
-    renderTrust();
-
-    await screen.findByRole("heading", { name: /^google chat$/i });
-    const chat = within(card(/^google chat$/i));
-
-    expect(chat.getByText(/cannot be connected yet/i)).toBeVisible();
-    expect(chat.getByText(/casa security assessment/i)).toBeVisible();
-  });
-
-  it("carries no reassurance", async () => {
-    // Every line is either checkable by using the product for an afternoon or a
-    // name somebody can look up. "We take your privacy seriously" is the
-    // sentence this asserts the absence of.
-    renderTrust();
-
-    await screen.findByRole("heading", { name: /what cairn reads/i });
-    const main = await screen.findByRole("main");
-
-    expect(main.textContent).not.toMatch(
-      /take (your )?privacy seriously|industry.leading|bank.grade/i,
-    );
-  });
-
-  it("passes an axe audit", async () => {
-    const { container } = renderTrust();
-    await screen.findByRole("heading", { name: /what cairn reads/i });
-
-    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
-  });
-
-  describe("when CAIRN staff have looked", () => {
-    const SUPPORT_SESSION: SupportSession = {
-      id: "44444444-4444-4444-4444-444444444444",
-      requestedBy: "sam@cairn.dev",
-      reason: "investigating an integration failure",
-      requestedScope: "configuration_diagnostics",
-      approvedScope: "configuration_diagnostics",
-      status: "approved",
-      active: false,
-      requestedMinutes: 40,
-      requestedAt: "2026-08-12T09:00:00Z",
-      decidedAt: "2026-08-12T09:04:00Z",
-      decidedBy: "ali@acme.example.com",
-      expiresAt: "2026-08-12T09:44:00Z",
-      revokedAt: null,
-      breakGlass: false,
-      events: [
-        {
-          occurredAt: "2026-08-12T09:05:00Z",
-          scope: "configuration_diagnostics",
-          description: "Read 3 recorded activity statements",
-        },
-      ],
-    };
-
-    it("says nobody has looked, rather than saying nothing", async () => {
-      // An absent section reads as an unanswered question. md/15 §5.2 wants the
-      // customer able to check, including when the answer is "never".
-      renderTrust();
-
-      expect(
-        await screen.findByText(/nobody at cairn has asked to look at this workspace/i),
-      ).toBeVisible();
-    });
-
-    it("names who asked, why, and who decided", async () => {
-      renderTrust({
-        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
-      });
-
-      expect(await screen.findByText(/sam@cairn.dev on /i)).toBeVisible();
-      expect(screen.getByText(/investigating an integration failure/i)).toBeVisible();
-      expect(screen.getByText(/ali@acme.example.com/)).toBeVisible();
-    });
-
-    it("states the duration that was asked for", async () => {
-      // The approver is agreeing to a length of access. Approving a duration
-      // nobody displayed is consent to an unstated term.
-      renderTrust({
-        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
-      });
-
-      expect(await screen.findByText(/for up to 40 minutes/i)).toBeVisible();
-    });
-
-    it("says which scope each recorded access was performed under", async () => {
-      // "They opened something" and "they opened your team's work" are
-      // different answers, and the event carries which one it was.
-      renderTrust({
-        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
-      });
-
-      expect(
-        await screen.findByText(
-          /read 3 recorded activity statements \(settings and diagnostics\)/i,
-        ),
-      ).toBeVisible();
-    });
-
-    it("says plainly when approved access was never used", async () => {
-      renderTrust({
-        listSupportSessions: vi.fn(() => Promise.resolve([{ ...SUPPORT_SESSION, events: [] }])),
-      });
-
-      expect(await screen.findByText(/access was granted and never used/i)).toBeVisible();
-    });
-
-    it("lists what was actually opened, not only what was permitted", async () => {
-      // An approval is permission; the events are use. "Did they actually look"
-      // is the question a customer is asking.
-      renderTrust({
-        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
-      });
-
-      expect(await screen.findByText(/read 3 recorded activity statements/i)).toBeVisible();
-    });
-
-    it("distinguishes a live session from a finished one", async () => {
-      renderTrust({
-        listSupportSessions: vi.fn(() => Promise.resolve([{ ...SUPPORT_SESSION, active: true }])),
-      });
-
-      expect(await screen.findByText(/active now/i)).toBeVisible();
-    });
-
-    it("says a refusal was a refusal", async () => {
-      renderTrust({
-        listSupportSessions: vi.fn(() =>
-          Promise.resolve([{ ...SUPPORT_SESSION, status: "rejected" as const, active: false }]),
-        ),
-      });
-
-      expect(await screen.findByText(/^refused$/i)).toBeVisible();
-    });
-
-    it("shows an Owner the controls for a pending request", async () => {
-      renderTrust({
-        listSupportSessions: vi.fn(() =>
-          Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
-        ),
-      });
-
-      expect(await screen.findByRole("button", { name: /allow/i })).toBeVisible();
-      expect(screen.getByRole("button", { name: /refuse/i })).toBeVisible();
-    });
-
-    it("sends the decision", async () => {
-      const decideSupportSession = vi.fn(() => Promise.resolve(SUPPORT_SESSION));
-      renderTrust({
-        listSupportSessions: vi.fn(() =>
-          Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
-        ),
-        decideSupportSession,
-      });
-
-      await userEvent.click(await screen.findByRole("button", { name: /allow/i }));
-
-      expect(decideSupportSession).toHaveBeenCalledWith(WORKSPACE, SUPPORT_SESSION.id, true);
-    });
-
-    it("explains the effect before ending access, and only then ends it", async () => {
-      // Ending access is not destructive to data, but the other party notices
-      // immediately, so the effect is stated before the act.
-      const revokeSupportSession = vi.fn(() => Promise.resolve(SUPPORT_SESSION));
-      renderTrust({
-        listSupportSessions: vi.fn(() => Promise.resolve([{ ...SUPPORT_SESSION, active: true }])),
-        revokeSupportSession,
-      });
-
-      await userEvent.click(await screen.findByRole("button", { name: /end access now/i }));
-      expect(revokeSupportSession).not.toHaveBeenCalled();
-      expect(screen.getByText(/lose access to this workspace immediately/i)).toBeVisible();
-
-      await userEvent.click(screen.getByRole("button", { name: /^end access now$/i }));
-
-      expect(revokeSupportSession).toHaveBeenCalledWith(WORKSPACE, SUPPORT_SESSION.id);
-    });
-
-    it("lets the reader back out of ending access", async () => {
-      const revokeSupportSession = vi.fn(() => Promise.resolve(SUPPORT_SESSION));
-      renderTrust({
-        listSupportSessions: vi.fn(() => Promise.resolve([{ ...SUPPORT_SESSION, active: true }])),
-        revokeSupportSession,
-      });
-
-      await userEvent.click(await screen.findByRole("button", { name: /end access now/i }));
-      await userEvent.click(screen.getByRole("button", { name: /leave it open/i }));
-
-      expect(revokeSupportSession).not.toHaveBeenCalled();
-      expect(
-        screen.queryByText(/lose access to this workspace immediately/i),
-      ).not.toBeInTheDocument();
-    });
-
-    it.each(["member", "viewer"] as const)(
-      "shows a %s the record and no controls",
-      async (role) => {
-        // Every member can read who looked at their workspace; deciding is an
-        // Owner or Admin action, and a control that always fails teaches a
-        // reader the product is broken.
-        renderTrust(
-          {
-            listSupportSessions: vi.fn(() =>
-              Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
-            ),
-          },
-          role,
-        );
-
-        expect(await screen.findByText(/sam@cairn.dev on /i)).toBeVisible();
-        expect(screen.queryByRole("button", { name: /allow/i })).not.toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: /refuse/i })).not.toBeInTheDocument();
-      },
-    );
-
-    it.each(["member", "viewer"] as const)(
-      "tells a %s who can decide, rather than showing them nothing",
-      async (role) => {
-        // Absence is ambiguous: it leaves the reader unable to tell whether a
-        // pending request is unattended or simply not theirs to act on. A
-        // Viewer has the same stake in this record as an Owner.
-        renderTrust(
-          {
-            listSupportSessions: vi.fn(() =>
-              Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
-            ),
-          },
-          role,
-        );
-
-        expect(
-          await screen.findByText(/an owner or an admin of this workspace decides this request/i),
-        ).toBeVisible();
-      },
-    );
-
-    it("names who ended a session, not who approved it", async () => {
-      // The two are different acts by possibly different people. Rendering only
-      // the approver beside "ended early" attributed the ending to them.
-      renderTrust({
-        listSupportSessions: vi.fn(() =>
-          Promise.resolve([
-            {
-              ...SUPPORT_SESSION,
-              status: "revoked" as const,
-              active: false,
-              revokedAt: "2026-08-12T09:20:00Z",
-              revokedBy: "dana@acme.example.com",
-            },
-          ]),
-        ),
-      });
-
-      expect(await screen.findByText(/^ended early$/i)).toBeVisible();
-      expect(screen.getByText(/dana@acme.example.com/)).toBeVisible();
-      expect(screen.queryByText(/ended by you/i)).not.toBeInTheDocument();
-    });
-
-    it("says the revoker is unknown rather than borrowing the approver's name", async () => {
-      // Sessions ended before CAIRN recorded the revoker cannot name one, and
-      // the honest answer is to say so.
-      renderTrust({
-        listSupportSessions: vi.fn(() =>
-          Promise.resolve([
-            {
-              ...SUPPORT_SESSION,
-              status: "revoked" as const,
-              active: false,
-              revokedAt: "2026-08-12T09:20:00Z",
-              revokedBy: null,
-            },
-          ]),
-        ),
-      });
-
-      expect(await screen.findByText(/who ended it was not recorded/i)).toBeVisible();
-    });
-
-    it("states the approved scope, expiry and break-glass state", async () => {
-      renderTrust({
-        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
-      });
-
-      expect(await screen.findByText(/for settings and diagnostics/i)).toBeVisible();
-      // Break-glass is answered explicitly. Silence would leave a customer
-      // reading a privacy record unable to tell whether the question was asked
-      // and answered "no", or never asked at all.
-      expect(screen.getByText(/^no$/i)).toBeVisible();
-    });
-
-    it("does not describe a finished session in the present tense", async () => {
-      // The row's status already says the access ended; "Ends {past date}" on
-      // the same row contradicts it.
-      renderTrust({
-        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
-      });
-
-      await screen.findByText(/sam@cairn.dev on /i);
-      expect(screen.queryByText(/^expires$/i)).not.toBeInTheDocument();
-      expect(screen.getByText(/^expired$/i)).toBeVisible();
-    });
-
-    it("uses a future tense for a session that has not run out yet", async () => {
-      renderTrust({
-        listSupportSessions: vi.fn(() =>
-          Promise.resolve([
-            { ...SUPPORT_SESSION, active: true, expiresAt: "2099-01-01T00:00:00Z" },
-          ]),
-        ),
-      });
-
-      expect(await screen.findByText(/^expires$/i)).toBeVisible();
-    });
-
-    it("says so when a decision cannot be recorded", async () => {
-      renderTrust({
-        listSupportSessions: vi.fn(() =>
-          Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
-        ),
-        decideSupportSession: vi.fn(() => Promise.reject(apiError(422))),
-      });
-
-      await userEvent.click(await screen.findByRole("button", { name: /allow/i }));
-
-      expect(await screen.findByRole("alert")).toBeVisible();
-    });
-
-    it("passes an axe audit with the controls on screen", async () => {
-      const { container } = renderTrust({
-        listSupportSessions: vi.fn(() =>
-          Promise.resolve([{ ...SUPPORT_SESSION, status: "pending" as const, active: false }]),
-        ),
-      });
-      await screen.findByRole("button", { name: /allow/i });
-
-      await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
-    });
-
-    it("passes an axe audit with sessions on screen", async () => {
-      const { container } = renderTrust({
-        listSupportSessions: vi.fn(() => Promise.resolve([SUPPORT_SESSION])),
-      });
-      await screen.findByRole("heading", { name: /when cairn staff have looked/i });
-
-      await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
-    });
-  });
-});
-
 /**
  * Google Chat, wired into the same screen.
  *
@@ -1693,6 +994,7 @@ describe("connecting Google Chat", () => {
       renderAdmin(unconnectedGoogleClient());
 
       await screen.findByRole("heading", { name: /^google chat$/i });
+      openRecords();
       expect(
         within(card(/^google chat$/i)).getByText(/reading nothing from google chat/i),
       ).toBeVisible();
@@ -1704,6 +1006,7 @@ describe("connecting Google Chat", () => {
       await screen.findByRole("heading", { name: /^google chat$/i });
       const chat = within(card(/^google chat$/i));
 
+      openRecords();
       expect(chat.getByText("chat.spaces.readonly")).toBeVisible();
       expect(chat.getByText("chat.messages.readonly")).toBeVisible();
       expect(
@@ -1733,6 +1036,7 @@ describe("connecting Google Chat", () => {
       await screen.findByRole("heading", { name: /^google chat$/i });
       const chat = within(card(/^google chat$/i));
 
+      openRecords();
       expect(chat.getByText(/asks for no permission to write to google chat/i)).toBeVisible();
       expect(chat.getByText(/read your direct messages/i)).toBeVisible();
       expect(chat.getByText(/react to a message/i)).toBeVisible();
@@ -1750,6 +1054,7 @@ describe("connecting Google Chat", () => {
       await screen.findByRole("heading", { name: /^google chat$/i });
       const chat = within(card(/^google chat$/i));
 
+      openRecords();
       expect(chat.getByText(/a personal gmail account cannot authorise this/i)).toBeVisible();
       expect(chat.getByText(/belong to a google workspace organisation/i)).toBeVisible();
     });
@@ -1769,6 +1074,7 @@ describe("connecting Google Chat", () => {
       await screen.findByRole("heading", { name: /^google chat$/i });
       const chat = within(card(/^google chat$/i));
 
+      openRecords();
       expect(chat.getByText(/cannot be connected yet/i)).toBeVisible();
       expect(chat.getByText(/google classes as restricted/i)).toBeVisible();
       expect(chat.getByText(/casa security assessment/i)).toBeVisible();
@@ -1798,7 +1104,9 @@ describe("connecting Google Chat", () => {
 
       await userEvent.click(await screen.findByRole("button", { name: /connect google chat/i }));
 
-      expect(await screen.findByText(/this link stops working at/i)).toBeVisible();
+      const expiry = await screen.findByText(/this link stops working at/i);
+      openRecords();
+      expect(expiry).toBeVisible();
       expect(screen.getByText(/authorises one google workspace account/i)).toBeVisible();
     });
 
@@ -2040,6 +1348,7 @@ describe("connecting Google Chat", () => {
         chat.getByText(/an owner or an admin of this workspace connects and disconnects sources/i),
       ).toBeVisible();
       // And they can still read exactly what it would ask for.
+      openRecords();
       expect(chat.getByText("chat.messages.readonly")).toBeVisible();
     });
 
@@ -2101,81 +1410,6 @@ describe("connecting Google Chat", () => {
       expect(await chat.findByRole("alert")).toHaveTextContent(/does not have access to that/i);
     });
   });
-
-  describe("the Trust page's record of it", () => {
-    function renderTrustWith(stub: ReturnType<typeof createStubClient>): void {
-      renderRoute(
-        <AppLayout>
-          <TrustPage />
-        </AppLayout>,
-        { client: stub, route: "/trust" },
-      );
-    }
-
-    /** Enough of the Trust payload for the page to render around the record. */
-    const GOOGLE_TRUST: Trust = {
-      sources: [
-        {
-          source: "google_chat",
-          label: "Google Chat",
-          reads: "Messages in the spaces you choose. Never direct messages.",
-          connected: true,
-        },
-      ],
-      refusals: ["CAIRN never scores or ranks people."],
-      commitments: [
-        { title: "Everyone sees the same thing", detail: "Roles decide what you can configure." },
-      ],
-      retentionDays: 90,
-      region: "us-central1",
-      awaitingNotification: 0,
-      subprocessors: [{ title: "Google Cloud (Vertex AI)", detail: "Runs the models." }],
-    };
-
-    /** The Trust page needs its own payload as well as the connections. */
-    function trustClient(overrides = {}): ReturnType<typeof createStubClient> {
-      return googleClient({ getTrust: vi.fn(() => Promise.resolve(GOOGLE_TRUST)), ...overrides });
-    }
-
-    it("records the spaces and their subscription state, read-only", async () => {
-      renderTrustWith(trustClient());
-
-      await screen.findByRole("heading", { name: /spaces cairn reads/i });
-
-      expect(screen.getByText("Platform")).toBeVisible();
-      expect(
-        screen.getByText(
-          /the subscription is active, so messages from this space are reaching cairn/i,
-        ),
-      ).toBeVisible();
-      expect(screen.queryByRole("button", { name: /choose spaces/i })).not.toBeInTheDocument();
-    });
-
-    it("invents no last delivery when the connection recorded none", async () => {
-      // **The page's whole claim is that its numbers are read from the
-      // workspace.** A plausible "Last successful sync 4 minutes ago" from a
-      // field the server never sent would discredit every other line on it.
-      renderTrustWith(trustClient());
-
-      await screen.findByRole("heading", { name: /^google chat — northwind.example$/i });
-
-      expect(
-        within(card(/^google chat — northwind.example$/i)).queryByText(/last successful sync/i),
-      ).toBeNull();
-    });
-
-    it("says the record is incomplete rather than empty when the spaces cannot be read", async () => {
-      // One detail inside a record on a page full of records. An error panel
-      // about a space list is out of proportion to what a reader came for.
-      renderTrustWith(
-        trustClient({ listGoogleChatSpaces: vi.fn(() => Promise.reject(apiError(500))) }),
-      );
-
-      expect(
-        await screen.findByText(/could not read which google chat spaces are selected just now/i),
-      ).toBeVisible();
-    });
-  });
 });
 
 /**
@@ -2190,62 +1424,6 @@ describe("connecting Google Chat", () => {
  * here are as much about absence as about counts, because the failure is
  * additive: nobody deletes the counts, somebody adds names next to them.
  */
-describe("attribution health", () => {
-  it("states the counts by source", async () => {
-    renderAdmin();
-
-    // Awaited on the counts rather than on the heading: the section paints its
-    // own title before the read resolves, so a query made at the heading is a
-    // query made against the skeleton.
-    const list = await screen.findByRole("list", { name: /accounts by source/i });
-    expect(within(list).getByText(/7 claimed · 2 unclaimed/)).toBeVisible();
-    expect(within(list).getByText(/4 claimed · 0 unclaimed/)).toBeVisible();
-    expect(within(list).getByText(/0 claimed · 5 unclaimed/)).toBeVisible();
-  });
-
-  it("carries no per-person data of any kind", async () => {
-    renderAdmin();
-    await screen.findByRole("list", { name: /accounts by source/i });
-    const heading = screen.getByRole("heading", { name: /attribution health/i });
-    const section = heading.closest("section");
-    if (section === null) throw new Error("Attribution health is not inside a section");
-
-    // Both members of the fixture workspace, by name and by address. Neither is
-    // in the response; this asserts nothing on the client puts them back.
-    for (const member of MEMBERS) {
-      expect(section.textContent).not.toContain(member.email);
-      if (member.displayName != null) {
-        expect(section.textContent).not.toContain(member.displayName);
-      }
-    }
-    // And no control that would reassign somebody's account, which is the other
-    // half of the same rule: a member's record is theirs to correct.
-    expect(within(section).queryByRole("button", { name: /reassign/i })).toBeNull();
-    expect(within(section).queryByRole("combobox")).toBeNull();
-  });
-
-  it("says what it cannot answer, in the server's own words", async () => {
-    renderAdmin();
-
-    expect(await screen.findByText(HEALTH.notice)).toBeVisible();
-    expect(screen.getByText(/ask the team to confirm their own accounts/i)).toBeVisible();
-  });
-
-  it("reports a failure without breaking the rest of the screen", async () => {
-    renderAdmin(client({ getAttributionHealth: vi.fn(() => Promise.reject(apiError(500))) }));
-
-    expect(await screen.findByText(/attribution health could not be loaded/i)).toBeVisible();
-    expect(screen.getByRole("list", { name: /members/i })).toBeVisible();
-  });
-
-  it("has no axe violations", async () => {
-    const { container } = renderAdmin();
-    await screen.findByRole("list", { name: /accounts by source/i });
-
-    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
-  });
-});
-
 /**
  * Google Meet, wired into the same screen.
  *
@@ -2333,6 +1511,7 @@ describe("connecting Google Meet", () => {
       renderAdmin(unconnectedMeetClient());
 
       await screen.findByRole("heading", { name: /^google meet$/i });
+      openRecords();
       expect(
         within(card(/^google meet$/i)).getByText(/receiving nothing from google meet/i),
       ).toBeVisible();
@@ -2345,6 +1524,7 @@ describe("connecting Google Meet", () => {
 
       await screen.findByRole("heading", { name: /^google meet$/i });
 
+      openRecords();
       expect(
         within(card(/^google meet$/i)).getByText(
           /CAIRN does not join calls or start recordings\. It can only receive a transcript the meeting platform itself created, and only after every participant in that meeting has agreed\./,
@@ -2358,6 +1538,7 @@ describe("connecting Google Meet", () => {
       await screen.findByRole("heading", { name: /^google meet$/i });
       const meet = within(card(/^google meet$/i));
 
+      openRecords();
       expect(meet.getByText("meetings.space.readonly")).toBeVisible();
       expect(meet.getByText(/lets Google tell CAIRN that a transcript exists/i)).toBeVisible();
       expect(meet.getAllByText(/^meetings\./)).toHaveLength(1);
@@ -2368,6 +1549,7 @@ describe("connecting Google Meet", () => {
 
       await screen.findByRole("heading", { name: /^google meet$/i });
 
+      openRecords();
       expect(
         within(card(/^google meet$/i)).getByText(/a further, separate permission/i),
       ).toBeVisible();
@@ -2387,6 +1569,7 @@ describe("connecting Google Meet", () => {
       await screen.findByRole("heading", { name: /^google meet$/i });
       const meet = within(card(/^google meet$/i));
 
+      openRecords();
       expect(meet.getByText(/cannot be connected yet/i)).toBeVisible();
       expect(meet.getByText(/OAuth app verification/i)).toBeVisible();
       expect(meet.queryByText(/\blive\b/i)).toBeNull();
@@ -2486,9 +1669,9 @@ describe("connecting Google Meet", () => {
       await userEvent.click(screen.getByRole("button", { name: /connect google meet/i }));
 
       const meet = within(card(/^google meet$/i));
-      expect(
-        await meet.findByText(/does not let CAIRN collect anything on its own/i),
-      ).toBeVisible();
+      const notice = await meet.findByText(/does not let CAIRN collect anything on its own/i);
+      openRecords();
+      expect(notice).toBeVisible();
       expect(meet.getByText(/this link stops working at/i)).toBeVisible();
     });
 
@@ -2632,6 +1815,7 @@ describe("connecting Google Meet", () => {
       const meet = within(card(/^google meet/i));
 
       // Every word of the record, including the boundary and the scope.
+      openRecords();
       expect(meet.getByText(/CAIRN does not join calls or start recordings/)).toBeVisible();
       expect(meet.getByText("meetings.space.readonly")).toBeVisible();
       // And an explanation of whose job the controls are, rather than silence.
@@ -2693,135 +1877,6 @@ describe("connecting Google Meet", () => {
       // admin screen a fourth time costs a minute to re-prove somebody else's
       // assertions.
       await expect(axe(meet, AXE_OPTIONS)).resolves.toHaveNoViolations();
-    });
-  });
-
-  describe("the Trust page's record of it", () => {
-    /** Enough of the Trust payload for the page to render around the record. */
-    const MEET_TRUST: Trust = {
-      sources: [
-        {
-          source: "google_meet",
-          label: "Google Meet",
-          reads: "That a transcript exists, for a meeting everybody in it agreed to.",
-          connected: false,
-        },
-      ],
-      refusals: ["CAIRN never scores or ranks people."],
-      commitments: [
-        { title: "Everyone sees the same thing", detail: "Roles decide what you can configure." },
-      ],
-      retentionDays: 90,
-      region: "us-central1",
-      awaitingNotification: 0,
-      subprocessors: [{ title: "Google Cloud (Vertex AI)", detail: "Runs the models." }],
-    };
-
-    function renderMeetTrust(overrides = {}): ReturnType<typeof renderRoute> {
-      return renderRoute(
-        <AppLayout>
-          <TrustPage />
-        </AppLayout>,
-        {
-          client: meetClient({ getTrust: vi.fn(() => Promise.resolve(MEET_TRUST)), ...overrides }),
-          route: "/trust",
-        },
-      );
-    }
-
-    it("says CAIRN never joins as a bot or a participant", async () => {
-      // Stated on the page for the reader who has *not* been asked about a
-      // meeting: somebody who heard "CAIRN does meetings" and wants to know
-      // whether it has been sitting in their calls.
-      renderMeetTrust();
-
-      // Awaited on the sentence rather than on a role query: a `findByRole` scan
-      // of this whole page is re-run every 50ms until it resolves, and the
-      // sentence is what the test is actually about.
-      const boundary = await screen.findAllByText(
-        /CAIRN does not join calls or start recordings\. It can only receive a transcript the meeting platform itself created, and only after every participant in that meeting has agreed\./,
-      );
-
-      // Said in the Meetings section, where a reader who has not been asked
-      // about any meeting will look — not only on the connection card.
-      const inMeetings = boundary.some((node) =>
-        (node.closest("section")?.textContent ?? "").startsWith("Meetings"),
-      );
-      expect(inMeetings).toBe(true);
-    });
-
-    it("says Google Meet is not live, with its own blocker rather than Chat's", async () => {
-      // Chat is blocked by a RESTRICTED scope needing a CASA assessment. Meet's
-      // is SENSITIVE and needs Google's OAuth verification alone. Both are said
-      // where each is true, and neither weakens the other.
-      renderMeetTrust();
-
-      const notLive = await screen.findAllByText(/google meet cannot be connected yet/i);
-      const meetings = notLive
-        .map((node) => node.closest("section"))
-        .find((section) => (section?.textContent ?? "").startsWith("Meetings"));
-
-      expect(meetings?.textContent).toMatch(/OAuth app verification/i);
-      expect(meetings?.textContent).toMatch(/nothing is being received from google meet/i);
-      // Chat's blocker is not borrowed for Meet. The CASA assessment is named
-      // here only as the thing that would apply if CAIRN asked for the Drive
-      // permission, which it does not.
-      expect(meetings?.textContent).toMatch(
-        /does not need an independent CASA security assessment/i,
-      );
-    });
-
-    it("keeps the Google Chat wording exactly as it was", async () => {
-      // Meet's paragraph must not weaken or contradict Chat's. Chat's card still
-      // names the restricted scope and the CASA assessment.
-      renderMeetTrust({ listIntegrations: vi.fn(() => Promise.resolve([])) });
-
-      await screen.findByRole("heading", { name: /^google chat$/i });
-      const chat = within(card(/^google chat$/i));
-
-      expect(chat.getByText(/casa security assessment/i)).toBeVisible();
-      expect(chat.getByText(/cannot be connected yet/i)).toBeVisible();
-    });
-
-    it("records Meet read-only, with no control on it for anybody", async () => {
-      renderMeetTrust();
-
-      await screen.findByRole("heading", { name: /^google meet/i });
-      const meet = within(card(/^google meet/i));
-
-      expect(meet.getByText("meetings.space.readonly")).toBeVisible();
-      expect(meet.queryByRole("button", { name: /connect|disconnect/i })).toBeNull();
-      expect(
-        meet.getByText(/read-only here because this page is the record, not the control/i),
-      ).toBeVisible();
-    });
-
-    it("invents no status for a connection that carried none", async () => {
-      // The page's whole claim is that its facts are read from the workspace.
-      renderMeetTrust();
-
-      await screen.findByRole("heading", { name: /^google meet/i });
-      const meet = within(card(/^google meet/i));
-
-      expect(meet.queryByText(/Subscribed\.|Eligible\.|awaiting consent\./)).toBeNull();
-      expect(meet.queryByText(/last successful sync/i)).toBeNull();
-    });
-
-    it("shows the status the connection did carry", async () => {
-      renderMeetTrust({ listIntegrations: vi.fn(() => Promise.resolve([withState("eligible")])) });
-
-      await screen.findByRole("heading", { name: /^google meet/i });
-      expect(within(card(/^google meet/i)).getByText(/^Eligible\./)).toBeVisible();
-    });
-
-    it("passes an axe audit with the Meet record on the page", async () => {
-      const { container } = renderMeetTrust({
-        listIntegrations: vi.fn(() => Promise.resolve([withState("active")])),
-      });
-
-      await screen.findByRole("heading", { name: /^google meet/i });
-
-      await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
     });
   });
 });

@@ -50,22 +50,50 @@
   border-right: var(--border-thin) solid var(--border-default);
 }
 
-/* Brand -------------------------------------------------------------------- */
+/* Masthead ----------------------------------------------------------------- */
 
+/*
+ * One row: the tile, the workspace it belongs to, and — on a narrow viewport —
+ * the disclosure that opens everything else.
+ */
 .masthead {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  padding: var(--space-1) 0;
 }
 
-.brand {
+.identity {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 0 var(--space-3);
-  color: var(--fg-default);
+  min-width: 0;
+}
+
+/*
+ * The tile: a small rounded square, inverted so it reads as a mark rather than
+ * as another line of text. `bg-inverse` and `fg-inverse` are a token pair, so it
+ * inverts with the theme and needs no colour of its own.
+ */
+.brand {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+
+  width: var(--space-8);
+  height: var(--space-8);
+
+  color: var(--fg-inverse);
+  background: var(--bg-inverse);
+  border-radius: var(--radius-lg);
   text-decoration: none;
+}
+
+.brand:focus-visible {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
 }
 
 .brandMark {
@@ -74,12 +102,13 @@
   color: currentcolor;
 }
 
-.brandName {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  /* Widely tracked lettering is the one typographic flourish in the product. */
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+/*
+ * The workspace name, or the switcher when there is more than one to switch
+ * between. The type is set in `WorkspaceSwitcher.module.css`; the box is here so
+ * a long workspace name truncates inside the column instead of widening it.
+ */
+.workspace {
+  min-width: 0;
 }
 
 /* Menu disclosure ---------------------------------------------------------- */
@@ -139,9 +168,9 @@
 /* Disclosure panel --------------------------------------------------------- */
 
 /*
- * Everything the disclosure governs: the switcher, the destinations and the
- * account block. Collapsing the navigation alone would leave "Sign out" pinned
- * to a narrow header with nothing around it.
+ * Everything the disclosure governs: the destinations and the account block.
+ * Collapsing the navigation alone would leave "Sign out" pinned to a narrow
+ * header with nothing around it.
  */
 .panel {
   display: flex;
@@ -149,27 +178,6 @@
   flex-direction: column;
   gap: var(--space-5);
   min-height: 0;
-}
-
-/* Workspace identity ------------------------------------------------------- */
-
-/*
- * The real workspace name, and the reader's role in it. Both come from the
- * session — there is no placeholder here, and nothing is shown when the session
- * does not carry it.
- */
-.identity {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.identityRole {
-  margin: 0;
-  padding: 0 var(--space-3);
-  color: var(--fg-subtle);
-  font-size: var(--text-xs);
-  letter-spacing: 0.04em;
 }
 
 /*
@@ -191,44 +199,24 @@
 /* Navigation --------------------------------------------------------------- */
 
 /*
+ * One flat list: no headings, no eyebrows, no rules between the rows. Eight
+ * destinations do not need to be sorted into sections, and every line drawn
+ * between them competes with the only one that carries meaning — the hairline
+ * above the account block.
+ *
  * `flex: 1` and `overflow-y: auto` together are the safety net, not the plan:
- * the rhythm below fits eight destinations, three headings and the account
- * block inside 768px, so no scrollbar appears there or at any taller viewport.
- * Below roughly 600px of height — a phone in landscape — the nav scrolls rather
- * than shrinking rows past a comfortable target size, and the account block
- * stays pinned beneath it either way.
+ * the rhythm below fits every destination and the account block inside 768px,
+ * so no scrollbar appears there or at any taller viewport. Below roughly 600px
+ * of height — a phone in landscape — the nav scrolls rather than shrinking rows
+ * past a comfortable target size, and the account block stays pinned beneath it
+ * either way.
  */
 .nav {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: var(--space-4);
   min-height: 0;
   overflow-y: auto;
-}
-
-.group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-/*
- * A real `<h2>`, sized down to a label.
- *
- * Uppercase and widely tracked, matching the wordmark: in a monochrome system
- * the only way to say "this is a label, not content" without colour is with
- * letterform. `fg-subtle` carries the 4.5:1 normal-text ratio, so the heading is
- * quiet without being decorative.
- */
-.groupHeading {
-  margin: 0;
-  padding: var(--space-1) var(--space-3);
-  color: var(--fg-subtle);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
 }
 
 .navList {
@@ -241,40 +229,44 @@
 }
 
 .navLink {
-  position: relative;
   display: flex;
   align-items: center;
+  gap: var(--space-2);
+
+  padding: var(--space-2) var(--space-3);
   /*
    * 36px: `space-8` plus `space-1`, so the row stays on the 4px rhythm.
    *
-   * Half a step down from the 44px of `--min-target`, which is what lets eight
-   * destinations, three group headings and the account block share 768px with
-   * nothing scrolling. It is comfortably past the 24px WCAG 2.5.8 floor, and the
-   * rows are full-width — the target is the whole 248px-wide row, not the label.
-   * Controls that are not in a list of eight keep the full 44px.
+   * Half a step down from the 44px of `--min-target`, which is what lets every
+   * destination and the account block share 768px with nothing scrolling. It is
+   * comfortably past the 24px WCAG 2.5.8 floor, and the rows are full-width —
+   * the target is the whole 248px-wide row, not the label. Controls that are not
+   * in a list of eight keep the full 44px.
    */
   min-height: calc(var(--space-8) + var(--space-1));
-  padding: 0 var(--space-3);
 
-  gap: var(--space-3);
   color: var(--fg-muted);
   font-size: var(--text-sm);
   text-decoration: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
 
   transition: background-color var(--duration-fast) var(--easing-standard);
 }
 
 /*
  * Guarded, because a touch device reports a tap as a hover and keeps reporting
- * it until the next tap elsewhere. Unguarded, the link just tapped keeps the
- * "current" background while `aria-current` sits on a different row — two rows
+ * it until the next tap elsewhere. Unguarded, the link just tapped keeps a
+ * filled background while `aria-current` sits on a different row — two rows
  * claiming to be where you are, and the wrong one is the louder signal.
+ *
+ * Fainter than the current row deliberately: hover is the pointer following the
+ * eye, and a hover that fills as strongly as "you are here" says the reader has
+ * already arrived.
  */
 @media (hover: hover) {
   .navLink:hover {
     color: var(--fg-default);
-    background: var(--bg-muted);
+    background: var(--bg-subtle);
   }
 }
 
@@ -285,44 +277,21 @@
  *
  * Styling `aria-current` rather than a separate "active" class ties the visual
  * state to the accessible one: they cannot drift apart, because there is only
- * one of them. Weight and a solid background carry it — never colour alone
- * (WCAG 1.4.1).
+ * one of them. A filled row, a near-black label and a full-strength icon carry
+ * it; the weight does not change, so no row moves by a pixel as the reader
+ * arrives, and the state is never carried by hue — there is none in this
+ * palette to carry it with (WCAG 1.4.1).
  */
 .navLink[aria-current="page"] {
   color: var(--fg-default);
-  font-weight: var(--weight-semibold);
   background: var(--bg-muted);
-}
-
-/*
- * The marker rule down the left edge of the current row.
- *
- * Three signals carry "you are here", none of them colour: heavier weight, a
- * filled background, and this rule. It is `fg-default` against `bg-muted`, far
- * past the 3:1 that WCAG 1.4.11 asks of a non-text indicator, and it is drawn
- * from the flow rather than as a `::before` so it is a real box the label cannot
- * shift over — the row does not move by a pixel when it becomes current.
- */
-.navMarker {
-  position: absolute;
-  top: var(--space-2);
-  bottom: var(--space-2);
-  left: 0;
-
-  width: var(--border-thick);
-  background: transparent;
-  border-radius: 0 var(--radius-full) var(--radius-full) 0;
-}
-
-.navLink[aria-current="page"] .navMarker {
-  background: var(--fg-default);
 }
 
 /* The destination's mark: quiet line icons, `currentColor` so they follow the
  * row's own states for free and never introduce a colour of their own. */
 .navIcon {
   flex: none;
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .navLink[aria-current="page"] .navIcon {
@@ -343,31 +312,33 @@
 /*
  * Pinned to the bottom of the column and never scrolled away: `.nav` above it
  * is the flexible box, so the account block keeps its height whatever the
- * viewport does.
+ * viewport does. The single hairline above it is the only rule in the column.
  */
 .account {
   display: flex;
   flex: none;
-  flex-direction: column;
-  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
   padding-top: var(--space-4);
   border-top: var(--border-thin) solid var(--border-default);
 }
 
 .accountIdentity {
-  padding: 0 var(--space-3);
   min-width: 0;
+  padding-left: var(--space-3);
 }
 
 .accountName {
+  color: var(--fg-default);
   font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .accountDetail {
+  margin: 0;
   color: var(--fg-subtle);
   font-size: var(--text-xs);
   overflow: hidden;
@@ -436,9 +407,8 @@
  * The sidebar becomes a header with a disclosure beneath it.
  *
  * What was here before was a horizontally scrolling tab strip, justified by a
- * comment claiming five links. There are eight, nine for an admin, and at 320px
- * the last two — Settings and the Trust page md/05 §B.6 requires to be
- * permanently reachable — sat off the right edge with no fade, no arrows and no
+ * comment claiming five links. There are seven, eight for an admin, and at
+ * 320px the last of them sat off the right edge with no fade, no arrows and no
  * visible scrollbar on iOS. A destination you cannot see and cannot scroll to
  * is not in the navigation.
  *
@@ -473,27 +443,16 @@
     display: none;
   }
 
-  /* The list is vertical here as well: eight full-width rows, reachable at
-     320px, which is the whole point of the change. The page scrolls at this
-     width anyway, so the rows go back to the full 44px `--min-target` — the
-     compact rhythm exists to fit a fixed-height desktop column, and there is no
-     fixed height here. */
+  /* The rows go back to the full 44px of `--min-target` here: the compact
+     rhythm exists to fit a fixed-height desktop column, and there is no fixed
+     height at this width — the page scrolls anyway. */
   .nav {
     flex: none;
-    gap: var(--space-5);
     overflow-y: visible;
   }
 
   .navLink {
     min-height: var(--min-target);
-  }
-
-  .account {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
-    padding-top: var(--space-4);
   }
 
   .main {

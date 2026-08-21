@@ -7,14 +7,15 @@ import { AppShell } from "./AppShell.js";
 import { createStubClient, renderRoute, SESSION } from "../test/harness.js";
 
 /**
- * The application frame: grouping, workspace identity, the current location and
- * the narrow-viewport disclosure.
+ * The application frame: the destination list, workspace identity, the current
+ * location and the narrow-viewport disclosure.
  *
  * jsdom has no layout, so none of this proves what the sidebar looks like. What
- * it does prove is the part that is invisible and easy to break: that the group
- * labels are real headings rather than styled text, that the workspace name is
- * the one in the session rather than a placeholder, that exactly one link claims
- * `aria-current`, and that a keyboard user can open, use and close the menu.
+ * it does prove is the part that is invisible and easy to break: that every
+ * destination is offered, in order, to the roles entitled to it, that the
+ * workspace name is the one in the session rather than a placeholder, that
+ * exactly one link claims `aria-current`, and that a keyboard user can open, use
+ * and close the menu.
  */
 
 function sessionAs(role: "owner" | "admin" | "member" | "viewer"): Session {
@@ -41,72 +42,53 @@ async function primaryNav(): Promise<HTMLElement> {
   return screen.findByRole("navigation", { name: /primary/i });
 }
 
-describe("the grouped navigation", () => {
-  it("labels each group with a real heading", async () => {
-    // A group label that exists only as small grey text is decoration: a screen
-    // reader user arrives at "Workspace settings" with no idea which section it
-    // belongs to, because there is nothing in the accessibility tree to say so.
+describe("the navigation", () => {
+  it("is one flat list, with no headings dividing it", async () => {
+    // The group headings have gone: seven rows do not need to be sorted into
+    // sections, and a heading over a single row is a category announcing
+    // itself. Asserted rather than assumed, because the shape before this put
+    // the destinations in three separate named lists — a reader skimming by
+    // heading would otherwise be told there is structure that no longer exists.
     renderShell();
     const nav = await primaryNav();
 
-    for (const label of ["Workspace", "Administration", "Trust & privacy"]) {
-      expect(within(nav).getByRole("heading", { name: label })).toBeVisible();
-    }
+    expect(within(nav).queryAllByRole("heading")).toEqual([]);
+    expect(within(nav).getAllByRole("list")).toHaveLength(1);
   });
 
-  it("puts every destination in its group, in order", async () => {
+  it("offers every destination, in order", async () => {
     renderShell();
     const nav = await primaryNav();
 
-    const groups: Record<string, string[]> = {
-      // The overview is the home screen and the brief has its own route: the
-      // dashboard answers "what is happening", the brief is the document a
-      // reader sits down with, and Projects is the surface the project layer
-      // made truthful.
-      Workspace: [
-        "Dashboard",
-        "Daily brief",
-        "Activity",
-        "Projects",
-        "Team",
-        "Your record",
-        "Archive",
-      ],
-      Administration: ["Workspace settings", "Preferences"],
-      "Trust & privacy": ["Trust Center"],
-    };
-
-    for (const [group, labels] of Object.entries(groups)) {
-      // The list is named by its heading, so the association is asserted the way
-      // assistive technology reads it rather than by DOM position.
-      const list = within(nav).getByRole("list", { name: group });
-      const links = within(list).getAllByRole("link");
-      expect(links.map((link) => link.textContent)).toEqual(labels);
-    }
+    // The overview is the home screen and the brief has its own route: the
+    // dashboard answers "what is happening", the brief is the document a
+    // reader sits down with, and Projects is the surface the project layer
+    // made truthful.
+    const list = within(nav).getByRole("list");
+    const links = within(list).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Dashboard",
+      "Daily brief",
+      "Activity",
+      "Projects",
+      "Team",
+      "Your record",
+      "Workspace settings",
+    ]);
   });
 
-  it("keeps every route path that existed before the regrouping", async () => {
+  it("keeps every route path that existed before the redesign", async () => {
     renderShell();
     const nav = await primaryNav();
     const hrefs = within(nav)
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));
 
-    // Every path that existed before is still here; `/brief` and `/projects`
-    // are additions, not replacements - the brief moved off `/` when the
-    // overview took the home slot, and its old content is one click away.
-    expect(hrefs).toEqual([
-      "/",
-      "/brief",
-      "/feed",
-      "/projects",
-      "/people",
-      "/me",
-      "/archive",
-      "/admin",
-      "/settings",
-      "/trust",
-    ]);
+    // Every path that survived is still here, in the same order. `/trust` is
+    // absent because the Trust Center has been removed from the product, not
+    // because the redesign mislaid it.
+    expect(hrefs).toEqual(["/", "/brief", "/feed", "/projects", "/people", "/me", "/admin"]);
+    expect(hrefs).not.toContain("/trust");
   });
 
   it.each(["owner", "admin"] as const)("offers workspace settings to an %s", async (role) => {
@@ -125,8 +107,14 @@ describe("the grouped navigation", () => {
       const nav = await primaryNav();
 
       expect(within(nav).queryByRole("link", { name: "Workspace settings" })).toBeNull();
-      // The group survives, because Preferences is not gated.
-      expect(within(nav).getByRole("link", { name: "Preferences" })).toBeVisible();
+      // The row goes with it. There is no heading left over it now, so what the
+      // group assertion used to guard — that nothing announces a section with
+      // nothing in it — is guarded here as the list itself, unchanged but for
+      // the destination the role cannot reach.
+      const hrefs = within(nav)
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("href"));
+      expect(hrefs).toEqual(["/", "/brief", "/feed", "/projects", "/people", "/me"]);
     },
   );
 });
@@ -176,11 +164,13 @@ describe("workspace identity", () => {
     expect(await screen.findByText("Member")).toBeVisible();
   });
 
-  it("keeps sign-out in the shell", async () => {
+  it("keeps sign-out in the shell, beside the account it signs out of", async () => {
+    // The address rather than the display name: two people can share a name,
+    // and the account block exists to say which account this session belongs to.
     renderShell();
 
     expect(await screen.findByRole("button", { name: /sign out/i })).toBeVisible();
-    expect(screen.getByText("Ali Rahman")).toBeVisible();
+    expect(screen.getByText(SESSION.user.email)).toBeVisible();
   });
 });
 
@@ -200,23 +190,23 @@ describe("the current location", () => {
   it("does not mark the overview on every page", async () => {
     // "/" prefix-matches every path; without the exact match two links claim to
     // be where the reader is and the quieter one is still wrong.
-    renderShell({ route: "/archive" });
+    renderShell({ route: "/projects" });
     const nav = await primaryNav();
 
     expect(within(nav).getByRole("link", { name: "Dashboard" })).not.toHaveAttribute(
       "aria-current",
     );
-    expect(within(nav).getByRole("link", { name: "Archive" })).toHaveAttribute(
+    expect(within(nav).getByRole("link", { name: "Projects" })).toHaveAttribute(
       "aria-current",
       "page",
     );
   });
 
   it("marks a child route as its section", async () => {
-    renderShell({ route: "/archive/2026-03-19" });
+    renderShell({ route: "/projects/2026-03-19" });
     const nav = await primaryNav();
 
-    expect(within(nav).getByRole("link", { name: "Archive" })).toHaveAttribute(
+    expect(within(nav).getByRole("link", { name: "Projects" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -267,7 +257,7 @@ describe("the narrow-viewport menu", () => {
     await userEvent.click(trigger);
 
     const nav = await primaryNav();
-    await userEvent.click(within(nav).getByRole("link", { name: "Trust Center" }));
+    await userEvent.click(within(nav).getByRole("link", { name: "Your record" }));
 
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();

@@ -39,14 +39,7 @@ export function DashboardPage(): ReactNode {
     return (
       <>
         <PageHeader title="Dashboard" description="Your team and its projects." />
-        <EmptyState
-          title="Join a workspace to get started"
-          action={
-            <Link className={utility.actionLink} href="/settings">
-              Check which account you are using
-            </Link>
-          }
-        >
+        <EmptyState title="Join a workspace to get started">
           Join a workspace and your team&rsquo;s work appears here.
         </EmptyState>
       </>

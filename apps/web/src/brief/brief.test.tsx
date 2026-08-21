@@ -1,15 +1,14 @@
 import type { Brief } from "@cairn/api-client";
 import { screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import AppLayout from "../app/(app)/layout.js";
 import { BriefPage } from "../routes/BriefPage.js";
-import { SettingsPage } from "../routes/SettingsPage.js";
 import { apiError, createStubClient, renderRoute, SESSION } from "../test/harness.js";
 
 /**
- * The brief, the theme, and the two product promises that live in this screen.
+ * The brief, the period label it carries, and the two product promises that
+ * live in this screen.
  *
  * *Every claim links to its source.* A claim rendered without a way to check it
  * is the product asking to be believed, which is the opposite of its pitch.
@@ -169,37 +168,15 @@ describe("the brief", () => {
   });
 });
 
+/**
+ * The theme picker was removed with the Preferences screen, and the two tests
+ * that drove it went with it — there is no longer any control that offers
+ * light, dark and system, and no reader choice to apply to the document.
+ *
+ * What survives is the half that never needed a picker: CAIRN follows the
+ * operating system, and stamps nothing of its own on first load.
+ */
 describe("the theme", () => {
-  it("offers light, dark and system", async () => {
-    // System is the default and must remain selectable: a reader who has set a
-    // preference at the OS level has already answered this question.
-    renderRoute(
-      <AppLayout>
-        <SettingsPage />
-      </AppLayout>,
-      { client: signedIn(), route: "/settings" },
-    );
-
-    const main = await screen.findByRole("main");
-    for (const name of [/light/i, /dark/i, /system/i]) {
-      expect(within(main).getByRole("radio", { name })).toBeInTheDocument();
-    }
-  });
-
-  it("applies the reader's choice to the document", async () => {
-    renderRoute(
-      <AppLayout>
-        <SettingsPage />
-      </AppLayout>,
-      { client: signedIn(), route: "/settings" },
-    );
-
-    const main = await screen.findByRole("main");
-    await userEvent.click(within(main).getByRole("radio", { name: /dark/i }));
-
-    expect(document.documentElement.dataset.theme).toBe("dark");
-  });
-
   it("leaves the choice to the operating system by default", async () => {
     // Stamping an explicit theme on first load overrides a preference the
     // reader already expressed, and it is the reason so many products ignore
@@ -250,31 +227,6 @@ describe("the overview rail", () => {
     const rail = await screen.findByRole("complementary", { name: /around this brief/i });
     expect(await within(rail).findByText(/stage the payments cutover/i)).toBeVisible();
     expect(within(rail).getByText("meeting")).toBeVisible();
-    expect(within(rail).getByRole("link", { name: /all activity/i })).toHaveAttribute(
-      "href",
-      "/feed",
-    );
-  });
-
-  it("names the sources the record draws on", async () => {
-    renderRoute(
-      <AppLayout>
-        <BriefPage />
-      </AppLayout>,
-      {
-        client: {
-          ...signedIn(),
-          getFacets: vi.fn(() =>
-            Promise.resolve({ people: [], projects: [], sources: ["github", "meeting"] }),
-          ),
-        },
-        route: "/",
-      },
-    );
-
-    const rail = await screen.findByRole("complementary", { name: /around this brief/i });
-    expect(await within(rail).findByText("github")).toBeVisible();
-    expect(within(rail).getByText(/how cairn treats this data/i)).toHaveAttribute("href", "/trust");
   });
 
   it("keeps the brief readable when a panel fails", async () => {
@@ -306,6 +258,68 @@ describe("the overview rail", () => {
 
     const rail = await screen.findByRole("complementary", { name: /around this brief/i });
     expect(await within(rail).findByText(/nothing has been recorded yet/i)).toBeVisible();
-    expect(within(rail).getByText(/no source has produced evidence yet/i)).toBeVisible();
+  });
+});
+
+/**
+ * The period label on the brief header. It used to live on the archive screen
+ * and is now a local helper in `BriefPage`, so it is exercised through the
+ * header rather than called directly.
+ *
+ * Read as the heading's previous sibling, which is where `PageHeader` puts the
+ * eyebrow. Anchoring on the element rather than on the page text means a label
+ * that stopped rendering altogether fails here instead of quietly satisfying
+ * the "no dash" assertion.
+ */
+describe("the period the brief covers", () => {
+  it("shows a single date for a one-day period", async () => {
+    // "12 August" is a date somebody recognises. "12 August 06:00 – 13 August
+    // 06:00" is a range they have to parse to learn the same thing.
+    renderRoute(
+      <AppLayout>
+        <BriefPage />
+      </AppLayout>,
+      {
+        client: signedIn({
+          ...BRIEF,
+          periodStart: "2026-08-12T06:00:00Z",
+          periodEnd: "2026-08-13T06:00:00Z",
+        }),
+        route: "/",
+      },
+    );
+
+    // Awaited past the load: the header paints before the brief resolves, and
+    // the eyebrow only exists once there is a period to put in it.
+    await screen.findByText(/rate limiting shipped/i);
+    const heading = screen.getByRole("heading", { level: 1, name: /overview/i });
+    const eyebrow = heading.previousElementSibling;
+    expect(eyebrow).not.toBeNull();
+    expect(eyebrow?.textContent).toBeTruthy();
+    expect(eyebrow?.textContent).not.toContain("–");
+  });
+
+  it("shows a range for a longer period", async () => {
+    renderRoute(
+      <AppLayout>
+        <BriefPage />
+      </AppLayout>,
+      {
+        client: signedIn({
+          ...BRIEF,
+          periodStart: "2026-08-05T06:00:00Z",
+          periodEnd: "2026-08-12T06:00:00Z",
+        }),
+        route: "/",
+      },
+    );
+
+    // Awaited past the load: the header paints before the brief resolves, and
+    // the eyebrow only exists once there is a period to put in it.
+    await screen.findByText(/rate limiting shipped/i);
+    const heading = screen.getByRole("heading", { level: 1, name: /overview/i });
+    const eyebrow = heading.previousElementSibling;
+    expect(eyebrow).not.toBeNull();
+    expect(eyebrow?.textContent).toContain("–");
   });
 });

@@ -13,7 +13,6 @@ import { PageHeader } from "../components/PageHeader.js";
 import { SampleBanner } from "../components/SampleBanner.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { useAsync } from "../hooks/useAsync.js";
-import { formatPeriod } from "./ArchivePage.js";
 import utility from "../styles/utility.module.css";
 import styles from "./BriefPage.module.css";
 
@@ -44,17 +43,9 @@ export function BriefPage(): ReactNode {
           title="Overview"
           description="Each morning CAIRN writes up what happened across your team, in plain English, with the evidence behind every sentence."
         />
-        <EmptyState
-          title="Join a workspace to see a brief"
-          action={
-            <Link className={utility.actionLink} href="/settings">
-              Check which account you are using
-            </Link>
-          }
-        >
+        <EmptyState title="Join a workspace to see a brief">
           A brief describes one team&rsquo;s week, so there is nothing to write until this account
-          belongs to a workspace. A colleague can invite you to theirs — and if you expected to be
-          in one already, it is worth checking which account you signed in with.
+          belongs to a workspace. A colleague can invite you to theirs.
         </EmptyState>
       </>
     );
@@ -92,11 +83,6 @@ function WorkspaceBrief({ workspaceId }: { workspaceId: string }): ReactNode {
             ? formatGeneratedAt(state.data.generatedAt)
             : undefined
         }
-        actions={
-          <Link className={utility.actionLink} href="/archive">
-            History
-          </Link>
-        }
       />
 
       {IS_SAMPLE_CONTENT && <SampleBanner />}
@@ -112,11 +98,6 @@ function WorkspaceBrief({ workspaceId }: { workspaceId: string }): ReactNode {
               title="Today's brief could not be loaded"
               error={state.error}
               onRetry={reload}
-              action={
-                <Link className={utility.actionLink} href="/archive">
-                  Read an earlier brief
-                </Link>
-              }
             />
           )}
 
@@ -129,8 +110,6 @@ function WorkspaceBrief({ workspaceId }: { workspaceId: string }): ReactNode {
           on its own — a broken feed must not take the brief down with it. */}
         <aside className={styles.rail} aria-label="Around this brief">
           <ActivityPanel content={content} workspaceId={workspaceId} />
-          <SourcesPanel content={content} workspaceId={workspaceId} />
-          <GoToPanel />
         </aside>
       </div>
     </>
@@ -191,11 +170,6 @@ function ActivityPanel({
             ))}
           </ul>
         ))}
-      <p className={styles.panelFoot}>
-        <Link className={utility.actionLink} href="/feed">
-          All activity
-        </Link>
-      </p>
     </Section>
   );
 }
@@ -205,89 +179,6 @@ function factProvenance(fact: Fact): string {
   const sources = [...new Set((fact.sources ?? []).map((source) => source.source))];
   if (sources.length === 0) return "unsourced";
   return sources.join(" and ");
-}
-
-/**
- * Which sources the record currently draws on — read from the facts themselves
- * via the facets, not from a configuration screen, so an empty list means "no
- * evidence" rather than "not set up". System health stated as provenance.
- */
-function SourcesPanel({
-  content,
-  workspaceId,
-}: {
-  content: ContentSource;
-  workspaceId: string;
-}): ReactNode {
-  const load = useCallback(
-    (signal: AbortSignal) => content.getFacets(workspaceId, signal),
-    [content, workspaceId],
-  );
-  const { state, reload } = useAsync(load, "load the record's sources");
-
-  return (
-    <Section
-      title="Where this comes from"
-      className={styles.panel ?? ""}
-      headingClassName={styles.panelTitle ?? ""}
-    >
-      {state.status === "loading" && (
-        <LoadingState label="the record's sources" shape="rows" lines={2} />
-      )}
-      {state.status === "failed" && (
-        <ErrorState title="Sources could not be read" error={state.error} onRetry={reload} />
-      )}
-      {state.status === "ready" &&
-        ((state.data.sources ?? []).length === 0 ? (
-          <p className={styles.panelEmpty}>
-            No source has produced evidence yet, so today&rsquo;s record rests on nothing. Once a
-            connected tool produces something, it is named here.
-          </p>
-        ) : (
-          <ul className={styles.panelList}>
-            {(state.data.sources ?? []).map((source) => (
-              <li className={styles.panelItem} key={source}>
-                <span className={styles.panelStatement}>{source}</span>
-              </li>
-            ))}
-          </ul>
-        ))}
-      <p className={styles.panelFoot}>
-        <Link className={utility.actionLink} href="/trust">
-          How CAIRN treats this data
-        </Link>
-      </p>
-    </Section>
-  );
-}
-
-/** Standing destinations from the overview. Static, so it has no states. */
-function GoToPanel(): ReactNode {
-  return (
-    <Section
-      title="Go to"
-      className={styles.panel ?? ""}
-      headingClassName={styles.panelTitle ?? ""}
-    >
-      <ul className={styles.panelList}>
-        <li className={styles.panelItem}>
-          <Link className={utility.actionLink} href="/me">
-            Your record and corrections
-          </Link>
-        </li>
-        <li className={styles.panelItem}>
-          <Link className={utility.actionLink} href="/archive">
-            Earlier briefs
-          </Link>
-        </li>
-        <li className={styles.panelItem}>
-          <Link className={utility.actionLink} href="/people">
-            The team
-          </Link>
-        </li>
-      </ul>
-    </Section>
-  );
 }
 
 function BriefBody({ brief }: { brief: Brief }): ReactNode {
@@ -313,14 +204,7 @@ function BriefBody({ brief }: { brief: Brief }): ReactNode {
 
   if (claims.length === 0) {
     return (
-      <EmptyState
-        title="Nothing recorded yet"
-        action={
-          <Link className={utility.actionLink} href="/trust">
-            See what is connected
-          </Link>
-        }
-      >
+      <EmptyState title="Nothing recorded yet">
         No activity has reached CAIRN for this period. Nothing is read until a source is connected
         and switched on, so that is the usual reason a brief has nothing to describe.
       </EmptyState>
@@ -345,6 +229,26 @@ function BriefBody({ brief }: { brief: Brief }): ReactNode {
       </p>
     </article>
   );
+}
+
+/**
+ * The period a brief covers, as a label.
+ *
+ * Local to this screen rather than exported: the archive that used to share it
+ * has been removed from the product, and the brief header is the only caller
+ * left.
+ */
+function formatPeriod(start: string, end: string): string {
+  const from = new Date(start);
+  const to = new Date(end);
+  const day = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "long" });
+
+  // Labelled by duration, not calendar boundaries: a 06:00-to-06:00 brief spans
+  // two dates and is one day of work. The tolerance absorbs clock drift.
+  const oneDay = 24 * 60 * 60 * 1000;
+  if (to.getTime() - from.getTime() <= oneDay + 1000) return day.format(from);
+
+  return `${day.format(from)} – ${day.format(to)}`;
 }
 
 /** `undefined` as the locale, not a hardcoded one: 03/04 means two different

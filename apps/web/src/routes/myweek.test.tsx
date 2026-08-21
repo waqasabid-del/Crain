@@ -206,23 +206,9 @@ describe("who is behind a statement", () => {
     ).toBeVisible();
   });
 
-  it("offers the reader their own way out, and it is operable from the keyboard", async () => {
-    render(
-      client({
-        myWeek: vi.fn(() => Promise.resolve(weekWith({ resolvedActors: 0, unresolvedActors: 1 }))),
-      }),
-    );
-
-    const link = await screen.findByRole("link", { name: /connect your own accounts/i });
-    expect(link).toHaveAttribute("href", "/settings");
-
-    // Reachable by tab, which is the whole of "operable" for a link. A note
-    // whose only remedy needs a mouse is a note with no remedy.
-    link.focus();
-    expect(link).toHaveFocus();
-    await userEvent.tab();
-    expect(link).not.toHaveFocus();
-  });
+  // Your record used to end its attribution note with "Connect your own
+  // accounts", the reader's own way out. Preferences held that control and has
+  // been removed from the product, so the note states the fact and stops there.
 
   it("renders no provider account id or address anywhere in the markup", async () => {
     // The hard rule. The API sends counts and nothing else; this fails if a
@@ -364,30 +350,5 @@ describe("the shell", () => {
 
     const nav = await screen.findByRole("navigation", { name: /primary/i });
     expect(within(nav).getByRole("link", { name: /your record/i })).toHaveAttribute("href", "/me");
-  });
-});
-
-describe("self-declared capacity", () => {
-  it("states the contract and saves only on the explicit act", async () => {
-    const setMyCapacity = vi.fn(() =>
-      Promise.resolve({ capacity: "open_to_work", capacityStatedAt: "2026-08-19T10:00:00Z" }),
-    );
-    render(client({ setMyCapacity }));
-    const user = userEvent.setup();
-
-    // The contract in plain English, on the control itself: who sees it, who
-    // sets it, and that CAIRN never fills it in.
-    expect(await screen.findByText(/only you can set it/i)).toBeVisible();
-    expect(screen.getByText(/never fills it in from your activity/i)).toBeVisible();
-
-    // Choosing does not save - a statement about yourself deserves a
-    // deliberate act, and a radio that saves on focus travel publishes a
-    // misclick to the whole team.
-    await user.click(screen.getByRole("radio", { name: "Open to new work" }));
-    expect(setMyCapacity).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(setMyCapacity).toHaveBeenCalledWith(expect.any(String), "open_to_work");
-    expect(await screen.findByText(/visible to your workspace as self-reported/i)).toBeVisible();
   });
 });

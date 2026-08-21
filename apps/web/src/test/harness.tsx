@@ -106,6 +106,18 @@ export function createStubClient(overrides: Partial<CairnClient> = {}): CairnCli
     changeRole: vi.fn(unexpected("changeRole")),
     removeMember: vi.fn(unexpected("removeMember")),
     listIntegrations: vi.fn(unexpected("listIntegrations")),
+    // A benign default, like `listFacts` above. Workspace settings reads this on
+    // every render to decide whether a Connect button can do anything, and the
+    // tests that are about *that* answer override it. Configured is the right
+    // default for the rest: it leaves every control exactly as it was before the
+    // field existed, so no existing assertion is answered by this stub.
+    listIntegrationProviders: vi.fn(() =>
+      Promise.resolve([
+        { source: "slack", configured: true },
+        { source: "google_chat", configured: true },
+        { source: "google_meet", configured: true },
+      ]),
+    ),
     disconnectGitHub: vi.fn(unexpected("disconnectGitHub")),
     startSlackInstall: vi.fn(unexpected("startSlackInstall")),
     listSlackChannels: vi.fn(unexpected("listSlackChannels")),

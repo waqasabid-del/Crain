@@ -9,7 +9,6 @@ import { BriefPage } from "./routes/BriefPage.js";
 import { FeedPage } from "./routes/FeedPage.js";
 import NotFound from "./app/not-found.js";
 import { PeoplePage } from "./routes/PeoplePage.js";
-import { SettingsPage } from "./routes/SettingsPage.js";
 import { createStubClient, renderRoute, SESSION } from "./test/harness.js";
 
 function shell(page: ReactNode): ReactNode {
@@ -45,10 +44,7 @@ const DESTINATIONS = [
   "Projects",
   "Team",
   "Your record",
-  "Archive",
   "Workspace settings",
-  "Preferences",
-  "Trust Center",
 ] as const;
 
 describe("routing", () => {
@@ -62,7 +58,6 @@ describe("routing", () => {
   it.each([
     ["/feed", <FeedPage key="feed" />],
     ["/people", <PeoplePage key="people" />],
-    ["/settings", <SettingsPage key="settings" />],
   ])("renders %s inside the shell", async (route, page) => {
     renderRoute(shell(page), { client: signedIn(), route });
 
@@ -165,9 +160,9 @@ describe("the shell", () => {
  * and a manual check's. What it can assert is the part that was broken and the
  * part that is easy to break again: that the control exists, that every
  * destination is behind it, and that a keyboard user can open it, use it, close
- * it with Escape and get their focus back. The strip this replaced put two
- * destinations, one of them the Trust page md/05 §B.6 requires to be permanently
- * reachable, off the right edge with no way to scroll to them by keyboard.
+ * it with Escape and get their focus back. The strip this replaced put the last
+ * two destinations off the right edge with no way to scroll to them by
+ * keyboard.
  */
 describe("the narrow-viewport navigation", () => {
   async function openMenu(): Promise<HTMLElement> {
@@ -238,7 +233,7 @@ describe("the narrow-viewport navigation", () => {
 
     const trigger = await openMenu();
     const nav = screen.getByRole("navigation", { name: /primary/i });
-    await userEvent.click(within(nav).getByRole("link", { name: "Trust Center" }));
+    await userEvent.click(within(nav).getByRole("link", { name: "Your record" }));
 
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();

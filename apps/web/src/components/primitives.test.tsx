@@ -344,18 +344,18 @@ describe("States", () => {
         error={PROBLEM}
         onRetry={vi.fn()}
         retryable={false}
-        action={<a href="/trust">Trust Center</a>}
+        action={<a href="/feed">All activity</a>}
       />,
     );
 
     expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
     // Still somewhere to go: a dead end is what the retry button was covering.
-    expect(screen.getByRole("link", { name: "Trust Center" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "All activity" })).toBeVisible();
   });
 
   it("gives an empty state somewhere to go, not just an explanation", () => {
     render(
-      <EmptyState title="Nothing recorded yet" action={<a href="/trust">See what is connected</a>}>
+      <EmptyState title="Nothing recorded yet" action={<a href="/admin">See what is connected</a>}>
         Nothing is read until a source is connected.
       </EmptyState>,
     );

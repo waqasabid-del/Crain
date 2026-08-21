@@ -869,6 +869,20 @@ def code_challenge_for(verifier: str) -> str:
 # -- The authorise URL ------------------------------------------------------
 
 
+def is_configured(settings: Settings) -> bool:
+    """Whether this deployment holds Google Chat OAuth credentials.
+
+    The same single predicate Slack's connector keeps, for the same reason: the
+    install route's 503 and the integrations status route's ``configured`` flag
+    have to be the same decision, or the screen offers a Connect button whose
+    only possible outcome is a failure the reader reads as a fault.
+
+    The client id alone. The secret is checked by `HttpGoogleChatApi` where it is
+    used, and a status route must not read a secret to answer a boolean.
+    """
+    return bool(settings.google_chat_client_id)
+
+
 def build_authorize_url(settings: Settings, *, state: str, code_verifier: str) -> str:
     """Where to send the customer's browser.
 
@@ -881,7 +895,7 @@ def build_authorize_url(settings: Settings, *, state: str, code_verifier: str) -
     about: a person who has consented before gets no refresh token, the exchange
     succeeds, and the connection dies an hour later with nothing to explain it.
     """
-    if not settings.google_chat_client_id:
+    if not is_configured(settings):
         raise GoogleChatInstallError(GoogleChatInstallFailure.NOT_CONFIGURED)
 
     query = urlencode(

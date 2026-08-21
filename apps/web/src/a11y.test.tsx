@@ -9,7 +9,6 @@ import { BriefPage } from "./routes/BriefPage.js";
 import { FeedPage } from "./routes/FeedPage.js";
 import { LoginPage } from "./routes/LoginPage.js";
 import { PeoplePage } from "./routes/PeoplePage.js";
-import { SettingsPage } from "./routes/SettingsPage.js";
 import { createStubClient, renderRoute, SESSION } from "./test/harness.js";
 
 /**
@@ -98,10 +97,6 @@ describe("axe audit", () => {
 
   it("passes on people", async () => {
     await auditShell(<PeoplePage />, "/people");
-  });
-
-  it("passes on settings", async () => {
-    await auditShell(<SettingsPage />, "/settings");
   });
 
   it("passes on the login screen", async () => {

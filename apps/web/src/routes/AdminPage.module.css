@@ -15,15 +15,27 @@
   border-top: var(--border-thin) solid var(--border-subtle);
 }
 
-/* Connections are cards, not rules: each carries a heading, a state, a record
-   and an action, and a flat row stopped reading as one object. */
+/*
+ * The sources as a grid of app cards rather than a column of essays.
+ *
+ * `auto-fill` with a `min()` floor: the track never demands more than the
+ * viewport can give, so the grid collapses to one column on a narrow screen and
+ * nothing pushes the page sideways at 320px (WCAG 1.4.10).
+ */
 .connections {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
   gap: var(--space-4);
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* The card, not the item, is the surface — the item only has to stretch so
+   that two cards in one row end level with each other. */
+.connections > li {
+  display: flex;
+  min-width: 0;
 }
 
 .person {

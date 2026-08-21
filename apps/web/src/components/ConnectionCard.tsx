@@ -1,10 +1,11 @@
 "use client";
 
-import type { Integration } from "@cairn/api-client";
+import { ApiError, type Integration } from "@cairn/api-client";
 import { Button } from "@cairn/ui";
+import clsx from "clsx";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
-import type { DescribedError } from "../errors.js";
+import { describeError, type DescribedError } from "../errors.js";
 import utility from "../styles/utility.module.css";
 import styles from "./ConnectionCard.module.css";
 import { formatDay, formatDayAndTime } from "./dates.js";
@@ -48,12 +49,101 @@ import { StatusNote } from "./StatusNote.js";
  */
 export type ConnectionState = "connected" | "disconnected" | "revoked" | "error";
 
+/**
+ * The state, as a word on the pill.
+ *
+ * Two of the four are the plain binary a reader is looking for — **Connected**
+ * or **Not connected** — and the other two are kept because they are not that
+ * binary: a grant somebody withdrew at the provider and a connection that
+ * exists and is failing both need a different answer, and rounding either down
+ * to "Not connected" would send whoever read it to the wrong place.
+ */
 const STATE_LABEL: Record<ConnectionState, string> = {
   connected: "Connected",
-  disconnected: "Disconnected",
+  disconnected: "Not connected",
   revoked: "Access revoked",
   error: "Not working",
 };
+
+/**
+ * The pill for a source this deployment holds no credentials for.
+ *
+ * **Not a state of the connection, which is why it is not in `ConnectionState`.**
+ * Nothing was tried and nothing failed: an operator has not given this
+ * deployment an OAuth client for the provider, so there is nothing here to
+ * connect, revoke or fix. It is a fact about the installation of CAIRN, and it
+ * borrows the plain pill treatment — no fill, no heavier weight — because it is
+ * the calmest thing on the card rather than something to answer.
+ */
+const NOT_SET_UP_LABEL = "Not set up";
+
+/**
+ * Why the action is switched off, in six words.
+ *
+ * Named per provider, and it names *who*: the reader of this screen is an Owner
+ * or an Admin of the workspace, and this is the one connector problem they
+ * cannot solve from inside it — the credentials belong to whoever runs this
+ * deployment of CAIRN. "Try again later" would be false, and the 5xx apology it
+ * used to show ("Something on CAIRN's side failed… Reference: …") was worse:
+ * an incident report for a switch nobody has turned on.
+ */
+export function notSetUpLine(provider: string): string {
+  return `Needs ${provider} credentials from your administrator.`;
+}
+
+/**
+ * The same fact, at the length the record inside the card is written to.
+ *
+ * Said in full where there is room for it, so the short line on the face is not
+ * the only place a reader can find out that nothing is wrong.
+ */
+export function notSetUpDetail(provider: string): string {
+  return (
+    `${provider} has not been set up on this CAIRN deployment, so it cannot be connected here. ` +
+    "Nothing failed and nothing is being read. Whoever runs this deployment adds the credentials; " +
+    "there is nothing to retry until they have."
+  );
+}
+
+/**
+ * A failed Connect, told apart from a failure.
+ *
+ * **The defensive half of "Not set up".** The card is switched off in advance
+ * from the status the screen loaded, but a deployment can lose its credentials
+ * between that load and the click, and the install route answers a 503 whose
+ * generic rendering is "Something on CAIRN's side failed… Reference: <uuid>".
+ * That copy is correct for a 500 and wrong here: nothing on CAIRN's side failed,
+ * retrying will not help, and a reference id invites somebody to open a support
+ * ticket about a switch that was never turned on.
+ *
+ * Matched on the status *and* the provider's own problem type, never on prose,
+ * and never on the status alone: a 503 from a load balancer is a real outage and
+ * must keep the apology and the reference id it comes with. Everything that is
+ * not this one bounded case falls through to `describeError` untouched.
+ *
+ * The result deliberately carries no `requestId`. There is nothing for support
+ * to look up.
+ */
+export function describeConnectFailure(
+  error: unknown,
+  {
+    provider,
+    problemType,
+    action,
+  }: {
+    /** "Slack". Named in the sentence, so a Chat failure cannot read as Slack's. */
+    provider: string;
+    /** The provider's `not-configured` problem type, e.g. `slack-not-configured`. */
+    problemType: string;
+    /** What was being attempted — "start connecting Slack" — for the fallback. */
+    action: string;
+  },
+): DescribedError {
+  if (error instanceof ApiError && error.status === 503 && error.is(problemType)) {
+    return { message: notSetUpDetail(provider) };
+  }
+  return describeError(error, action);
+}
 
 /** Once disconnected or revoked there is nothing left to disconnect. */
 const LIVE_STATES: ConnectionState[] = ["connected", "error"];
@@ -78,6 +168,16 @@ export interface Connection {
   stateDetail: string;
   /** What this provider reads — knowledge the client holds, not a server field. */
   reads?: string;
+  /**
+   * The same promise in one glanceable line, for the face of the card.
+   *
+   * A noun phrase rather than a sentence with a tense in it: the card carries
+   * one of these whether or not the source is connected, and "Reads your
+   * channels" printed under a **Not connected** pill would be a false statement
+   * about what is happening right now. `reads` is the full version and lives
+   * inside the disclosure with everything else.
+   */
+  line?: string;
   /** The scopes actually granted. Only ever what the API returned. */
   scopes?: string[];
   /** The provider's own health summary, when there is one. */
@@ -154,6 +254,16 @@ export interface ConnectionCardProps {
   onConnect?: () => void;
   /** A connect request in flight, while the API is minting the authorise URL. */
   connecting?: boolean;
+  /**
+   * Whether this deployment holds OAuth credentials for the provider.
+   *
+   * **Defaults to `true`, and that default is deliberate.** The flag is read
+   * from an API field, and a client that assumed "not set up" whenever it had
+   * not been told would print a false and discouraging claim about every
+   * deployment whose API is a version behind. Only a `false` the server
+   * actually sent switches the control off.
+   */
+  configured?: boolean;
   /** What the provider's consent screen just said. See `OAuthReturn`. */
   oauthReturn?: OAuthReturn;
   /**
@@ -211,6 +321,7 @@ export function ConnectionCard({
   problem,
   onConnect,
   connecting = false,
+  configured = true,
   oauthReturn,
   requestedScopes,
   refusals,
@@ -240,6 +351,11 @@ export function ConnectionCard({
   // was revoked at the provider needs the grant renewing, and calling that
   // "Connect" hides from the reader that it was ever on.
   const connectable = canManage && onConnect !== undefined && connection.state !== "connected";
+  // Offered and switched off, rather than hidden. A missing button is a screen
+  // with a hole in it — the reader is left to wonder whether they lack the role,
+  // whether the source exists, or whether the page is broken — and the sentence
+  // beside it only makes sense next to the control it explains.
+  const unavailable = !configured;
   const connectLabel =
     connection.state === "disconnected"
       ? `Connect ${connection.provider}`
@@ -277,25 +393,45 @@ export function ConnectionCard({
   return (
     <article className={styles.card} aria-labelledby={headingId} tabIndex={-1} ref={cardRef}>
       <div className={styles.header}>
-        <Heading className={styles.name} id={headingId}>
-          {connection.provider}
-          {/* No account, no em dash and no placeholder: a source nobody has
-              connected has no account name, and " — Not connected" in the
-              heading would read as the name of the account. */}
-          {connection.account !== undefined && (
-            <span className={styles.account}> — {connection.account}</span>
-          )}
-        </Heading>
-        {/*
-          The state as a word. `--fg-default` against the muted rest carries the
-          emphasis, and the emphasis is not the information: the information is
-          the word itself (WCAG 1.4.1).
-        */}
-        <span className={styles.state}>{STATE_LABEL[connection.state]}</span>
+        <ProviderMark provider={connection.provider} />
+        <div className={styles.identity}>
+          <Heading className={styles.name} id={headingId}>
+            {connection.provider}
+            {/* No account, no em dash and no placeholder: a source nobody has
+                connected has no account name, and " — Not connected" in the
+                heading would read as the name of the account. */}
+            {connection.account !== undefined && (
+              <span className={styles.account}> — {connection.account}</span>
+            )}
+          </Heading>
+          {/*
+            The state as a word, in `StateBadge`'s treatment — weight and border,
+            never hue. A green dot here would be the only colour on the screen,
+            and a state carried by a shade is one a reader with low vision has to
+            guess at (WCAG 1.4.1).
+          */}
+          <span
+            className={clsx(
+              styles.pill,
+              !unavailable && connection.state === "connected" && styles.pillLive,
+              !unavailable &&
+                (connection.state === "error" || connection.state === "revoked") &&
+                styles.pillAttention,
+            )}
+            data-state={unavailable ? "not-set-up" : connection.state}
+          >
+            {unavailable ? NOT_SET_UP_LABEL : STATE_LABEL[connection.state]}
+          </span>
+        </div>
       </div>
 
-      <p className={styles.detail}>{connection.stateDetail}</p>
-      {connection.reads !== undefined && <p className={styles.reads}>{connection.reads}</p>}
+      {/* One line, and the card's whole claim on the face of it. The long form
+          is one click away in the record below. */}
+      {unavailable ? (
+        <p className={styles.line}>{notSetUpLine(connection.provider)}</p>
+      ) : (
+        connection.line !== undefined && <p className={styles.line}>{connection.line}</p>
+      )}
 
       {oauthReturn !== undefined && (
         <div className={styles.return}>
@@ -309,62 +445,84 @@ export function ConnectionCard({
       )}
 
       {/*
-        Above the controls, deliberately. A caveat printed under the button that
-        acts on it is one somebody reads after they have already pressed it.
+        **The prose is moved, not dropped, and it could not have been dropped.**
+        These paragraphs are what CAIRN reads and what it refuses to read — the
+        product's promise about surveillance, not decoration around a toggle.
+        Deleting them would leave the workspace screen asking somebody to
+        authorise a grant whose terms are stated nowhere they are looking, which
+        is consent to something they were never told.
+        So they sit behind a disclosure instead: one click away, in document
+        order above the control that acts on them, and in the accessibility tree
+        the whole time — `<details>` keeps the content findable by search and
+        reachable by a screen reader rather than removing it from the page.
+
+        It is also deliberately *above* the controls. A caveat printed under the
+        button that acts on it is one somebody reads after they have pressed it.
       */}
-      {notice !== undefined && <p className={styles.notice}>{notice}</p>}
+      <details className={styles.record}>
+        <summary className={styles.recordSummary}>What CAIRN reads</summary>
+        <div className={styles.recordBody}>
+          <p className={styles.detail}>
+            {unavailable ? notSetUpDetail(connection.provider) : connection.stateDetail}
+          </p>
+          {connection.reads !== undefined && <p className={styles.reads}>{connection.reads}</p>}
 
-      {requestedScopes !== undefined && requestedScopes.length > 0 && (
-        <div className={styles.block}>
-          <SubHeading className={styles.blockHeading}>
-            What CAIRN asks {connection.provider} for
-          </SubHeading>
-          {/*
-            Both names for every permission. The sentence is what a reader
-            understands; the literal scope string is what they can check against
-            the provider's own consent screen. Neither alone is honest — a
-            paraphrase asks them to trust the translation, and a bare
-            `channels:history` is a permission dialog nobody can read.
-          */}
-          <dl className={styles.scopes}>
-            {requestedScopes.map((grant) => (
-              <div className={styles.scopeRow} key={grant.scope}>
-                <dt>
-                  <code className={styles.scopeName}>{grant.scope}</code>
-                </dt>
-                <dd>{grant.means}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      )}
+          {notice !== undefined && <p className={styles.notice}>{notice}</p>}
 
-      {refusals !== undefined && refusals.length > 0 && (
-        <div className={styles.block}>
-          <SubHeading className={styles.blockHeading}>What CAIRN cannot do</SubHeading>
-          {/*
-            Stated, never inferred. A short list of granted permissions leaves
-            the reader to work out the complement of a set they do not know the
-            size of, and everybody's guess is "probably more than that".
-          */}
-          <ul className={styles.refusals}>
-            {refusals.map((refusal) => (
-              <li key={refusal}>{refusal}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {facts.length > 0 && (
-        <dl className={styles.facts}>
-          {facts.map((fact) => (
-            <div className={styles.factRow} key={fact.term}>
-              <dt>{fact.term}</dt>
-              <dd>{fact.value}</dd>
+          {requestedScopes !== undefined && requestedScopes.length > 0 && (
+            <div className={styles.block}>
+              <SubHeading className={styles.blockHeading}>
+                What CAIRN asks {connection.provider} for
+              </SubHeading>
+              {/*
+                Both names for every permission. The sentence is what a reader
+                understands; the literal scope string is what they can check
+                against the provider's own consent screen. Neither alone is
+                honest — a paraphrase asks them to trust the translation, and a
+                bare `channels:history` is a permission dialog nobody can read.
+              */}
+              <dl className={styles.scopes}>
+                {requestedScopes.map((grant) => (
+                  <div className={styles.scopeRow} key={grant.scope}>
+                    <dt>
+                      <code className={styles.scopeName}>{grant.scope}</code>
+                    </dt>
+                    <dd>{grant.means}</dd>
+                  </div>
+                ))}
+              </dl>
             </div>
-          ))}
-        </dl>
-      )}
+          )}
+
+          {refusals !== undefined && refusals.length > 0 && (
+            <div className={styles.block}>
+              <SubHeading className={styles.blockHeading}>What CAIRN cannot do</SubHeading>
+              {/*
+                Stated, never inferred. A short list of granted permissions
+                leaves the reader to work out the complement of a set they do not
+                know the size of, and everybody's guess is "probably more than
+                that".
+              */}
+              <ul className={styles.refusals}>
+                {refusals.map((refusal) => (
+                  <li key={refusal}>{refusal}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {facts.length > 0 && (
+            <dl className={styles.facts}>
+              {facts.map((fact) => (
+                <div className={styles.factRow} key={fact.term}>
+                  <dt>{fact.term}</dt>
+                  <dd>{fact.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+      </details>
 
       {children !== undefined && <div className={styles.extra}>{children}</div>}
 
@@ -421,7 +579,13 @@ export function ConnectionCard({
                 then navigates to. See `onConnect`.
               */}
               {connectable && (
-                <Button size="sm" variant="primary" loading={connecting} onClick={onConnect}>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={connecting}
+                  disabled={unavailable}
+                  onClick={onConnect}
+                >
                   {connectLabel}
                 </Button>
               )}
@@ -453,6 +617,81 @@ export function ConnectionCard({
         </div>
       )}
     </article>
+  );
+}
+
+/**
+ * A mark for the source, drawn rather than borrowed.
+ *
+ * **None of these is anybody's logo.** They are generic glyphs for the *kind* of
+ * thing each source is — a commit graph, a channel, a message, a camera — drawn
+ * on a 24-unit grid in `currentColor`, so they inherit the monochrome palette
+ * and a company's trademarked artwork never ships inside CAIRN's bundle.
+ *
+ * Decorative, and `aria-hidden` for it: the provider's name sits immediately
+ * beside the mark, so announcing the mark as well would only repeat it worse.
+ * A source with no glyph falls back to a monogram, the same way `ProjectTile`
+ * handles a project it has no picture for.
+ */
+const MARKS: Record<string, ReactNode> = {
+  // A commit graph: a trunk between two commits, and one branch off it.
+  github: (
+    <>
+      <circle cx="7" cy="5" r="2.25" />
+      <circle cx="7" cy="19" r="2.25" />
+      <circle cx="17" cy="12" r="2.25" />
+      <path d="M7 7.25V16.75" />
+      <path d="M7 12H14.75" />
+    </>
+  ),
+  // A channel mark: the hash a public room is written with.
+  slack: (
+    <>
+      <path d="M10.5 4.5 8.5 19.5" />
+      <path d="M16 4.5 14 19.5" />
+      <path d="M4.5 9.5H19.5" />
+      <path d="M4.5 14.5H19.5" />
+    </>
+  ),
+  // A message, with the tail that makes it one rather than a box.
+  "google chat": (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="12" rx="3" />
+      <path d="M8.5 16.5V20.5L13 16.5" />
+    </>
+  ),
+  // A camera pointed at nothing: Meet is a call CAIRN is told about and never
+  // joins, and the glyph is the meeting rather than a participant.
+  "google meet": (
+    <>
+      <rect x="3" y="6.5" width="12.5" height="11" rx="2.5" />
+      <path d="M15.5 10.5 21 7.5V16.5L15.5 13.5Z" />
+    </>
+  ),
+};
+
+function ProviderMark({ provider }: { provider: string }): ReactNode {
+  const glyph = MARKS[provider.trim().toLowerCase()];
+
+  return (
+    <span className={styles.mark} aria-hidden="true">
+      {glyph === undefined ? (
+        <span className={styles.monogram}>{provider.slice(0, 1).toUpperCase()}</span>
+      ) : (
+        <svg
+          className={styles.glyph}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          focusable="false"
+        >
+          {glyph}
+        </svg>
+      )}
+    </span>
   );
 }
 
@@ -603,6 +842,7 @@ export function slackNotConnected(): Connection {
     provider: "Slack",
     state: "disconnected",
     stateDetail: "Not connected, so CAIRN is reading nothing from Slack.",
+    line: PROVIDERS.slack.line,
     reads: PROVIDERS.slack.reads,
   };
 }
@@ -722,6 +962,7 @@ export function googleChatNotConnected(): Connection {
     provider: "Google Chat",
     state: "disconnected",
     stateDetail: "Not connected, so CAIRN is reading nothing from Google Chat.",
+    line: PROVIDERS.google_chat.line,
     reads: PROVIDERS.google_chat.reads,
   };
 }
@@ -855,6 +1096,7 @@ export function googleMeetNotConnected(): Connection {
     provider: "Google Meet",
     state: "disconnected",
     stateDetail: "Not connected, so CAIRN is receiving nothing from Google Meet.",
+    line: PROVIDERS.google_meet.line,
     reads: PROVIDERS.google_meet.reads,
   };
 }
@@ -1168,16 +1410,19 @@ export function ConnectionsLoading({ label, count = 2 }: ConnectionsLoadingProps
 const PROVIDERS = {
   github: {
     label: "GitHub",
+    line: "Commit messages, pull request titles, reviews.",
     reads:
       "Reading commit messages, pull request titles and reviews. Never the contents of your code.",
   },
   slack: {
     label: "Slack",
+    line: "Messages in the public channels you choose.",
     reads:
       "Reading messages in the public channels you choose, and who wrote them. Never direct messages, private channels or group DMs.",
   },
   google_chat: {
     label: "Google Chat",
+    line: "Messages in the spaces you choose.",
     reads:
       "Reading messages in the spaces you choose, through one Google Workspace account. Never direct messages, never reactions, never who has read what.",
   },
@@ -1187,16 +1432,26 @@ const PROVIDERS = {
   // difference has to be stated where the eye is already looking.
   google_meet: {
     label: "Google Meet",
+    // Not "reads" anything, in one line as in the long one. Meet is the source
+    // where the reader's assumption is *more* invasive than the truth.
+    line: "Only told a transcript exists. Never joins a call.",
     reads:
       "Being told that the meeting platform produced a transcript, for a meeting everybody in it agreed to. CAIRN never joins a call, never starts a recording, never opens a transcript and never sees who attended.",
   },
-} satisfies Record<string, { label: string; reads: string }>;
+} satisfies Record<string, { label: string; line: string; reads: string }>;
 
 /** A lookup that admits it may miss. `PROVIDERS` has known keys; the source
  * name arriving from the API does not. */
-function providerFor(source: string): { label: string; reads: string } | undefined {
-  const table: Record<string, { label: string; reads: string }> = PROVIDERS;
+function providerFor(source: string): Provider | undefined {
+  const table: Record<string, Provider> = PROVIDERS;
   return table[source];
+}
+
+/** What the client knows about a source, as against what the API sends. */
+interface Provider {
+  label: string;
+  line: string;
+  reads: string;
 }
 
 /**
@@ -1222,6 +1477,11 @@ export function connectionFromIntegration(integration: Integration): Connection 
     connectedAt: integration.connectedAt,
   };
 
+  // The one-line version is carried whichever state the source is in — it is a
+  // noun phrase about what this connector is for, not a claim that anything is
+  // being read right now. The full sentence is not: "Reading messages in the
+  // channels you choose" under a disconnected source would be false.
+  if (provider !== undefined) connection.line = provider.line;
   if (provider !== undefined && disconnectedAt === undefined) connection.reads = provider.reads;
   if (disconnectedAt !== undefined) connection.disconnectedAt = disconnectedAt;
 

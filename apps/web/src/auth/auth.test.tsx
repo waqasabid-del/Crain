@@ -229,12 +229,12 @@ describe("signing out", () => {
       logOut,
     });
 
-    renderRoute(protectedScreen(), { client, route: "/settings" });
+    renderRoute(protectedScreen(), { client, route: "/" });
 
-    // Scoped to the header, because the shell and the settings page each offer
-    // a sign-out and an unscoped query is ambiguous. Ambiguity is worse than a
-    // wrong selector: it passes until someone adds a second control, then fails
-    // somewhere unrelated to the change that broke it.
+    // Scoped to the header, because sign-out lives in the shell and an unscoped
+    // query would be ambiguous the moment a screen offers one of its own.
+    // Ambiguity is worse than a wrong selector: it passes until someone adds a
+    // second control, then fails somewhere unrelated to the change that broke it.
     // `findByRole`, not `getByRole`: the session check is asynchronous, so a
     // synchronous query runs while the app is still showing its loading state
     // and reports the landmark as missing rather than as not-yet-rendered.

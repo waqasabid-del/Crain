@@ -868,6 +868,47 @@ class IntegrationResponse(ApiModel):
     revoked_at: datetime | None = None
 
 
+class IntegrationProviderResponse(ApiModel):
+    """One source CAIRN can read, and whether this deployment could connect it.
+
+    **Separate from `IntegrationResponse` because the interesting case has no
+    connection to hang a field on.** A workspace that has never connected Slack
+    has no row anywhere, and "can Slack be connected here at all?" is a question
+    about the deployment rather than about the workspace — so it is answered per
+    provider, listed whether or not anything is connected.
+
+    It exists because the interface could not answer it before the click. A
+    deployment with no Slack client id refuses `POST .../slack/install` with a
+    503, and a 5xx reads to a customer as "CAIRN broke" — an apology and a
+    reference id for a fault that is nothing of the kind. Nothing failed: an
+    operator has not given this deployment credentials, and the screen can say so
+    calmly, in advance, with the control switched off.
+
+    Read-only and additive. Nothing here changes what is requested from a
+    provider, and no scope is added to make anything work.
+    """
+
+    #: `slack`, `google_chat`, `google_meet`. The same word the interface's
+    #: connection rows are keyed by, so a card and its provider status cannot be
+    #: matched up wrongly.
+    source: str
+
+    #: Whether this deployment holds the OAuth credentials the install route
+    #: requires.
+    #:
+    #: **Derived from the connector's own `is_configured`, which is the predicate
+    #: the install guard itself now calls.** That shared function is the whole
+    #: point of the field: a status saying "configured" beside an install that
+    #: answers 503 is worse than no status at all, and two copies of one boolean
+    #: is exactly how that happens.
+    #:
+    #: It is not the staff-facing `ConnectorHealthView.credentials_configured`,
+    #: which asks a wider question — every credential the provider needs,
+    #: including the ones only ingestion uses. This one asks precisely what
+    #: pressing Connect needs.
+    configured: bool
+
+
 class ConnectorHealthView(ApiModel):
     """One source, as far as it can be seen without reading what it carried.
 

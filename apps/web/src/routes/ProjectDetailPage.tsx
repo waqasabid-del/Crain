@@ -48,14 +48,7 @@ export function ProjectDetailPage({ projectId }: { projectId: string }): ReactNo
     return (
       <>
         <PageHeader title="Project" />
-        <EmptyState
-          title="Join a workspace to see this project"
-          action={
-            <Link className={utility.actionLink} href="/settings">
-              Check which account you are using
-            </Link>
-          }
-        >
+        <EmptyState title="Join a workspace to see this project">
           Join a workspace to see this project.
         </EmptyState>
       </>

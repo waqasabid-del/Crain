@@ -42,14 +42,7 @@ export function PeoplePage(): ReactNode {
     return (
       <>
         <PageHeader title="Team" description="Everyone in this workspace." />
-        <EmptyState
-          title="Join a workspace to see the team"
-          action={
-            <Link className={utility.actionLink} href="/settings">
-              Check which account you are using
-            </Link>
-          }
-        >
+        <EmptyState title="Join a workspace to see the team">
           An invitation from a colleague adds you to theirs.
         </EmptyState>
       </>
@@ -134,11 +127,6 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
         title="Team"
         description="Everyone in this workspace, and what they work on."
         meta={state.status === "ready" ? membersLabel(state.data.members.length) : undefined}
-        actions={
-          <Link className={utility.actionLink} href="/trust">
-            Trust Center
-          </Link>
-        }
       />
 
       {canInvite && <InvitationArea workspaceId={workspaceId} onInvited={reload} />}
@@ -148,16 +136,7 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
       )}
 
       {state.status === "failed" && (
-        <ErrorState
-          title="The team could not be loaded"
-          error={state.error}
-          onRetry={reload}
-          action={
-            <Link className={utility.actionLink} href="/trust">
-              Who can see what
-            </Link>
-          }
-        />
+        <ErrorState title="The team could not be loaded" error={state.error} onRetry={reload} />
       )}
 
       {state.status === "ready" &&
@@ -165,7 +144,7 @@ function WorkspaceMembers({ workspaceId }: { workspaceId: string }): ReactNode {
           <EmptyState
             title="Nobody here yet"
             action={
-              <Link className={utility.actionLink} href="/settings">
+              <Link className={utility.actionLink} href="/admin">
                 Workspace settings
               </Link>
             }

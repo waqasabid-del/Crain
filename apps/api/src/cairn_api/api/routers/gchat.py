@@ -212,7 +212,7 @@ async def begin_install(
     the row with no tenant context to scope to, so every statement against that
     table is platform-side and the grant set says so.
     """
-    if not settings.google_chat_client_id:
+    if not oauth.is_configured(settings):
         # Checked before the state is written. Issuing a nonce and then failing
         # to build a URL would leave a live install state behind for an install
         # that could never start.

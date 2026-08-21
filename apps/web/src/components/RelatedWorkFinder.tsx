@@ -56,12 +56,6 @@ export function RelatedWorkFinder({ workspaceId }: { workspaceId: string }): Rea
       <h2 id={`${inputId}-heading`} className={styles.heading}>
         Find related work
       </h2>
-      <p className={styles.note}>
-        Type a task or a topic to see who has worked on related things, with the evidence. Results
-        are cited facts only, newest related work first. Availability next to a name is what that
-        person said themselves.
-      </p>
-
       <form className={styles.form} onSubmit={handleSubmit}>
         <label className={utility.visuallyHidden} htmlFor={inputId}>
           Task or topic to find related work for

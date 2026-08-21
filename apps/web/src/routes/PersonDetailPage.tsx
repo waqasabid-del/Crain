@@ -47,14 +47,7 @@ export function PersonDetailPage({ personId }: { personId: string }): ReactNode 
     return (
       <>
         <PageHeader title="Person" />
-        <EmptyState
-          title="Join a workspace to see this person"
-          action={
-            <Link className={utility.actionLink} href="/settings">
-              Check which account you are using
-            </Link>
-          }
-        >
+        <EmptyState title="Join a workspace to see this person">
           Join a workspace to see this person.
         </EmptyState>
       </>

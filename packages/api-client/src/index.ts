@@ -44,6 +44,18 @@ export type FactPage =
 export type Integration =
   paths["/v1/workspaces/{workspace_id}/integrations"]["get"]["responses"][200]["content"]["application/json"][number];
 
+/**
+ * One source, and whether this deployment could connect it at all.
+ *
+ * Read before the Connect button is offered rather than after it is pressed.
+ * A deployment with no OAuth credentials for a provider answers its install
+ * route with a 503, and a 5xx is rendered everywhere as "something on CAIRN's
+ * side failed" — an apology, with a reference id, for a fault that did not
+ * happen. This is the field that lets the screen say "Not set up" instead.
+ */
+export type IntegrationProvider =
+  paths["/v1/workspaces/{workspace_id}/integrations/providers"]["get"]["responses"][200]["content"]["application/json"][number];
+
 export type Privacy =
   paths["/v1/workspaces/{workspace_id}/privacy"]["get"]["responses"][200]["content"]["application/json"];
 
@@ -582,6 +594,12 @@ export interface CairnClient {
   /** End somebody's access. Their record stays: it is the team's history. */
   removeMember(workspaceId: string, userId: string, options?: RequestOptions): Promise<void>;
   listIntegrations(workspaceId: string, options?: RequestOptions): Promise<Integration[]>;
+  /** Which sources this deployment holds credentials for. Read-only, and the
+   * same answer for every workspace: it describes the deployment, not the team. */
+  listIntegrationProviders(
+    workspaceId: string,
+    options?: RequestOptions,
+  ): Promise<IntegrationProvider[]>;
   /** Stop capturing from an installation. What was captured stays. */
   disconnectGitHub(
     workspaceId: string,
@@ -1148,6 +1166,14 @@ export function createClient(options: ClientOptions): CairnClient {
       request<Integration[]>(
         "GET",
         `/v1/workspaces/${workspaceId}/integrations`,
+        undefined,
+        options,
+      ),
+
+    listIntegrationProviders: (workspaceId: string, options?: RequestOptions) =>
+      request<IntegrationProvider[]>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/integrations/providers`,
         undefined,
         options,
       ),

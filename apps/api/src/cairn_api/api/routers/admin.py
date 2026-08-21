@@ -21,9 +21,9 @@ interface, because a confirmation dialog is a suggestion and a 422 is not.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Final
 
 import structlog
 from fastapi import APIRouter, Depends, status
@@ -34,12 +34,14 @@ from sqlalchemy.orm import joinedload
 from cairn_api.api.dependencies import (
     CurrentMembership,
     PlatformDb,
+    SettingsDep,
     TenantDb,
     WorkspaceContext,
     requires,
 )
 from cairn_api.api.errors import ProblemDetailError
 from cairn_api.api.schemas import (
+    IntegrationProviderResponse,
     IntegrationResponse,
     MembershipResponse,
     NotificationStatus,
@@ -49,11 +51,15 @@ from cairn_api.api.schemas import (
     RoleUpdate,
 )
 from cairn_api.auth.permissions import Permission
+from cairn_api.config import Settings
 from cairn_api.db.connector_models import SourceConnection
 from cairn_api.db.consent_models import SourceOptOut
 from cairn_api.db.github_models import GitHubInstallation
 from cairn_api.db.models import Membership, Tenant, TenantRole, User
+from cairn_api.gchat import oauth as gchat_oauth
+from cairn_api.gmeet import oauth as gmeet_oauth
 from cairn_api.pipeline import consent
+from cairn_api.slack import oauth as slack_oauth
 
 logger = structlog.get_logger(__name__)
 
@@ -326,6 +332,65 @@ async def list_integrations(context: CurrentMembership, db: TenantDb) -> list[In
             )
         )
     return responses
+
+
+#: Which connector answers "is this deployment set up for it?", per source.
+#:
+#: Each value is the connector's own `is_configured`, and each of those is the
+#: predicate that connector's install route calls before it will mint a state.
+#: One function per provider, called from both places, so the status and the
+#: install can never disagree — a screen that says a source is set up while the
+#: install answers 503 is the failure this table exists to make impossible.
+#:
+#: GitHub is deliberately absent. It is not connected through an OAuth install
+#: route on this screen — it arrives as an app installation — so there is no
+#: install guard here for a flag to have to agree with, and inventing one would
+#: be a claim nothing checks.
+_PROVIDER_CONFIGURED: Final[dict[str, Callable[[Settings], bool]]] = {
+    "slack": slack_oauth.is_configured,
+    "google_chat": gchat_oauth.is_configured,
+    "google_meet": gmeet_oauth.is_configured,
+}
+
+
+@router.get(
+    "/{workspace_id}/integrations/providers",
+    response_model=list[IntegrationProviderResponse],
+    summary="Which sources this deployment could connect at all",
+    responses={404: {"description": "No such workspace, or you are not a member."}},
+)
+async def list_integration_providers(
+    context: CurrentMembership, settings: SettingsDep
+) -> list[IntegrationProviderResponse]:
+    """Whether each source has credentials on this deployment.
+
+    **A question about the deployment, answered before the click.** The install
+    routes refuse with a 503 when a client id is missing, and a 5xx is rendered
+    by every client as "something on CAIRN's side failed" — an apology, and a
+    reference id, for a deployment an operator simply has not given credentials
+    to. Nothing failed. With this the screen can say "Not set up" plainly and
+    switch the control off, and the 503 becomes the defensive case rather than
+    the first thing a customer sees.
+
+    Read-only, and it reads nothing about the workspace: the answer is the same
+    for every workspace on this deployment. It is still gated on membership, the
+    same as `list_integrations`, because it is part of the same record and there
+    is no reason for it to be the one connector fact a stranger can enumerate.
+
+    **No secret is read.** Each predicate tests a client id — a value that
+    already appears in the authorise URL a customer's own browser is sent to —
+    and never a client secret, so nothing here could put one in a response, a log
+    or a cache.
+
+    Sorted for a stable payload. `context` is taken for the membership check and
+    not otherwise read, which is what makes "the same for every workspace" true
+    rather than merely intended.
+    """
+    _ = context
+    return [
+        IntegrationProviderResponse(source=source, configured=configured(settings))
+        for source, configured in sorted(_PROVIDER_CONFIGURED.items())
+    ]
 
 
 async def _authoriser_emails(

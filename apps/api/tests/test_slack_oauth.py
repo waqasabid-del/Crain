@@ -889,6 +889,48 @@ class TestSlackIsNotConfigured:
         assert response.status_code == 503
         assert response.json()["category"] == ConnectorErrorCategory.CONFIGURATION_INVALID.value
 
+    async def test_the_status_route_says_so_before_anybody_presses_connect(
+        self, app: FastAPI
+    ) -> None:
+        """The screen must be able to know, without clicking.
+
+        This is the bug the field exists for: with nothing to read, the interface
+        offered a live Connect button, the install answered 503, and the customer
+        was shown "something on CAIRN's side failed" with a reference id — an
+        apology for a fault that never happened. Nothing failed; an operator has
+        not given this deployment credentials.
+        """
+        owner = await new_actor(app, role_label="unconfigured-status")
+
+        response = await owner.client.get(
+            f"/v1/workspaces/{owner.workspace_id}/integrations/providers"
+        )
+
+        assert response.status_code == 200, response.text
+        configured = {item["source"]: item["configured"] for item in response.json()}
+        assert configured == {"slack": False, "google_chat": False, "google_meet": False}
+
+    async def test_the_status_and_the_install_guard_cannot_disagree(self, app: FastAPI) -> None:
+        """Both halves of the same answer, asserted together.
+
+        A status that reports "configured" beside an install that refuses with a
+        503 is worse than no status at all — the screen would offer a control
+        whose only outcome is the alarming failure. They share one predicate, and
+        this is the assertion that keeps them sharing it.
+        """
+        owner = await new_actor(app, role_label="unconfigured-agreement")
+
+        status = await owner.client.get(
+            f"/v1/workspaces/{owner.workspace_id}/integrations/providers"
+        )
+        install = await owner.client.post(
+            f"/v1/workspaces/{owner.workspace_id}/integrations/slack/install"
+        )
+
+        slack = next(item for item in status.json() if item["source"] == "slack")
+        assert slack["configured"] is False
+        assert install.status_code == 503
+
     async def test_no_state_row_is_written_when_it_refuses(self, app: FastAPI) -> None:
         """Issuing a nonce for an install that cannot start leaves a live state
         behind for nothing."""
@@ -901,3 +943,27 @@ class TestSlackIsNotConfigured:
             after = len(list(await db.scalars(select(SlackOAuthState.id))))
 
         assert before == after
+
+
+class TestSlackIsConfigured:
+    async def test_the_status_route_reports_it_and_the_install_starts(
+        self, slack_app: FastAPI
+    ) -> None:
+        """The other half of the agreement, on a deployment that has credentials.
+
+        Asserting only the unconfigured case would be satisfied by a field that
+        is always `false` — which would switch Connect off on every deployment,
+        including the ones where it works.
+        """
+        owner = await new_actor(slack_app, role_label="configured-status")
+
+        status = await owner.client.get(
+            f"/v1/workspaces/{owner.workspace_id}/integrations/providers"
+        )
+        install = await owner.client.post(
+            f"/v1/workspaces/{owner.workspace_id}/integrations/slack/install"
+        )
+
+        slack = next(item for item in status.json() if item["source"] == "slack")
+        assert slack["configured"] is True
+        assert install.status_code == 200, install.text

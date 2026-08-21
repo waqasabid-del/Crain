@@ -1771,6 +1771,23 @@
         "title": "IdentityVerification",
         "type": "string"
       },
+      "IntegrationProviderResponse": {
+        "additionalProperties": false,
+        "description": "One source CAIRN can read, and whether this deployment could connect it.\n\n**Separate from `IntegrationResponse` because the interesting case has no\nconnection to hang a field on.** A workspace that has never connected Slack\nhas no row anywhere, and \"can Slack be connected here at all?\" is a question\nabout the deployment rather than about the workspace \u2014 so it is answered per\nprovider, listed whether or not anything is connected.\n\nIt exists because the interface could not answer it before the click. A\ndeployment with no Slack client id refuses `POST .../slack/install` with a\n503, and a 5xx reads to a customer as \"CAIRN broke\" \u2014 an apology and a\nreference id for a fault that is nothing of the kind. Nothing failed: an\noperator has not given this deployment credentials, and the screen can say so\ncalmly, in advance, with the control switched off.\n\nRead-only and additive. Nothing here changes what is requested from a\nprovider, and no scope is added to make anything work.",
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": ["source", "configured"],
+        "title": "IntegrationProviderResponse",
+        "type": "object"
+      },
       "IntegrationResponse": {
         "additionalProperties": false,
         "description": "One source, and whether it is currently reading.\n\nDisconnected integrations are returned rather than filtered out: a gap in the\nfeed is explained by \"GitHub was disconnected on the 4th\" and unexplained by\nsilence.",
@@ -8010,6 +8027,71 @@
         },
         "summary": "Which meetings produced a transcript, and what happened to it",
         "tags": ["google-meet"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/integrations/providers": {
+      "get": {
+        "description": "Whether each source has credentials on this deployment.\n\n**A question about the deployment, answered before the click.** The install\nroutes refuse with a 503 when a client id is missing, and a 5xx is rendered\nby every client as \"something on CAIRN's side failed\" \u2014 an apology, and a\nreference id, for a deployment an operator simply has not given credentials\nto. Nothing failed. With this the screen can say \"Not set up\" plainly and\nswitch the control off, and the 503 becomes the defensive case rather than\nthe first thing a customer sees.\n\nRead-only, and it reads nothing about the workspace: the answer is the same\nfor every workspace on this deployment. It is still gated on membership, the\nsame as `list_integrations`, because it is part of the same record and there\nis no reason for it to be the one connector fact a stranger can enumerate.\n\n**No secret is read.** Each predicate tests a client id \u2014 a value that\nalready appears in the authorise URL a customer's own browser is sent to \u2014\nand never a client secret, so nothing here could put one in a response, a log\nor a cache.\n\nSorted for a stable payload. `context` is taken for the membership check and\nnot otherwise read, which is what makes \"the same for every workspace\" true\nrather than merely intended.",
+        "operationId": "list_integration_providers_v1_workspaces__workspace_id__integrations_providers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IntegrationProviderResponse"
+                  },
+                  "title": "Response List Integration Providers V1 Workspaces  Workspace Id  Integrations Providers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Which sources this deployment could connect at all",
+        "tags": ["administration"]
       }
     },
     "/v1/workspaces/{workspace_id}/integrations/slack/channels": {

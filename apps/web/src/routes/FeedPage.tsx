@@ -90,10 +90,7 @@ function UnresolvedRoute({ facts }: { facts: Fact[] }): ReactNode {
   return (
     <p className={styles.attributionRoute}>
       Some of what follows came from an account CAIRN has not matched to a person yet, so it is
-      recorded without a name rather than guessed at.{" "}
-      <Link className={utility.actionLink} href="/settings">
-        Connect your own accounts
-      </Link>
+      recorded without a name rather than guessed at.
     </p>
   );
 }
@@ -173,14 +170,7 @@ export function FeedPage(): ReactNode {
           title="Activity"
           description="Everything CAIRN has recorded, with the evidence behind it."
         />
-        <EmptyState
-          title="Join a workspace to see activity"
-          action={
-            <Link className={utility.actionLink} href="/settings">
-              Check which account you are using
-            </Link>
-          }
-        >
+        <EmptyState title="Join a workspace to see activity">
           Activity belongs to a workspace, and this account is not a member of one yet. An
           invitation from a colleague is the usual way in.
         </EmptyState>
@@ -231,11 +221,6 @@ function WorkspaceFeed({ workspaceId }: { workspaceId: string }): ReactNode {
       <PageHeader
         title="Activity"
         description="Everything CAIRN has recorded, with the evidence it rests on. This is the same information everyone on the team can see — including about leadership."
-        actions={
-          <Link className={utility.actionLink} href="/trust">
-            Trust Center
-          </Link>
-        }
       />
 
       {IS_SAMPLE_CONTENT && <SampleBanner />}
@@ -539,14 +524,7 @@ function Stream({
         the dates is usually the change that helps.
       </EmptyState>
     ) : (
-      <EmptyState
-        title="Nothing recorded yet"
-        action={
-          <Link className={utility.actionLink} href="/trust">
-            See what is connected
-          </Link>
-        }
-      >
+      <EmptyState title="Nothing recorded yet">
         No activity has reached CAIRN for this workspace. Nothing is read until a source is
         connected and switched on, which an admin does in Workspace settings.
       </EmptyState>

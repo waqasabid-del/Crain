@@ -73,6 +73,12 @@ const ROUTES: [string, (client: CairnClient) => Promise<unknown>, string, string
     `/v1/workspaces/${W}/members/u-1`,
   ],
   ["listIntegrations", (c) => c.listIntegrations(W), "GET", `/v1/workspaces/${W}/integrations`],
+  [
+    "listIntegrationProviders",
+    (c) => c.listIntegrationProviders(W),
+    "GET",
+    `/v1/workspaces/${W}/integrations/providers`,
+  ],
   ["getPrivacy", (c) => c.getPrivacy(W), "GET", `/v1/workspaces/${W}/privacy`],
   ["setRetention", (c) => c.setRetention(W, 90), "PUT", `/v1/workspaces/${W}/privacy`],
   ["getNotifications", (c) => c.getNotifications(W), "GET", `/v1/workspaces/${W}/notifications`],

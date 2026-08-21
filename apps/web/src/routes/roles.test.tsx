@@ -8,7 +8,6 @@ import AppLayout from "../app/(app)/layout.js";
 import { ROLE_PROFILES } from "../roles.js";
 import { createStubClient, renderRoute, SESSION } from "../test/harness.js";
 import { MyWeekPage } from "./MyWeekPage.js";
-import { SettingsPage } from "./SettingsPage.js";
 import { WelcomePage } from "./WelcomePage.js";
 
 /**
@@ -152,12 +151,9 @@ describe("saying what you do", () => {
     expect(setWorkRole).toHaveBeenCalledWith(SESSION.workspaces[0]?.workspace.id, null);
   });
 
-  it("can be changed later without hunting for it", async () => {
-    renderRoute(<SettingsPage />, { client: client("developer"), route: "/settings" });
-
-    expect(await screen.findByRole("group", { name: /what do you do/i })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /engineer/i })).toBeChecked();
-  });
+  // Preferences used to carry the same question, so an answer could be revised
+  // later from a standing screen. Preferences has been removed from the product
+  // and the welcome screen is now the only place the question is asked.
 });
 
 describe("where CAIRN opens", () => {
@@ -273,10 +269,12 @@ describe("the designer's own record", () => {
 
 describe("accessibility", () => {
   it("passes an axe audit with the question on screen", async () => {
-    const { container } = renderRoute(<SettingsPage />, {
-      client: client(null),
-      route: "/settings",
-    });
+    const { container } = renderRoute(
+      <AppLayout>
+        <WelcomePage />
+      </AppLayout>,
+      { client: client(null), route: "/welcome" },
+    );
     await screen.findByRole("group", { name: /what do you do/i });
 
     await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
@@ -286,7 +284,7 @@ describe("accessibility", () => {
     // A label containing two sentences is announced in full every time focus
     // lands on the control, which is the sort of "accessible" markup that is
     // unusable in practice.
-    renderRoute(<SettingsPage />, { client: client(null), route: "/settings" });
+    renderWelcome(null);
 
     const engineer = await screen.findByRole("radio", { name: "Engineer" });
     expect(engineer).toHaveAccessibleDescription(/no status reports/i);

@@ -39,14 +39,7 @@ export function ProjectsPage(): ReactNode {
     return (
       <>
         <PageHeader title="Projects" description="Everything your team is working on." />
-        <EmptyState
-          title="Join a workspace to see its projects"
-          action={
-            <Link className={utility.actionLink} href="/settings">
-              Check which account you are using
-            </Link>
-          }
-        >
+        <EmptyState title="Join a workspace to see its projects">
           Join a workspace to see its projects.
         </EmptyState>
       </>

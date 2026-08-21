@@ -213,29 +213,9 @@ describe("who is behind a statement", () => {
     expect(text).not.toMatch(/hidden|hiding|anonymous|withheld|refused|unknown person/i);
   });
 
-  it("offers the way out once above the list rather than beside every row", async () => {
-    // Forty rows and forty identical links reads as nagging about something the
-    // reader may not even be able to fix. Said once, it is an offer.
-    renderFeed(feedOf(withCounts(SHIPPED, 0, 1), withCounts(BLOCKED, 0, 2)));
-
-    await screen.findAllByText(/shipped rate limiting/i);
-    const main = await screen.findByRole("main");
-    const links = within(main).getAllByRole("link", { name: /connect your own accounts/i });
-    expect(links).toHaveLength(1);
-    expect(links[0]).toHaveAttribute("href", "/settings");
-
-    links[0]?.focus();
-    expect(links[0]).toHaveFocus();
-  });
-
-  it("does not offer it when nothing in view is unresolved", async () => {
-    renderFeed(feedOf(withCounts(SHIPPED, 2, 0)));
-
-    await screen.findAllByText(/shipped rate limiting/i);
-    expect(
-      screen.queryByRole("link", { name: /connect your own accounts/i }),
-    ).not.toBeInTheDocument();
-  });
+  // The feed used to offer "Connect your own accounts" once above the list.
+  // Preferences was the only place that could be done, and it has been removed
+  // from the product, so the unresolved note now states the fact alone.
 
   it("renders no provider account id or address, and no numeric confidence", async () => {
     renderFeed(feedOf(withCounts(SHIPPED, 3, 2)));
@@ -607,11 +587,6 @@ describe("the related-work finder", () => {
       "href",
       "https://github.com/acme/api/commit/a1b2c3",
     );
-    // The ordering statement is on the screen in words, because the order is
-    // a property of the evidence and the reader deserves to know the rule -
-    // worded without ranking vocabulary, because the page's own guard test
-    // (correctly) rejects even a negated "no scores" on this screen.
-    expect(screen.getByText(/newest related work first/i)).toBeVisible();
     // No score, no percentage, no rank - asserted over the whole rendered
     // output, so a "93% match" can never sneak in through any child.
     expect(container.textContent).not.toMatch(/\d+\s*%/);

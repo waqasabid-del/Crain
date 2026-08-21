@@ -8,9 +8,9 @@
 
 .switcher {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: var(--space-1);
-  padding: 0 var(--space-3);
 }
 
 /*
@@ -34,10 +34,12 @@
 
 .select {
   width: 100%;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-2);
   color: var(--fg-default);
   font-family: inherit;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
   background: var(--bg-default);
   border: var(--border-thin) solid var(--border-interactive);
   border-radius: var(--radius-md);
@@ -56,9 +58,18 @@
 /*
  * One workspace: the name, stated plainly. No control, because a switcher with
  * a single option is a control that cannot do anything.
+ *
+ * It sits beside the tile at the top of the sidebar and is the first thing read
+ * in the column, so it is set at the shell's largest chrome size, in the
+ * foreground colour, tracked slightly tight the way a name is rather than the
+ * way a label is. It truncates rather than widening the fixed column.
  */
 .single {
-  padding: 0 var(--space-3);
-  color: var(--fg-muted);
-  font-size: var(--text-sm);
+  overflow: hidden;
+  color: var(--fg-default);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

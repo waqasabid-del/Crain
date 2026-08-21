@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@cairn/ui";
-import clsx from "clsx";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
@@ -26,63 +25,35 @@ interface Destination {
   readonly icon: string;
 }
 
-interface NavGroup {
-  readonly key: string;
-  readonly label: string;
-  readonly items: readonly Destination[];
-}
-
 /**
- * The destinations that exist today (md/15 §4.1), grouped by what the reader is
- * there to do rather than by which team built them.
+ * The destinations that exist today (md/15 §4.1), as one flat list in the order
+ * a reader moves through them.
  *
- * The three headings are md/15 §1's three surfaces, in its own words:
- * *Workspace* is the customer application, *Administration* is tenant
- * administration (md/15 §4.2), and *Trust & privacy* is the permanent, visible
- * centre md/05 §B.6 requires for everybody — given its own heading precisely so
- * it never reads as one more setting inside Administration.
+ * There are no group headings. Seven rows do not need to be sorted into
+ * sections, and a heading over a single row ("Administration" over "Workspace
+ * settings") is a category announcing itself rather than helping anybody find
+ * anything. What the headings used to carry — that the settings row is the
+ * administrative one — is carried by the role gate that hides it instead.
  *
- * Every href is unchanged from the flat list this replaces. The labels are the
- * screen names md/15 §4 uses — "Daily brief" for the daily narrative (§4.1 #7),
- * "Archive" for the brief archive (#8), "Activity" for the team feed (#11),
- * "Workspace settings" for workspace overview and configuration (§4.2 #17–21).
+ * The labels are the screen names md/15 §4 uses — "Daily brief" for the daily
+ * narrative (§4.1 #7), "Activity" for the team feed (#11), "Workspace settings"
+ * for workspace overview and configuration (§4.2 #17–21).
+ *
  * "Your record" is deliberately second person: md/05 §B.2 makes the record the
  * person's own, and "My week" states a period where the commitment is about
  * ownership.
+ *
+ * The brief archive (#8), the personal Preferences screen and the Trust Center
+ * have been removed from the product, so none of them has an entry here.
  */
-const NAV_GROUPS: readonly NavGroup[] = [
-  {
-    key: "workspace",
-    label: "Workspace",
-    items: [
-      { href: "/", label: "Dashboard", exact: true, admin: false, icon: "overview" },
-      { href: "/brief", label: "Daily brief", exact: false, admin: false, icon: "brief" },
-      { href: "/feed", label: "Activity", exact: false, admin: false, icon: "activity" },
-      { href: "/projects", label: "Projects", exact: false, admin: false, icon: "projects" },
-      { href: "/people", label: "Team", exact: false, admin: false, icon: "team" },
-      { href: "/me", label: "Your record", exact: false, admin: false, icon: "record" },
-      { href: "/archive", label: "Archive", exact: false, admin: false, icon: "archive" },
-    ],
-  },
-  {
-    key: "management",
-    label: "Administration",
-    items: [
-      {
-        href: "/admin",
-        label: "Workspace settings",
-        exact: false,
-        admin: true,
-        icon: "settings",
-      },
-      { href: "/settings", label: "Preferences", exact: false, admin: false, icon: "preferences" },
-    ],
-  },
-  {
-    key: "trust",
-    label: "Trust & privacy",
-    items: [{ href: "/trust", label: "Trust Center", exact: false, admin: false, icon: "trust" }],
-  },
+const NAV_DESTINATIONS: readonly Destination[] = [
+  { href: "/", label: "Dashboard", exact: true, admin: false, icon: "overview" },
+  { href: "/brief", label: "Daily brief", exact: false, admin: false, icon: "brief" },
+  { href: "/feed", label: "Activity", exact: false, admin: false, icon: "activity" },
+  { href: "/projects", label: "Projects", exact: false, admin: false, icon: "projects" },
+  { href: "/people", label: "Team", exact: false, admin: false, icon: "team" },
+  { href: "/me", label: "Your record", exact: false, admin: false, icon: "record" },
+  { href: "/admin", label: "Workspace settings", exact: false, admin: true, icon: "settings" },
 ];
 
 /**
@@ -100,11 +71,8 @@ const NAV_ICONS: Readonly<Record<string, string>> = {
   activity: "M4 12h3l2.5-6 3 12 2.5-6h5",
   team: "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6M3 20a6 6 0 0 1 12 0M17 11a3 3 0 1 0 0-6M21 20a6 6 0 0 0-4-5.6",
   record: "M7 3h10v18l-5-3-5 3zM10 8h4",
-  archive: "M3 7h18v4H3zM5 11v9h14v-9M10 15h4",
   settings:
     "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14.2 3H9.8l-.4 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 0 0 5 12a7 7 0 0 0 .1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2l.4 2.7h4.4l.4-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5A7 7 0 0 0 19 12",
-  preferences: "M4 6h16M4 12h16M4 18h16M9 4v4M15 10v4M7 16v4",
-  trust: "M12 3l7 3v6c0 4.4-3 8-7 9-4-1-7-4.6-7-9V6z",
 };
 
 function NavIcon({ name }: { name: string }): ReactNode {
@@ -113,12 +81,12 @@ function NavIcon({ name }: { name: string }): ReactNode {
   return (
     <svg
       className={styles.navIcon}
-      width="16"
-      height="16"
+      width="18"
+      height="18"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -148,7 +116,7 @@ function isCurrent(pathname: string, destination: Destination): boolean {
 const FOCUSABLE =
   'a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/** `aria-hidden`: the wordmark beside it already carries the name. */
+/** `aria-hidden`: the tile it sits in is a link that carries its own name. */
 function CairnMark(): ReactNode {
   return (
     <svg
@@ -202,7 +170,6 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
   const pathname = usePathname();
 
   const panelId = useId();
-  const headingId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const firstLinkRef = useRef<HTMLAnchorElement>(null);
@@ -210,12 +177,9 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
   const mainRef = useRef<HTMLElement>(null);
 
   const isManager = activeRole === "owner" || activeRole === "admin";
-  const groups = NAV_GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((destination) => !destination.admin || isManager),
-    // A group whose only item is role-gated must disappear with it: a heading
-    // over an empty list is announced as a section that contains nothing.
-  })).filter((group) => group.items.length > 0);
+  // The gate decides what to *offer*, never what to allow: the API refuses a
+  // member independently, and a hidden link is a courtesy rather than a control.
+  const destinations = NAV_DESTINATIONS.filter((destination) => !destination.admin || isManager);
 
   const user = session?.user ?? null;
   const displayName = user?.displayName ?? null;
@@ -223,9 +187,9 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
   const roleLabel = activeRole === null ? null : (ROLE_LABEL[activeRole] ?? null);
 
   /** The link that receives focus when the panel opens. Read from the data
-   * rather than counted during render, so it stays the first link when a group
-   * is filtered away. */
-  const firstHref = groups[0]?.items[0]?.href ?? null;
+   * rather than counted during render, so it stays the first link whatever the
+   * role gate removes. */
+  const firstHref = destinations[0]?.href ?? null;
 
   /*
    * Closing always returns focus to the trigger. The panel is `display: none`
@@ -318,10 +282,24 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
 
       <header className={styles.sidebar}>
         <div className={styles.masthead}>
-          <Link className={styles.brand} href="/">
-            <CairnMark />
-            <span className={styles.brandName}>Cairn</span>
-          </Link>
+          {/*
+            The tile and the workspace it belongs to, on one row.
+
+            The tile is the way home — the mark is `aria-hidden`, so the link
+            carries its own name rather than borrowing one from a glyph. Beside
+            it is the real workspace, from the session: a switcher when the
+            reader belongs to more than one and a plain name when they do not,
+            because a dropdown with a single option is a control that cannot do
+            anything.
+          */}
+          <div className={styles.identity}>
+            <Link className={styles.brand} href="/" aria-label="Cairn home">
+              <CairnMark />
+            </Link>
+            <div className={styles.workspace}>
+              <WorkspaceSwitcher />
+            </div>
+          </div>
 
           {/*
             A disclosure, not a dialog. The panel pushes the page down instead
@@ -354,77 +332,55 @@ export function AppShell({ children }: { children: ReactNode }): ReactNode {
           className={styles.panel}
           data-open={menuOpen ? "true" : "false"}
         >
-          {/*
-            The real workspace, from the session. A switcher when the reader
-            belongs to more than one and a plain name when they do not — a
-            dropdown affordance with a single option is a control that cannot do
-            anything. The role beneath it is the tenant role the session already
-            carries (md/15 §2.2); nothing is inferred when it is absent.
-          */}
-          <div className={styles.identity}>
-            <WorkspaceSwitcher />
-            {roleLabel !== null && (
-              <p className={styles.identityRole}>
-                <span className={styles.visuallyHidden}>Your role in this workspace: </span>
-                <span>{roleLabel}</span>
-              </p>
-            )}
-          </div>
-
-          {/* Labelled: a page can hold several `nav` landmarks. */}
+          {/* Labelled: a page can hold several `nav` landmarks. The landmark is
+            the only structure the list needs — one flat list of eight rows, in
+            the order the reader moves through them. */}
           <nav className={styles.nav} aria-label="Primary">
-            {groups.map((group) => {
-              const groupHeadingId = `${headingId}-${group.key}`;
-              return (
-                <div className={styles.group} key={group.key}>
-                  {/*
-                    A real heading, not a styled `div`. Screen reader users skim
-                    by heading and by landmark; a group label that exists only as
-                    small grey text is decoration, and the reader arrives at
-                    "Workspace settings" with no idea it sits under Management.
-                  */}
-                  <h2 className={styles.groupHeading} id={groupHeadingId}>
-                    {group.label}
-                  </h2>
-                  <ul className={styles.navList} aria-labelledby={groupHeadingId}>
-                    {group.items.map((destination) => {
-                      const current = isCurrent(pathname, destination);
-                      const isFirst = destination.href === firstHref;
-                      return (
-                        <li key={destination.href}>
-                          {/* `aria-current` explicitly: monochrome has no colour
-                            to carry "you are here", so it must be in the
-                            accessibility tree. `clsx` collapses the
-                            `string | undefined` a CSS Module lookup has under
-                            `noUncheckedIndexedAccess`. */}
-                          <Link
-                            ref={isFirst ? firstLinkRef : undefined}
-                            className={clsx(styles.navLink, current && styles.navLinkCurrent)}
-                            href={destination.href}
-                            aria-current={current ? "page" : undefined}
-                            onClick={() => {
-                              if (menuOpen) closeMenu();
-                            }}
-                          >
-                            <span className={styles.navMarker} aria-hidden="true" />
-                            <NavIcon name={destination.icon} />
-                            <span className={styles.navLabel}>{destination.label}</span>
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              );
-            })}
+            <ul className={styles.navList}>
+              {destinations.map((destination) => {
+                const current = isCurrent(pathname, destination);
+                const isFirst = destination.href === firstHref;
+                return (
+                  <li key={destination.href}>
+                    {/* `aria-current` explicitly: monochrome has no colour to
+                      carry "you are here", so it must be in the accessibility
+                      tree — and it is the attribute the stylesheet reads for the
+                      filled row, so the visual state and the accessible one
+                      cannot drift apart. */}
+                    <Link
+                      ref={isFirst ? firstLinkRef : undefined}
+                      className={styles.navLink}
+                      href={destination.href}
+                      aria-current={current ? "page" : undefined}
+                      onClick={() => {
+                        if (menuOpen) closeMenu();
+                      }}
+                    >
+                      <NavIcon name={destination.icon} />
+                      <span className={styles.navLabel}>{destination.label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
           </nav>
 
+          {/*
+            Who is signed in, under a single hairline. The address first because
+            it is the thing that identifies the account without ambiguity — two
+            people can share a display name — and the tenant role the session
+            already carries (md/15 §2.2) beneath it. Nothing is inferred when
+            either is absent, and the workspace name is not repeated here: it is
+            already at the top of the same column.
+          */}
           <div className={styles.account}>
             <div className={styles.accountIdentity}>
-              <div className={styles.accountName}>{displayName ?? email ?? "Signed in"}</div>
-              {/* The address only when it is not already the name above it. */}
-              {displayName !== null && email !== null && (
-                <div className={styles.accountDetail}>{email}</div>
+              <div className={styles.accountName}>{email ?? displayName ?? "Signed in"}</div>
+              {roleLabel !== null && (
+                <p className={styles.accountDetail}>
+                  <span className={styles.visuallyHidden}>Your role in this workspace: </span>
+                  <span>{roleLabel}</span>
+                </p>
               )}
             </div>
             <Button

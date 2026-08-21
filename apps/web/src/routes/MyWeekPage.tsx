@@ -10,7 +10,6 @@ import { useAuth } from "../auth/context.js";
 import { recordLeadFor } from "../roles.js";
 import type { Fact } from "../brief/types.js";
 import { AttributionNote } from "../components/ClaimList.js";
-import { CapacityControl } from "../components/CapacityControl.js";
 import { PageHeader } from "../components/PageHeader.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { describeError, type DescribedError } from "../errors.js";
@@ -65,36 +64,16 @@ function WorkspaceWeek({ workspaceId }: { workspaceId: string }): ReactNode {
         eyebrow="This week"
         title="Your record"
         description={recordLeadFor(activeWorkRole)}
-        actions={
-          <Link className={utility.actionLink} href="/trust">
-            Trust Center
-          </Link>
-        }
       />
 
       {state.status === "loading" && <LoadingState label="your record" shape="rows" lines={4} />}
 
       {state.status === "failed" && (
-        <ErrorState
-          title="Your record could not be loaded"
-          error={state.error}
-          onRetry={reload}
-          action={
-            <Link className={utility.actionLink} href="/trust">
-              What CAIRN records about you
-            </Link>
-          }
-        />
+        <ErrorState title="Your record could not be loaded" error={state.error} onRetry={reload} />
       )}
 
       {state.status === "ready" && (
-        <>
-          <MyFacts workspaceId={workspaceId} facts={state.data.items ?? []} onChanged={reload} />
-          {/* On the person's own record because it IS their record: a
-            statement they make about themselves, beside the facts they can
-            correct. Nowhere else offers a control that writes it. */}
-          <CapacityControl workspaceId={workspaceId} />
-        </>
+        <MyFacts workspaceId={workspaceId} facts={state.data.items ?? []} onChanged={reload} />
       )}
     </>
   );
@@ -120,8 +99,8 @@ function MyFacts({
         }
       >
         CAIRN has not matched any activity to you this week. Almost always that means the address on
-        your commits is not one it knows about yet, rather than a quiet week — an admin can link it
-        in Workspace settings.
+        your commits is not one it knows about yet, rather than a quiet week — and Connected
+        identities, further down this page, is where you can tell CAIRN that account is yours.
       </EmptyState>
     );
   }
@@ -240,10 +219,10 @@ function FactRow({
         that silently omits a colleague's part looks identical to one where
         nobody else was involved, and this is the screen where the difference
         matters most — so the counts are stated, and the accounts behind them
-        never are. `route`: on their own record the next useful thing is their
-        own Preferences, so the link is here rather than once above a list.
+        never are. The note carries no link out: the remedy — Connected
+        identities — is further down this same page.
       */}
-      <AttributionNote attribution={fact} route />
+      <AttributionNote attribution={fact} />
 
       {done !== null && (
         <p className={styles.done} role="status">

@@ -1,9 +1,8 @@
 import { screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { axe } from "vitest-axe";
 
-import { AttributionNote, ClaimList, type ClaimEntry } from "./ClaimList.js";
+import { ClaimList, type ClaimEntry } from "./ClaimList.js";
 import { renderRoute } from "../test/harness.js";
 
 /**
@@ -149,36 +148,9 @@ describe("the four states of attribution", () => {
   });
 });
 
-describe("the way out", () => {
-  it("is offered where the caller asks for it, and is a link to Preferences", async () => {
-    renderRoute(
-      <AttributionNote attribution={{ resolvedActors: 0, unresolvedActors: 1 }} route />,
-      { route: "/me" },
-    );
-
-    const link = screen.getByRole("link", { name: /connect your own accounts/i });
-    expect(link).toHaveAttribute("href", "/settings");
-
-    // Operable from the keyboard, which for a link means reachable and focused
-    // visibly. A remedy that needs a mouse is not a remedy.
-    await userEvent.tab();
-    expect(link).toHaveFocus();
-  });
-
-  it("is withheld when there is nothing unresolved to fix", () => {
-    renderRoute(
-      <AttributionNote attribution={{ resolvedActors: 2, unresolvedActors: 0 }} route />,
-      { route: "/me" },
-    );
-
-    expect(screen.queryByRole("link")).not.toBeInTheDocument();
-  });
-
-  it("is not offered by default, so a long list does not repeat it", () => {
-    renderClaims([withAttribution(0, 1), withAttribution(0, 1)]);
-
-    expect(
-      screen.queryByRole("link", { name: /connect your own accounts/i }),
-    ).not.toBeInTheDocument();
-  });
-});
+/**
+ * The attribution note used to end in a link to Preferences — "Connect your own
+ * accounts". Preferences has been removed from the product, and with it the only
+ * screen where somebody could connect an account, so the note now states the
+ * fact and offers no remedy.
+ */

@@ -600,6 +600,24 @@ def _next_cursor(payload: Mapping[str, object]) -> str:
 # -- The authorise URL ------------------------------------------------------
 
 
+def is_configured(settings: Settings) -> bool:
+    """Whether this deployment holds Slack OAuth credentials.
+
+    **One predicate, read by both halves of the same answer.** The install route
+    refuses with a 503 when it is false, and the integrations status route
+    reports it so the interface can say "Not set up" *before* somebody presses
+    Connect. When those two were separate expressions the screen could offer a
+    control whose only outcome was a failure dialog — which is what the reader
+    then read as CAIRN being broken.
+
+    The client id alone, because that is what the guard has always been and what
+    `build_authorize_url` cannot do without. The secret is checked where it is
+    used, by `HttpSlackApi`, and is never read here: a status route must not
+    touch a secret to answer a boolean.
+    """
+    return bool(settings.slack_client_id)
+
+
 def build_authorize_url(settings: Settings, *, state: str) -> str:
     """Where to send the customer's browser.
 
@@ -613,7 +631,7 @@ def build_authorize_url(settings: Settings, *, state: str) -> str:
     *person's* name rather than the app's, which is a category of access this
     product does not want to hold.
     """
-    if not settings.slack_client_id:
+    if not is_configured(settings):
         raise SlackInstallError(
             SlackInstallFailure.NOT_CONFIGURED,
             "Slack is not configured on this deployment.",

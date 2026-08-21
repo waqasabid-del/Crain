@@ -1,4 +1,4 @@
-import type { Integration } from "@cairn/api-client";
+import { ApiError, type Integration } from "@cairn/api-client";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -11,6 +11,7 @@ import {
   connectionFromIntegration,
   connectionRows,
   ConnectionsLoading,
+  describeConnectFailure,
   googleChatNotConnected,
   GOOGLE_CHAT_CONNECTED_DETAIL,
   GOOGLE_CHAT_DISCONNECT_EFFECT,
@@ -28,6 +29,7 @@ import {
   GOOGLE_MEET_REFUSALS,
   GOOGLE_MEET_SCOPES,
   GOOGLE_MEET_TRANSCRIPT_PERMISSION,
+  notSetUpDetail,
   slackNotConnected,
   SLACK_DISCONNECT_EFFECT,
   SLACK_INVITE_RULE,
@@ -61,6 +63,19 @@ const AXE_OPTIONS = {
   // Cannot run in jsdom — see `a11y.test.tsx`.
   rules: { "color-contrast": { enabled: false } },
 } as const;
+
+/**
+ * Open every record on screen.
+ *
+ * The card leads with a mark, a name, a state and one line; the words it used
+ * to print in full — what CAIRN reads, the scopes, the refusals, the dates, the
+ * notice — sit behind a "What CAIRN reads" `<details>` on each card. Not one of
+ * the assertions below was weakened for that: they still demand the same words,
+ * visible, after the one click a reader makes to reach them.
+ */
+function openRecords(): void {
+  for (const record of document.querySelectorAll("details")) record.open = true;
+}
 
 /** Everything the design asks for, present. Individual tests take fields away. */
 const FULL: Connection = {
@@ -110,6 +125,7 @@ describe("what a connection card shows", () => {
       />,
     );
     expect(screen.getByText("Access revoked")).toBeVisible();
+    openRecords();
     expect(screen.getByText(/access was withdrawn on github/i)).toBeVisible();
 
     rerender(
@@ -126,11 +142,14 @@ describe("what a connection card shows", () => {
         canManage
       />,
     );
-    expect(screen.getByText("Disconnected")).toBeVisible();
+    // The pill says "Not connected" rather than "Disconnected": the reader is
+    // asking whether CAIRN is reading this source, and that is the answer.
+    expect(screen.getByText("Not connected")).toBeVisible();
   });
 
   it("renders the scopes, the health and the last successful sync it was given", () => {
     render(<ConnectionCard connection={FULL} canManage={false} />);
+    openRecords();
 
     expect(screen.getByText(/commit messages, pull request titles, reviews/i)).toBeVisible();
     expect(screen.getByText("Delivering webhooks normally")).toBeVisible();
@@ -141,6 +160,7 @@ describe("what a connection card shows", () => {
 
   it("names who authorised it and when", () => {
     render(<ConnectionCard connection={FULL} canManage={false} />);
+    openRecords();
 
     expect(screen.getByText("ali@acme.example.com")).toBeVisible();
     expect(screen.getByText("Authorised on")).toBeVisible();
@@ -190,6 +210,7 @@ describe("what a connection card shows", () => {
 describe("reading a connection out of today's API", () => {
   it("shows what GitHub reads, and what it never reads", () => {
     render(<ConnectionCard connection={connectionFromIntegration(INTEGRATION)} canManage />);
+    openRecords();
 
     expect(screen.getByText(/never the contents of your code/i)).toBeVisible();
   });
@@ -213,6 +234,7 @@ describe("reading a connection out of today's API", () => {
     };
 
     render(<ConnectionCard connection={connectionFromIntegration(extended)} canManage />);
+    openRecords();
 
     expect(screen.getByText(/commit messages, reviews/i)).toBeVisible();
     expect(screen.getByText("Last successful sync")).toBeVisible();
@@ -228,8 +250,9 @@ describe("reading a connection out of today's API", () => {
     });
 
     render(<ConnectionCard connection={connection} canManage />);
+    openRecords();
 
-    expect(screen.getByText("Disconnected")).toBeVisible();
+    expect(screen.getByText("Not connected")).toBeVisible();
     expect(screen.getByText(/no longer reading from this account/i)).toBeVisible();
     expect(screen.getByText("Disconnected on")).toBeVisible();
     // Nothing left to disconnect.
@@ -240,6 +263,7 @@ describe("reading a connection out of today's API", () => {
     const connection = connectionFromIntegration({ ...INTEGRATION, suspended: true });
 
     render(<ConnectionCard connection={connection} canManage />);
+    openRecords();
 
     expect(screen.getByText("Not working")).toBeVisible();
     expect(screen.getByText(/nothing is being read while it stays that way/i)).toBeVisible();
@@ -313,6 +337,7 @@ describe("what a role is offered", () => {
     // mine to do" from "nobody has done it" — and the record itself is theirs to
     // read, because it is about their own activity.
     render(<ConnectionCard connection={FULL} canManage={false} onDisconnect={vi.fn()} />);
+    openRecords();
 
     expect(screen.getByRole("heading", { name: /github — acme-inc/i })).toBeVisible();
     expect(screen.getByText("Delivering webhooks normally")).toBeVisible();
@@ -356,6 +381,7 @@ describe("connecting", () => {
     // consent screen; the sentence is what they can understand. Neither on its
     // own is honest.
     render(<ConnectionCard connection={SLACK} canManage requestedScopes={SLACK_SCOPES} />);
+    openRecords();
 
     for (const grant of SLACK_SCOPES) {
       expect(screen.getByText(grant.scope)).toBeVisible();
@@ -365,6 +391,7 @@ describe("connecting", () => {
 
   it("states what CAIRN cannot do", () => {
     render(<ConnectionCard connection={SLACK} canManage refusals={SLACK_REFUSALS} />);
+    openRecords();
 
     expect(screen.getByText(/no permission to write anything to slack/i)).toBeVisible();
     expect(screen.getByText(/direct messages, private channels, or group dms/i)).toBeVisible();
@@ -489,6 +516,115 @@ describe("connecting", () => {
   });
 });
 
+describe("a source this deployment has not been set up for", () => {
+  /**
+   * **The calm state, and the bug it replaced.**
+   *
+   * A deployment with no Slack client id refuses the install with a 503, and the
+   * screen rendered that as "Something on CAIRN's side failed… Reference:
+   * 216c0b15-…" — an incident report, complete with a ticket number, for an
+   * operator who has not filled in a setting. Nothing failed, nobody could
+   * retry it into working, and the one true sentence — this deployment has not
+   * been given credentials — appeared nowhere.
+   */
+  const SLACK: Connection = {
+    id: "slack",
+    provider: "Slack",
+    state: "disconnected",
+    stateDetail: "Not connected, so CAIRN is reading nothing from Slack.",
+    line: "Messages in the public channels you choose.",
+  };
+
+  it("says Not set up, and offers the action switched off", () => {
+    render(<ConnectionCard connection={SLACK} canManage configured={false} onConnect={vi.fn()} />);
+
+    expect(screen.getByText(/^not set up$/i)).toBeVisible();
+    // Present rather than hidden: a missing control leaves the reader guessing
+    // between "not my role", "no such source" and "the page is broken".
+    expect(screen.getByRole("button", { name: /^connect slack$/i })).toBeDisabled();
+  });
+
+  it("says why, in a line short enough to be read", () => {
+    render(<ConnectionCard connection={SLACK} canManage configured={false} onConnect={vi.fn()} />);
+
+    const line = screen.getByText(/needs slack credentials from your administrator/i);
+    expect(line).toBeVisible();
+    expect(line.textContent.split(/\s+/).filter(Boolean).length).toBeLessThanOrEqual(8);
+  });
+
+  it("does not tell the reader anything failed", () => {
+    render(<ConnectionCard connection={SLACK} canManage configured={false} onConnect={vi.fn()} />);
+    openRecords();
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText(/something on cairn's side failed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/reference/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/nothing failed and nothing is being read/i)).toBeVisible();
+  });
+
+  it("leaves every control alone when the field was never sent", () => {
+    // The default is permissive on purpose: a client that assumed "not set up"
+    // whenever it had not been told would print a false claim on every
+    // deployment whose API is one version behind.
+    render(<ConnectionCard connection={SLACK} canManage onConnect={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: /^connect slack$/i })).toBeEnabled();
+    expect(screen.queryByText(/^not set up$/i)).not.toBeInTheDocument();
+  });
+
+  it("passes an axe audit", async () => {
+    const { container } = render(
+      <ConnectionCard connection={SLACK} canManage configured={false} onConnect={vi.fn()} />,
+    );
+
+    await expect(axe(container, AXE_OPTIONS)).resolves.toHaveNoViolations();
+  });
+});
+
+describe("a 503 that means Not set up rather than a fault", () => {
+  /** The API's problem document, as `ApiError` receives it. */
+  function problem(status: number, type: string): ApiError {
+    return new ApiError({
+      type,
+      title: "Slack could not be connected",
+      status,
+      detail: "Slack is not configured on this deployment.",
+      requestId: "216c0b15-0000-4000-8000-000000000000",
+    });
+  }
+
+  const AS = { provider: "Slack", problemType: "slack-not-configured", action: "connect Slack" };
+
+  it("answers a NOT_CONFIGURED install with the calm sentence and no reference id", () => {
+    const described = describeConnectFailure(problem(503, "slack-not-configured"), AS);
+
+    expect(described.message).toBe(notSetUpDetail("Slack"));
+    expect(described.message).not.toMatch(/something on cairn's side failed/i);
+    // Nothing for support to look up, so nothing is quoted at the reader.
+    expect(described.requestId).toBeUndefined();
+  });
+
+  it("leaves a genuine failure with the copy that is right for it", () => {
+    // 500 and 502 are real: something on CAIRN's side did fail, retrying can
+    // work, and the reference id is how somebody gets it looked at. Rounding
+    // those down to "Not set up" would be the same lie in the other direction.
+    for (const status of [500, 502]) {
+      const described = describeConnectFailure(problem(status, "internal-error"), AS);
+
+      expect(described.message).toMatch(/something on cairn's side failed/i);
+      expect(described.requestId).toBe("216c0b15-0000-4000-8000-000000000000");
+    }
+  });
+
+  it("does not read a 503 from anywhere else as a missing credential", () => {
+    // A load balancer's 503 is an outage. It keeps the apology and the id.
+    const described = describeConnectFailure(problem(503, "service-unavailable"), AS);
+
+    expect(described.message).toMatch(/something on cairn's side failed/i);
+    expect(described.requestId).toBe("216c0b15-0000-4000-8000-000000000000");
+  });
+});
+
 describe("coming back from a consent screen", () => {
   const SLACK: Connection = {
     id: "slack",
@@ -543,6 +679,9 @@ describe("keyboard and focus", () => {
     const onDisconnect = vi.fn();
     render(<ConnectionCard connection={FULL} canManage onDisconnect={onDisconnect} />);
 
+    // The record's own disclosure is the first tab stop on the card now, and
+    // the control is the second. Both are reachable and neither is skipped.
+    await userEvent.tab();
     await userEvent.tab();
     expect(screen.getByRole("button", { name: /^disconnect$/i })).toHaveFocus();
     await userEvent.keyboard("{Enter}");
@@ -732,6 +871,7 @@ describe("Google Chat on the connection card", () => {
     render(
       <ConnectionCard connection={googleChatNotConnected()} canManage {...googleChatProps()} />,
     );
+    openRecords();
 
     expect(screen.getByText("chat.spaces.readonly")).toBeVisible();
     expect(
@@ -745,6 +885,7 @@ describe("Google Chat on the connection card", () => {
     render(
       <ConnectionCard connection={googleChatNotConnected()} canManage {...googleChatProps()} />,
     );
+    openRecords();
 
     expect(screen.getByRole("heading", { name: /what cairn cannot do/i })).toBeVisible();
     expect(screen.getByText(/asks for no permission to write to google chat/i)).toBeVisible();
@@ -769,6 +910,7 @@ describe("Google Chat on the connection card", () => {
         {...googleChatProps()}
       />,
     );
+    openRecords();
 
     const notice = screen.getByText(/a personal gmail account cannot authorise this/i);
     expect(notice).toBeVisible();
@@ -876,6 +1018,7 @@ describe("Google Chat on the connection card", () => {
         {...googleChatProps()}
       />,
     );
+    openRecords();
 
     expect(
       screen.getByText(/an owner or an admin of this workspace connects and disconnects sources/i),
@@ -988,6 +1131,7 @@ describe("Google Meet on the connection card", () => {
     // eligibility gate refuses a meeting unless everybody expected in it has
     // accepted.
     render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+    openRecords();
 
     expect(
       screen.getByText(
@@ -998,6 +1142,7 @@ describe("Google Meet on the connection card", () => {
 
   it("names the one scope literally and says what it does and does not permit", () => {
     render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+    openRecords();
 
     expect(screen.getByText("meetings.space.readonly")).toBeVisible();
     expect(
@@ -1011,6 +1156,7 @@ describe("Google Meet on the connection card", () => {
     // A reader who has just been told CAIRN can be *notified* about a transcript
     // will assume the reading was the part left unsaid. It is not left unsaid.
     render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+    openRecords();
 
     const notice = screen.getByText(/a further, separate permission/i);
     expect(notice).toBeVisible();
@@ -1023,6 +1169,7 @@ describe("Google Meet on the connection card", () => {
     // it to a customer — a Drive scope in particular changes what this
     // connector is.
     render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+    openRecords();
 
     expect(screen.getAllByText(/^meetings\./)).toHaveLength(1);
     expect(screen.queryByText(/^drive/)).toBeNull();
@@ -1030,6 +1177,7 @@ describe("Google Meet on the connection card", () => {
 
   it("states what the grant makes impossible rather than leaving it inferred", () => {
     render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+    openRecords();
 
     expect(screen.getByText(/there is no CAIRN bot and no CAIRN participant/i)).toBeVisible();
     expect(
@@ -1072,6 +1220,7 @@ describe("Google Meet on the connection card", () => {
 
   it("never describes Google Meet as live", () => {
     render(<ConnectionCard connection={googleMeetNotConnected()} canManage {...meetProps()} />);
+    openRecords();
 
     expect(screen.getByText(/cannot be connected yet/i)).toBeVisible();
     expect(screen.getByText(/OAuth app verification/i)).toBeVisible();
@@ -1219,6 +1368,9 @@ describe("Google Meet on the connection card", () => {
       />,
     );
 
+    // Two tab stops before the control: the record's disclosure, then the
+    // button that opens the confirmation.
+    await userEvent.tab();
     await userEvent.tab();
     await userEvent.keyboard("{Enter}");
 
@@ -1245,6 +1397,7 @@ describe("Google Meet on the connection card", () => {
         <GoogleMeetStatusNote status="eligible" />
       </ConnectionCard>,
     );
+    openRecords();
 
     expect(
       screen.getByText(/an owner or an admin of this workspace connects and disconnects sources/i),
