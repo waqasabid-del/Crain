@@ -15,6 +15,7 @@ import { PageHeader } from "../components/PageHeader.js";
 import { StateBadge } from "../components/StateBadge.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { StatusNote } from "../components/StatusNote.js";
+import { TaskBoard, type AssignableMember } from "../components/TaskBoard.js";
 import { describeError, type DescribedError } from "../errors.js";
 import { useAsync } from "../hooks/useAsync.js";
 import utility from "../styles/utility.module.css";
@@ -253,6 +254,11 @@ function Detail({ workspaceId, projectId }: { workspaceId: string; projectId: st
           </ul>
         )}
       </Card>
+
+      {/* Between Team and Work on purpose: the board is what the team decided
+        to do, the wall below is what the sources recorded happening. It owns
+        its own read, so a failed task read costs this card and nothing else. */}
+      <TaskBoard workspaceId={workspaceId} projectId={projectId} members={assignable(members)} />
 
       <Card title="Work" description="What the sources recorded.">
         {work.length === 0 ? (
@@ -766,6 +772,15 @@ function oneRowPerPerson(members: MemberEntry[]): MemberEntry[] {
   }
 
   return [...byPerson.values()];
+}
+
+/** Who a new task can be handed to: the project's current members, one entry
+ * per person. Removed members stay on the Team grid as history, but a task
+ * cannot be assigned to somebody who is no longer here. */
+function assignable(members: MemberEntry[]): AssignableMember[] {
+  return oneRowPerPerson(members)
+    .filter((member) => member.removedAt == null)
+    .map((member) => ({ personId: member.personId, displayName: member.displayName }));
 }
 
 /** The three states offered, plus the project's own if it is something else —

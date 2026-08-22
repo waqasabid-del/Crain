@@ -467,6 +467,18 @@ class TestRowLevelSecurity:
             # edited in place: release and claim are two audited actions, not
             # one quiet rewrite that would silently move a project's evidence.
             "project_sources": {"SELECT", "INSERT", "DELETE"},
+            # -- Task layer -----------------------------------------------
+            #
+            # Same shape as `projects` for the same reason: a task is archived
+            # (`archived_at`), never deleted, so a board can never quietly
+            # forget work that was assigned and then became inconvenient.
+            "tasks": {"SELECT", "INSERT", "UPDATE"},
+            # Append-only, like `internal_audit_log`: the task history is what
+            # makes "who moved this to done, and when" answerable, and a
+            # history the application role could rewrite is not a history. No
+            # UPDATE and no DELETE, so a compromised role can add events but
+            # never launder them.
+            "task_events": {"SELECT", "INSERT"},
             # -- Durable spend counters -----------------------------------
             #
             # SELECT, INSERT, UPDATE and **no DELETE**: a spend row is billing

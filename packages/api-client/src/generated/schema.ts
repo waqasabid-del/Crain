@@ -2034,6 +2034,28 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/workspaces/{workspace_id}/me/tasks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * My own tasks, grouped by column
+     * @description Empty groups, not a 404, for a caller with no `Person` row: a user and
+     *     a person are different things (md/01 §5.3), and having no attributed
+     *     Person yet is an ordinary state, not an error.
+     */
+    get: operations["list_my_tasks_v1_workspaces__workspace_id__me_tasks_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/workspaces/{workspace_id}/me/week": {
     parameters: {
       query?: never;
@@ -2466,6 +2488,28 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/workspaces/{workspace_id}/projects/{project_id}/tasks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * One project's board, in creation order
+     * @description Archived tasks are excluded by default and included on request —
+     *     excluded is not deleted, and their audit trail stays readable either way.
+     */
+    get: operations["list_tasks_v1_workspaces__workspace_id__projects__project_id__tasks_get"];
+    put?: never;
+    /** Create a task on this project's board */
+    post: operations["create_task_v1_workspaces__workspace_id__projects__project_id__tasks_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/workspaces/{workspace_id}/related-work": {
     parameters: {
       query?: never;
@@ -2587,6 +2631,81 @@ export interface paths {
      *     pressure should not have to read a status first.
      */
     post: operations["revoke_support_session_v1_workspaces__workspace_id__support_sessions__session_id__revoke_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/tasks/{task_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One task, with its audit trail as sentences */
+    get: operations["get_task_v1_workspaces__workspace_id__tasks__task_id__get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /**
+     * Edit a task's descriptive fields
+     * @description Each changed field appends its own categorical audit event, so the
+     *     trail says *what kind* of thing happened without quoting any content.
+     *     Absent and null differ for the nullable fields — `model_fields_set`
+     *     tells them apart, so omitting the assignee is not an unassignment.
+     */
+    patch: operations["update_task_v1_workspaces__workspace_id__tasks__task_id__patch"];
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/tasks/{task_id}/archive": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Archive a task — close it, never delete it */
+    post: operations["archive_task_v1_workspaces__workspace_id__tasks__task_id__archive_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/tasks/{task_id}/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Restore an archived task */
+    post: operations["restore_task_v1_workspaces__workspace_id__tasks__task_id__restore_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/workspaces/{workspace_id}/tasks/{task_id}/state": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Move a task along the workflow */
+    post: operations["set_task_state_v1_workspaces__workspace_id__tasks__task_id__state_post"];
     delete?: never;
     options?: never;
     head?: never;
@@ -4057,6 +4176,28 @@ export interface components {
       state: components["schemas"]["CaptureState"];
     };
     /**
+     * MyTasksResponse
+     * @description The caller's own tasks, grouped by workflow column.
+     *
+     *     This is the one assignee-filtered surface, and it is *self-scoped by
+     *     construction*: the query keys on the caller's own Person, so it can only
+     *     ever show someone their own work — the My Week idiom (md/05 §B.2.3).
+     *     `done` carries the latest ten, a memory aid rather than a tally; there is
+     *     deliberately no figure saying how many.
+     */
+    MyTasksResponse: {
+      /** Blocked */
+      blocked?: components["schemas"]["TaskSummary"][];
+      /** Done */
+      done?: components["schemas"]["TaskSummary"][];
+      /** Inprogress */
+      inProgress?: components["schemas"]["TaskSummary"][];
+      /** Inreview */
+      inReview?: components["schemas"]["TaskSummary"][];
+      /** Todo */
+      todo?: components["schemas"]["TaskSummary"][];
+    };
+    /**
      * NotificationStatus
      * @description Worker notification across the workspace.
      */
@@ -5016,6 +5157,163 @@ export interface components {
      * @enum {string}
      */
     SupportSessionStatus: "pending" | "approved" | "rejected" | "revoked";
+    /**
+     * TaskCreate
+     * @description A new task. Title is the only requirement — everything else has an
+     *     honest default: todo, normal, unassigned, undated.
+     */
+    TaskCreate: {
+      /** Assigneepersonid */
+      assigneePersonId?: string | null;
+      /**
+       * Description
+       * @default
+       */
+      description: string;
+      /** Dueon */
+      dueOn?: string | null;
+      /**
+       * Priority
+       * @default normal
+       */
+      priority: string;
+      /** Title */
+      title: string;
+    };
+    /**
+     * TaskDetailResponse
+     * @description Everything the workspace may know about one task. Symmetric: every
+     *     role receives identical bytes, enforced the finder's way — the payload
+     *     function takes no role.
+     */
+    TaskDetailResponse: {
+      /** Archivedat */
+      archivedAt?: string | null;
+      /** Assigneename */
+      assigneeName?: string | null;
+      /** Assigneepersonid */
+      assigneePersonId?: string | null;
+      /**
+       * Createdat
+       * Format: date-time
+       */
+      createdAt: string;
+      /** Createdby */
+      createdBy?: string | null;
+      /** Description */
+      description: string;
+      /** Dueon */
+      dueOn?: string | null;
+      /** Events */
+      events?: components["schemas"]["TaskEventEntry"][];
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Priority */
+      priority: string;
+      /**
+       * Projectid
+       * Format: uuid
+       */
+      projectId: string;
+      /** State */
+      state: string;
+      /** Title */
+      title: string;
+    };
+    /**
+     * TaskEventEntry
+     * @description One audit entry, already rendered into a neutral sentence.
+     *
+     *     The sentence is chosen once, server-side, identically for every reader —
+     *     "Ali moved this task from In progress to In review." It names the change
+     *     and the actor, never a judgement, a duration, or a count. The raw
+     *     categorical row stays in the database; clients get words, so no client
+     *     can re-aggregate events per person.
+     */
+    TaskEventEntry: {
+      /**
+       * At
+       * Format: date-time
+       */
+      at: string;
+      /** Sentence */
+      sentence: string;
+    };
+    /** TaskListResponse */
+    TaskListResponse: {
+      /** Tasks */
+      tasks?: components["schemas"]["TaskSummary"][];
+    };
+    /** TaskStateChange */
+    TaskStateChange: {
+      /** State */
+      state: string;
+    };
+    /**
+     * TaskSummary
+     * @description One task as a board lists it.
+     *
+     *     No counts, no per-person anything, no "time in column" — a board decorated
+     *     with activity is a leaderboard of the people working it. Boards order by
+     *     creation time, which measures nothing.
+     */
+    TaskSummary: {
+      /** Archivedat */
+      archivedAt?: string | null;
+      /** Assigneename */
+      assigneeName?: string | null;
+      /** Assigneepersonid */
+      assigneePersonId?: string | null;
+      /**
+       * Createdat
+       * Format: date-time
+       */
+      createdAt: string;
+      /** Description */
+      description: string;
+      /** Dueon */
+      dueOn?: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Priority */
+      priority: string;
+      /**
+       * Projectid
+       * Format: uuid
+       */
+      projectId: string;
+      /** State */
+      state: string;
+      /** Title */
+      title: string;
+    };
+    /**
+     * TaskUpdate
+     * @description Edits to a task's descriptive fields. State moves through its own
+     *     endpoint, where the transition table lives.
+     *
+     *     Absent and null are different here: an omitted `assigneePersonId` leaves
+     *     the assignee alone, an explicit null unassigns. The router reads
+     *     `model_fields_set` to tell them apart.
+     */
+    TaskUpdate: {
+      /** Assigneepersonid */
+      assigneePersonId?: string | null;
+      /** Description */
+      description?: string | null;
+      /** Dueon */
+      dueOn?: string | null;
+      /** Priority */
+      priority?: string | null;
+      /** Title */
+      title?: string | null;
+    };
     /**
      * TenantRole
      * @description A person's role within one workspace. Deliberately four (md/15 §2.2).
@@ -8241,6 +8539,46 @@ export interface operations {
       };
     };
   };
+  list_my_tasks_v1_workspaces__workspace_id__me_tasks_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MyTasksResponse"];
+        };
+      };
+      /** @description No such workspace, or you are not a member. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   my_week_v1_workspaces__workspace_id__me_week_get: {
     parameters: {
       query?: {
@@ -9201,6 +9539,93 @@ export interface operations {
       };
     };
   };
+  list_tasks_v1_workspaces__workspace_id__projects__project_id__tasks_get: {
+    parameters: {
+      query?: {
+        state?: string | null;
+        include_archived?: boolean;
+      };
+      header?: never;
+      path: {
+        project_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskListResponse"];
+        };
+      };
+      /** @description No such workspace or project. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  create_task_v1_workspaces__workspace_id__projects__project_id__tasks_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TaskCreate"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskDetailResponse"];
+        };
+      };
+      /** @description No such workspace or project. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description The assignee is not an active member of the project. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   find_related_work_v1_workspaces__workspace_id__related_work_get: {
     parameters: {
       query: {
@@ -9424,6 +9849,245 @@ export interface operations {
       };
       /** @description No such request in this workspace. */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  get_task_v1_workspaces__workspace_id__tasks__task_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskDetailResponse"];
+        };
+      };
+      /** @description No such workspace or task. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  update_task_v1_workspaces__workspace_id__tasks__task_id__patch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TaskUpdate"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskDetailResponse"];
+        };
+      };
+      /** @description No such workspace or task. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description The task is archived. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description The assignee is not an active member of the project. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  archive_task_v1_workspaces__workspace_id__tasks__task_id__archive_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskDetailResponse"];
+        };
+      };
+      /** @description Only an owner, an admin, or the task's creator may archive. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No such workspace or task. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  restore_task_v1_workspaces__workspace_id__tasks__task_id__restore_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskDetailResponse"];
+        };
+      };
+      /** @description Only an owner, an admin, or the task's creator may restore. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No such workspace or task. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  set_task_state_v1_workspaces__workspace_id__tasks__task_id__state_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+        workspace_id: string;
+      };
+      cookie?: {
+        cairn_session?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TaskStateChange"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["TaskDetailResponse"];
+        };
+      };
+      /** @description No such workspace or task. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Illegal transition, archived task, terminal state, or the review handoff refused the same reviewer. */
+      409: {
         headers: {
           [name: string]: unknown;
         };

@@ -264,6 +264,35 @@ const ROUTES: [string, (client: CairnClient) => Promise<unknown>, string, string
     "DELETE",
     `/v1/workspaces/${W}/integrations/github/7`,
   ],
+  [
+    "createTask",
+    (c) => c.createTask(W, "p-1", { title: "t", description: "", priority: "normal" }),
+    "POST",
+    `/v1/workspaces/${W}/projects/p-1/tasks`,
+  ],
+  ["listTasks", (c) => c.listTasks(W, "p-1"), "GET", `/v1/workspaces/${W}/projects/p-1/tasks`],
+  [
+    "listTasks (filtered)",
+    (c) => c.listTasks(W, "p-1", { state: "todo", includeArchived: true }),
+    "GET",
+    `/v1/workspaces/${W}/projects/p-1/tasks?state=todo&include_archived=true`,
+  ],
+  ["getTask", (c) => c.getTask(W, "t-1"), "GET", `/v1/workspaces/${W}/tasks/t-1`],
+  [
+    "updateTask",
+    (c) => c.updateTask(W, "t-1", { title: "t" }),
+    "PATCH",
+    `/v1/workspaces/${W}/tasks/t-1`,
+  ],
+  [
+    "setTaskState",
+    (c) => c.setTaskState(W, "t-1", "in_progress"),
+    "POST",
+    `/v1/workspaces/${W}/tasks/t-1/state`,
+  ],
+  ["archiveTask", (c) => c.archiveTask(W, "t-1"), "POST", `/v1/workspaces/${W}/tasks/t-1/archive`],
+  ["restoreTask", (c) => c.restoreTask(W, "t-1"), "POST", `/v1/workspaces/${W}/tasks/t-1/restore`],
+  ["listMyTasks", (c) => c.listMyTasks(W), "GET", `/v1/workspaces/${W}/me/tasks`],
 ];
 
 describe("every method sends the verb and path it promises", () => {

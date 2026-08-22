@@ -170,10 +170,15 @@ class TestSymmetryInvariants:
         """
         assert can_view_person_record(viewer_role=viewer_role, viewer_is_subject=viewer_is_subject)
 
-    def test_viewer_and_member_differ_only_in_future_write_scope(self) -> None:
-        # Today they are identical. Recorded so that the day they diverge is a
+    def test_viewer_and_member_differ_only_in_task_writing(self) -> None:
+        # They were identical until the task layer, whose write scope is the
+        # first thing a Member may do that a Viewer may not — "reads
+        # everything, changes nothing" now has one concrete thing to not
+        # change. Asserted as an exact difference so the next divergence is a
         # deliberate decision rather than a drift nobody noticed.
-        assert permissions_for(TenantRole.VIEWER) == permissions_for(TenantRole.MEMBER)
+        member_only = permissions_for(TenantRole.MEMBER) - permissions_for(TenantRole.VIEWER)
+        assert member_only == {Permission.TASKS_WRITE}
+        assert permissions_for(TenantRole.VIEWER) <= permissions_for(TenantRole.MEMBER)
 
 
 class TestRoleCoverage:

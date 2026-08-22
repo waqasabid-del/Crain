@@ -1,0 +1,143 @@
+/*
+ * A project's task board: five columns in workflow order.
+ *
+ * Every value is a theme token, and no column has a colour of its own — a red
+ * "Blocked" column would turn a place work waits into a verdict on whoever's
+ * work is waiting there.
+ */
+
+/* Scrolls sideways rather than shrinking the columns into slivers: five
+   columns rarely fit, and a column narrower than its cards is unreadable. */
+.board {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+}
+
+.column {
+  display: flex;
+  flex: 1 0 16rem;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 16rem;
+}
+
+/* The same label voice as the Work tiles' kind: orientation, not content. */
+.columnTitle {
+  margin: 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.columnList {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* An empty column is a fact, said once and quietly — never a zero. */
+.columnEmpty {
+  margin: 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}
+
+.empty {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* --- New task ----------------------------------------------------------- */
+
+.create {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.createHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.createNote {
+  margin: 0;
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+}
+
+.createForm {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  max-width: var(--prose-max-width);
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.label {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+/* No local `:focus-visible` rule: the global one in @cairn/ui draws the ring,
+   and a local override is how it stops matching every other control. */
+.select,
+.textarea {
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--fg-default);
+  background: var(--bg-default);
+  /* `border-interactive`, not `border-default`: the outline of a control is
+     information required to identify it, so WCAG 1.4.11 asks 3:1 of it. */
+  border: var(--border-thin) solid var(--border-interactive);
+  border-radius: var(--radius-md);
+  min-height: var(--min-target);
+}
+
+.textarea {
+  resize: vertical;
+}
+
+.hint {
+  margin: 0;
+  max-width: var(--prose-max-width);
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}
+
+/* --- Narrow ------------------------------------------------------------- */
+
+@media (max-width: 40rem) {
+  /* One column under the other: sideways scrolling on a phone hides four
+     fifths of the board behind the edge of the screen. */
+  .board {
+    flex-direction: column;
+    overflow-x: visible;
+  }
+
+  .column {
+    flex-basis: auto;
+    width: 100%;
+    min-width: 0;
+  }
+}

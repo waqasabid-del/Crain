@@ -55,6 +55,7 @@ from cairn_api.db.project_models import (
 )
 from cairn_api.db.seed import SEED_PASSWORD
 from cairn_api.db.session import dispose_engines, platform_session
+from cairn_api.db.task_models import Task, TaskEvent, TaskEventKind, TaskPriority, TaskState
 from cairn_api.db.tenancy import tenant_session
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -323,6 +324,169 @@ ASSIGNMENTS: tuple[Assignment, ...] = (
     Assignment(DATA_PLATFORM_NAME, "Jonas Weber", "Backend"),
     Assignment(DATA_PLATFORM_NAME, "Daniel Okonkwo", "Backend"),
     Assignment(DATA_PLATFORM_NAME, "Ana Gómez", "Product"),
+)
+
+
+@dataclass(frozen=True)
+class TaskSeed:
+    """One task on a project's board. `assignee` is None for unassigned —
+    a real state the boards must demonstrate, not an omission."""
+
+    project_name: str
+    title: str
+    state: TaskState
+    priority: TaskPriority
+    assignee: str | None = None
+    due_in_days: int | None = None
+
+
+#: Eighteen tasks across the boards, covering every workflow column, every
+#: priority, and the unassigned state. Each seeded task also gets its audit
+#: trail — a `created` event and the state changes that walked it to its
+#: column — because a task with a state and no history would be data the
+#: product itself could never have produced.
+TASKS: tuple[TaskSeed, ...] = (
+    # Gateway — the platform's front door.
+    TaskSeed(
+        GATEWAY,
+        "Rate-limit the public API's unauthenticated endpoints",
+        TaskState.IN_PROGRESS,
+        TaskPriority.HIGH,
+        "Priya Nair",
+        due_in_days=5,
+    ),
+    TaskSeed(
+        GATEWAY,
+        "Rotate the edge TLS certificates before the September expiry",
+        TaskState.TODO,
+        TaskPriority.URGENT,
+        "Yusuf Demir",
+        due_in_days=9,
+    ),
+    TaskSeed(
+        GATEWAY,
+        "Add request-id propagation to the gRPC ingress",
+        TaskState.TODO,
+        TaskPriority.NORMAL,
+    ),
+    # Payments — money moves, carefully.
+    TaskSeed(
+        PAYMENTS,
+        "Migrate invoice PDFs to the new template",
+        TaskState.IN_REVIEW,
+        TaskPriority.HIGH,
+        "Daniel Okonkwo",
+        due_in_days=3,
+    ),
+    TaskSeed(
+        PAYMENTS,
+        "Reconcile stale webhook retries against Stripe's event log",
+        TaskState.BLOCKED,
+        TaskPriority.HIGH,
+        "Priya Nair",
+    ),
+    TaskSeed(
+        PAYMENTS,
+        "Backfill VAT country codes on 2025 invoices",
+        TaskState.DONE,
+        TaskPriority.NORMAL,
+        "Mei Lin Chen",
+    ),
+    # Customer Onboarding.
+    TaskSeed(
+        ONBOARDING_NAME,
+        "Replace the six-step signup wizard with progressive profiling",
+        TaskState.IN_PROGRESS,
+        TaskPriority.HIGH,
+        "Tom Reilly",
+        due_in_days=12,
+    ),
+    TaskSeed(
+        ONBOARDING_NAME,
+        "Write the welcome-email sequence for workspaces with no integrations",
+        TaskState.TODO,
+        TaskPriority.LOW,
+        "Ana Gómez",
+        due_in_days=20,
+    ),
+    TaskSeed(
+        ONBOARDING_NAME,
+        "Localise the onboarding checklist into Spanish and German",
+        TaskState.TODO,
+        TaskPriority.NORMAL,
+    ),
+    # Mobile App.
+    TaskSeed(
+        MOBILE_NAME,
+        "Fix the offline queue dropping edits made during token refresh",
+        TaskState.IN_REVIEW,
+        TaskPriority.URGENT,
+        "Mei Lin Chen",
+        due_in_days=2,
+    ),
+    TaskSeed(
+        MOBILE_NAME,
+        "Adopt the design-system tokens in the settings screens",
+        TaskState.IN_PROGRESS,
+        TaskPriority.NORMAL,
+        "Aisha Rahman",
+    ),
+    TaskSeed(
+        MOBILE_NAME,
+        "Add screenshot tests for the iPad split-view layouts",
+        TaskState.TODO,
+        TaskPriority.LOW,
+        "Lucas Fernandes",
+        due_in_days=30,
+    ),
+    # Billing Migration.
+    TaskSeed(
+        BILLING_NAME,
+        "Dual-write subscriptions to the new billing schema behind a flag",
+        TaskState.IN_PROGRESS,
+        TaskPriority.URGENT,
+        "Daniel Okonkwo",
+        due_in_days=7,
+    ),
+    TaskSeed(
+        BILLING_NAME,
+        "Draft the cutover runbook and rollback checklist",
+        TaskState.BLOCKED,
+        TaskPriority.HIGH,
+        "Sofia Rossi",
+        due_in_days=10,
+    ),
+    TaskSeed(
+        BILLING_NAME,
+        "Archive the legacy invoicing cron jobs after the cutover",
+        TaskState.TODO,
+        TaskPriority.LOW,
+    ),
+    # Design System.
+    TaskSeed(
+        DESIGN_SYSTEM_NAME,
+        "Publish the dark-theme colour tokens as a versioned package",
+        TaskState.DONE,
+        TaskPriority.NORMAL,
+        "Aisha Rahman",
+    ),
+    TaskSeed(
+        DESIGN_SYSTEM_NAME,
+        "Document the focus-ring rules for keyboard navigation",
+        TaskState.TODO,
+        TaskPriority.NORMAL,
+        "Tom Reilly",
+        due_in_days=14,
+    ),
+    # Data Platform.
+    TaskSeed(
+        DATA_PLATFORM_NAME,
+        "Partition the events table by month before it hits a billion rows",
+        TaskState.IN_PROGRESS,
+        TaskPriority.HIGH,
+        "Jonas Weber",
+        due_in_days=18,
+    ),
 )
 
 
@@ -1310,6 +1474,96 @@ async def _seed_project_members(
         await session.commit()
 
 
+#: How a seeded task reached its column — the audit trail each state implies.
+_STATE_WALKS: dict[TaskState, tuple[TaskState, ...]] = {
+    TaskState.TODO: (),
+    TaskState.IN_PROGRESS: (TaskState.IN_PROGRESS,),
+    TaskState.BLOCKED: (TaskState.IN_PROGRESS, TaskState.BLOCKED),
+    TaskState.IN_REVIEW: (TaskState.IN_PROGRESS, TaskState.IN_REVIEW),
+    TaskState.DONE: (TaskState.IN_PROGRESS, TaskState.IN_REVIEW, TaskState.DONE),
+}
+
+
+async def _seed_tasks(people: dict[str, uuid.UUID], owner_id: uuid.UUID, counts: Counts) -> None:
+    """Write the boards: eighteen tasks with honest audit trails.
+
+    Guarded on the title within the tenant — a title is the natural key here,
+    and re-running must not double every board. Each created task gets a
+    `created` event plus the state changes that walked it to its column, so
+    seeded data is indistinguishable in shape from data the API wrote.
+    """
+    now = datetime.now(UTC)
+
+    async with tenant_session(TENANT_ID) as session:
+        projects = {
+            project.name: project.id
+            for project in await session.scalars(
+                select(Project).where(Project.tenant_id == TENANT_ID)
+            )
+        }
+
+        for index, spec in enumerate(TASKS):
+            project_id = projects.get(spec.project_name)
+            if project_id is None:
+                print(f"  ! no project named {spec.project_name!r}; skipped")
+                counts.add("tasks", created=False)
+                continue
+
+            existing = await session.scalar(
+                select(Task.id).where(Task.tenant_id == TENANT_ID, Task.title == spec.title)
+            )
+            if existing is not None:
+                counts.add("tasks", created=False)
+                continue
+
+            filed = now - timedelta(days=14 - (index % 12), hours=index)
+            task = Task(
+                tenant_id=TENANT_ID,
+                project_id=project_id,
+                title=spec.title,
+                state=spec.state,
+                priority=spec.priority,
+                assignee_person_id=(people[spec.assignee] if spec.assignee is not None else None),
+                due_on=(
+                    (now + timedelta(days=spec.due_in_days)).date()
+                    if spec.due_in_days is not None
+                    else None
+                ),
+                created_by_user_id=owner_id,
+                created_at=filed,
+            )
+            session.add(task)
+            await session.flush()
+
+            session.add(
+                TaskEvent(
+                    tenant_id=TENANT_ID,
+                    task_id=task.id,
+                    kind=TaskEventKind.CREATED,
+                    actor_user_id=owner_id,
+                    at=filed,
+                )
+            )
+            previous = TaskState.TODO
+            for step, state in enumerate(_STATE_WALKS[spec.state], start=1):
+                session.add(
+                    TaskEvent(
+                        tenant_id=TENANT_ID,
+                        task_id=task.id,
+                        kind=TaskEventKind.STATE_CHANGED,
+                        actor_user_id=owner_id,
+                        from_state=previous,
+                        to_state=state,
+                        at=filed + timedelta(days=step),
+                    )
+                )
+                previous = state
+
+            counts.add("tasks", created=True)
+
+        await session.commit()
+
+
 async def _seed_facts(people: dict[str, uuid.UUID], counts: Counts) -> None:
     """Write the facts, their citations and their mentions.
 
@@ -1380,6 +1634,7 @@ def _report(counts: Counts) -> None:
         "projects",
         "project_sources",
         "project_members",
+        "tasks",
         "facts",
     ):
         created = counts.total(label, created=True)
@@ -1399,6 +1654,7 @@ async def seed_demo_team() -> None:
     people = await _seed_people(counts)
     await _seed_projects(owner_id, counts)
     await _seed_project_members(people, owner_id, counts)
+    await _seed_tasks(people, owner_id, counts)
     await _seed_facts(people, counts)
     _report(counts)
 

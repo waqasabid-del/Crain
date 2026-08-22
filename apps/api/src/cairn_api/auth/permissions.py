@@ -33,6 +33,15 @@ class Permission(enum.StrEnum):
 
     PROJECTS_MANAGE = "projects.manage"
 
+    TASKS_WRITE = "tasks.write"
+    """Create and edit tasks, move them through the workflow.
+
+    Held by Member and up — task work is everyday work, not administration —
+    and *not* by Viewer, whose role is read-only by definition. Kept separate
+    from ``PROJECTS_MANAGE`` (Admin+) so that doing the work never requires
+    the power to reshape the portfolio.
+    """
+
     CONTENT_READ = "content.read"
 
     OWN_RECORD_CORRECT = "own_record.correct"
@@ -61,6 +70,7 @@ _ROLE_PERMISSIONS: dict[TenantRole, frozenset[Permission]] = {
             Permission.INTEGRATIONS_CONNECT,
             Permission.INTEGRATIONS_DISCONNECT,
             Permission.PROJECTS_MANAGE,
+            Permission.TASKS_WRITE,
             Permission.CONTENT_READ,
             Permission.OWN_RECORD_CORRECT,
             Permission.SUPPORT_SESSION_DECIDE,
@@ -75,6 +85,7 @@ _ROLE_PERMISSIONS: dict[TenantRole, frozenset[Permission]] = {
             Permission.INTEGRATIONS_CONNECT,
             Permission.INTEGRATIONS_DISCONNECT,
             Permission.PROJECTS_MANAGE,
+            Permission.TASKS_WRITE,
             Permission.CONTENT_READ,
             Permission.OWN_RECORD_CORRECT,
             Permission.SUPPORT_SESSION_DECIDE,
@@ -82,6 +93,7 @@ _ROLE_PERMISSIONS: dict[TenantRole, frozenset[Permission]] = {
     ),
     TenantRole.MEMBER: frozenset(
         {
+            Permission.TASKS_WRITE,
             Permission.CONTENT_READ,
             Permission.OWN_RECORD_CORRECT,
         }

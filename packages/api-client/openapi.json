@@ -2509,6 +2509,49 @@
         "title": "MyMeetingRequestResponse",
         "type": "object"
       },
+      "MyTasksResponse": {
+        "additionalProperties": false,
+        "description": "The caller's own tasks, grouped by workflow column.\n\nThis is the one assignee-filtered surface, and it is *self-scoped by\nconstruction*: the query keys on the caller's own Person, so it can only\never show someone their own work \u2014 the My Week idiom (md/05 \u00a7B.2.3).\n`done` carries the latest ten, a memory aid rather than a tally; there is\ndeliberately no figure saying how many.",
+        "properties": {
+          "blocked": {
+            "items": {
+              "$ref": "#/components/schemas/TaskSummary"
+            },
+            "title": "Blocked",
+            "type": "array"
+          },
+          "done": {
+            "items": {
+              "$ref": "#/components/schemas/TaskSummary"
+            },
+            "title": "Done",
+            "type": "array"
+          },
+          "inProgress": {
+            "items": {
+              "$ref": "#/components/schemas/TaskSummary"
+            },
+            "title": "Inprogress",
+            "type": "array"
+          },
+          "inReview": {
+            "items": {
+              "$ref": "#/components/schemas/TaskSummary"
+            },
+            "title": "Inreview",
+            "type": "array"
+          },
+          "todo": {
+            "items": {
+              "$ref": "#/components/schemas/TaskSummary"
+            },
+            "title": "Todo",
+            "type": "array"
+          }
+        },
+        "title": "MyTasksResponse",
+        "type": "object"
+      },
       "NotificationStatus": {
         "additionalProperties": false,
         "description": "Worker notification across the workspace.",
@@ -4263,6 +4306,363 @@
         "enum": ["pending", "approved", "rejected", "revoked"],
         "title": "SupportSessionStatus",
         "type": "string"
+      },
+      "TaskCreate": {
+        "additionalProperties": false,
+        "description": "A new task. Title is the only requirement \u2014 everything else has an\nhonest default: todo, normal, unassigned, undated.",
+        "properties": {
+          "assigneePersonId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigneepersonid"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 10000,
+            "title": "Description",
+            "type": "string"
+          },
+          "dueOn": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dueon"
+          },
+          "priority": {
+            "default": "normal",
+            "pattern": "^(low|normal|high|urgent)$",
+            "title": "Priority",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["title"],
+        "title": "TaskCreate",
+        "type": "object"
+      },
+      "TaskDetailResponse": {
+        "additionalProperties": false,
+        "description": "Everything the workspace may know about one task. Symmetric: every\nrole receives identical bytes, enforced the finder's way \u2014 the payload\nfunction takes no role.",
+        "properties": {
+          "archivedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archivedat"
+          },
+          "assigneeName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigneename"
+          },
+          "assigneePersonId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigneepersonid"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "createdBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdby"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "dueOn": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dueon"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/TaskEventEntry"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "string"
+          },
+          "projectId": {
+            "format": "uuid",
+            "title": "Projectid",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["id", "projectId", "title", "description", "state", "priority", "createdAt"],
+        "title": "TaskDetailResponse",
+        "type": "object"
+      },
+      "TaskEventEntry": {
+        "additionalProperties": false,
+        "description": "One audit entry, already rendered into a neutral sentence.\n\nThe sentence is chosen once, server-side, identically for every reader \u2014\n\"Ali moved this task from In progress to In review.\" It names the change\nand the actor, never a judgement, a duration, or a count. The raw\ncategorical row stays in the database; clients get words, so no client\ncan re-aggregate events per person.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "sentence": {
+            "title": "Sentence",
+            "type": "string"
+          }
+        },
+        "required": ["sentence", "at"],
+        "title": "TaskEventEntry",
+        "type": "object"
+      },
+      "TaskListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskSummary"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "title": "TaskListResponse",
+        "type": "object"
+      },
+      "TaskStateChange": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "pattern": "^(todo|in_progress|in_review|blocked|done)$",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["state"],
+        "title": "TaskStateChange",
+        "type": "object"
+      },
+      "TaskSummary": {
+        "additionalProperties": false,
+        "description": "One task as a board lists it.\n\nNo counts, no per-person anything, no \"time in column\" \u2014 a board decorated\nwith activity is a leaderboard of the people working it. Boards order by\ncreation time, which measures nothing.",
+        "properties": {
+          "archivedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archivedat"
+          },
+          "assigneeName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigneename"
+          },
+          "assigneePersonId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigneepersonid"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "dueOn": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dueon"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "string"
+          },
+          "projectId": {
+            "format": "uuid",
+            "title": "Projectid",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["id", "projectId", "title", "description", "state", "priority", "createdAt"],
+        "title": "TaskSummary",
+        "type": "object"
+      },
+      "TaskUpdate": {
+        "additionalProperties": false,
+        "description": "Edits to a task's descriptive fields. State moves through its own\nendpoint, where the transition table lives.\n\nAbsent and null are different here: an omitted `assigneePersonId` leaves\nthe assignee alone, an explicit null unassigns. The router reads\n`model_fields_set` to tell them apart.",
+        "properties": {
+          "assigneePersonId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigneepersonid"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "dueOn": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dueon"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "pattern": "^(low|normal|high|urgent)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "TaskUpdate",
+        "type": "object"
       },
       "TenantRole": {
         "description": "A person's role within one workspace. Deliberately four (md/15 \u00a72.2).\n``ADMIN`` governs configuration, never visibility depth.",
@@ -9242,6 +9642,67 @@
         "tags": ["me"]
       }
     },
+    "/v1/workspaces/{workspace_id}/me/tasks": {
+      "get": {
+        "description": "Empty groups, not a 404, for a caller with no `Person` row: a user and\na person are different things (md/01 \u00a75.3), and having no attributed\nPerson yet is an ordinary state, not an error.",
+        "operationId": "list_my_tasks_v1_workspaces__workspace_id__me_tasks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyTasksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace, or you are not a member."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My own tasks, grouped by column",
+        "tags": ["tasks"]
+      }
+    },
     "/v1/workspaces/{workspace_id}/me/week": {
       "get": {
         "description": "The caller's own record.\n\n**Scoped in the query, not in the response.** Filtering the team's facts down\nto the reader in the interface would mean one forgotten condition shows a\nperson somebody else's record \u2014 the failure that turns a trust product into\na surveillance complaint. Scoping the query means the same bug shows nothing.\n\nSuperseded facts are excluded, so a correction takes effect the moment it is\nmade. That is the point of the screen: a person who fixes something should\nsee it fixed, not see their correction queued behind a nightly job.",
@@ -10795,6 +11256,175 @@
         "tags": ["projects"]
       }
     },
+    "/v1/workspaces/{workspace_id}/projects/{project_id}/tasks": {
+      "get": {
+        "description": "Archived tasks are excluded by default and included on request \u2014\nexcluded is not deleted, and their audit trail stays readable either way.",
+        "operationId": "list_tasks_v1_workspaces__workspace_id__projects__project_id__tasks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(todo|in_progress|in_review|blocked|done)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace or project."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One project's board, in creation order",
+        "tags": ["tasks"]
+      },
+      "post": {
+        "operationId": "create_task_v1_workspaces__workspace_id__projects__project_id__tasks_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace or project."
+          },
+          "422": {
+            "description": "The assignee is not an active member of the project."
+          }
+        },
+        "summary": "Create a task on this project's board",
+        "tags": ["tasks"]
+      }
+    },
     "/v1/workspaces/{workspace_id}/related-work": {
       "get": {
         "description": "See the module docstring for everything this refuses to be.\n\nThe topic is deliberately not logged: it is free text about somebody's\nwork, and the telemetry allow-list has no slot for it. The count is\nobservable; the words are not.",
@@ -11293,6 +11923,380 @@
         },
         "summary": "End support access now",
         "tags": ["support"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}": {
+      "get": {
+        "operationId": "get_task_v1_workspaces__workspace_id__tasks__task_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace or task."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One task, with its audit trail as sentences",
+        "tags": ["tasks"]
+      },
+      "patch": {
+        "description": "Each changed field appends its own categorical audit event, so the\ntrail says *what kind* of thing happened without quoting any content.\nAbsent and null differ for the nullable fields \u2014 `model_fields_set`\ntells them apart, so omitting the assignee is not an unassignment.",
+        "operationId": "update_task_v1_workspaces__workspace_id__tasks__task_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace or task."
+          },
+          "409": {
+            "description": "The task is archived."
+          },
+          "422": {
+            "description": "The assignee is not an active member of the project."
+          }
+        },
+        "summary": "Edit a task's descriptive fields",
+        "tags": ["tasks"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/archive": {
+      "post": {
+        "operationId": "archive_task_v1_workspaces__workspace_id__tasks__task_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Only an owner, an admin, or the task's creator may archive."
+          },
+          "404": {
+            "description": "No such workspace or task."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Archive a task \u2014 close it, never delete it",
+        "tags": ["tasks"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/restore": {
+      "post": {
+        "operationId": "restore_task_v1_workspaces__workspace_id__tasks__task_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "description": "Only an owner, an admin, or the task's creator may restore."
+          },
+          "404": {
+            "description": "No such workspace or task."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore an archived task",
+        "tags": ["tasks"]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/tasks/{task_id}/state": {
+      "post": {
+        "operationId": "set_task_state_v1_workspaces__workspace_id__tasks__task_id__state_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "cairn_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cairn Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskStateChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such workspace or task."
+          },
+          "409": {
+            "description": "Illegal transition, archived task, terminal state, or the review handoff refused the same reviewer."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move a task along the workflow",
+        "tags": ["tasks"]
       }
     },
     "/v1/workspaces/{workspace_id}/trust": {

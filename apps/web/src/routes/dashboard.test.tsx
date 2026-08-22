@@ -562,6 +562,30 @@ describe("a project's detail", () => {
     expect(within(team).getByText(/removed/i)).toBeVisible();
   });
 
+  it("places the Tasks board between Team and Work, empty as one honest line", async () => {
+    renderRoute(
+      <AppLayout>
+        <ProjectDetailPage projectId="p1" />
+      </AppLayout>,
+      { client: detailClient(), route: "/projects/p1" },
+    );
+
+    const main = await screen.findByRole("main");
+    const team = await within(main).findByRole("region", { name: /^team$/i });
+    const tasks = await within(main).findByRole("region", { name: /^tasks$/i });
+    const work = await within(main).findByRole("region", { name: /^work$/i });
+
+    // Team, then Tasks, then Work — decided work sits between the people and
+    // the evidence.
+    expect(team.compareDocumentPosition(tasks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tasks.compareDocumentPosition(work) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // The harness's default board is empty: one line, no invented figure and
+    // no zero-count columns.
+    expect(await within(tasks).findByText("No tasks yet.")).toBeVisible();
+    expect(tasks.textContent).not.toMatch(/\d+ (tasks?|completed)/i);
+  });
+
   it("offers a retry and a way back when the project cannot be loaded", async () => {
     renderRoute(
       <AppLayout>

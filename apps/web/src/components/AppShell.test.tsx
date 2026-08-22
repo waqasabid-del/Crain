@@ -71,6 +71,7 @@ describe("the navigation", () => {
       "Daily brief",
       "Activity",
       "Projects",
+      "Tasks",
       "Team",
       "Your record",
       "Workspace settings",
@@ -87,7 +88,16 @@ describe("the navigation", () => {
     // Every path that survived is still here, in the same order. `/trust` is
     // absent because the Trust Center has been removed from the product, not
     // because the redesign mislaid it.
-    expect(hrefs).toEqual(["/", "/brief", "/feed", "/projects", "/people", "/me", "/admin"]);
+    expect(hrefs).toEqual([
+      "/",
+      "/brief",
+      "/feed",
+      "/projects",
+      "/tasks",
+      "/people",
+      "/me",
+      "/admin",
+    ]);
     expect(hrefs).not.toContain("/trust");
   });
 
@@ -114,7 +124,7 @@ describe("the navigation", () => {
       const hrefs = within(nav)
         .getAllByRole("link")
         .map((link) => link.getAttribute("href"));
-      expect(hrefs).toEqual(["/", "/brief", "/feed", "/projects", "/people", "/me"]);
+      expect(hrefs).toEqual(["/", "/brief", "/feed", "/projects", "/tasks", "/people", "/me"]);
     },
   );
 });

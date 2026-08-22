@@ -1,0 +1,98 @@
+/*
+ * One task on the board. Every value is a theme token; hierarchy is size,
+ * weight and space alone. No per-priority colour — see the component.
+ */
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-default);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+
+/* Guarded: a tap on a touch device reports a hover and keeps reporting it. */
+@media (hover: hover) {
+  .card:hover {
+    background: var(--bg-subtle);
+  }
+}
+
+/* Monospace because it is a categorical value from a closed set, in the same
+   voice as the source chips — a word the machine chose from four. */
+.priority {
+  padding: var(--space-1) var(--space-2);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  border: var(--border-thin) solid var(--border-subtle);
+  border-radius: var(--radius-full);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+}
+
+/* Whole card clickable, link name still just the title — the stretched
+   pseudo-element covers the card while the accessible name stays the task's
+   title rather than every word on it. */
+.link {
+  color: var(--fg-default);
+  text-decoration: none;
+}
+
+.link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+}
+
+@media (hover: hover) {
+  .link:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+}
+
+.link:focus-visible::after {
+  outline: var(--focus-width) var(--focus-style) var(--border-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.assignee {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+/* Quieter than a name, because it is the absence of one — a fact, not a
+   warning. */
+.unassigned {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}
+
+.due {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}

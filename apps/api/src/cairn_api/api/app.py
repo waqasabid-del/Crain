@@ -50,6 +50,7 @@ from cairn_api.api.routers import (
     slack,
     slack_webhooks,
     support,
+    tasks,
     trust,
     workspaces,
 )
@@ -182,6 +183,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(facts.router, prefix=API_PREFIX)
     app.include_router(related_work.router, prefix=API_PREFIX)
     app.include_router(projects.router, prefix=API_PREFIX)
+    app.include_router(tasks.router, prefix=API_PREFIX)
     app.include_router(onboarding.router, prefix=API_PREFIX)
     app.include_router(me.router, prefix=API_PREFIX)
     # Its own module rather than more of `me.py`, and mounted under the same

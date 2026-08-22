@@ -24,6 +24,7 @@ from cairn_api.db.project_models import (  # noqa: F401  (register metadata)
     ProjectMember,
     ProjectSource,
 )
+from cairn_api.db.task_models import Task, TaskEvent  # noqa: F401  (register metadata)
 from sqlalchemy import engine_from_config, pool
 
 config = context.config

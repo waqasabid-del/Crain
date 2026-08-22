@@ -362,6 +362,19 @@ export type ProjectCreateBody =
 export type ProjectUpdateBody =
   paths["/v1/workspaces/{workspace_id}/projects/{project_id}"]["patch"]["requestBody"]["content"]["application/json"];
 
+export type TaskList =
+  paths["/v1/workspaces/{workspace_id}/projects/{project_id}/tasks"]["get"]["responses"]["200"]["content"]["application/json"];
+export type TaskSummary = NonNullable<TaskList["tasks"]>[number];
+export type TaskDetail =
+  paths["/v1/workspaces/{workspace_id}/tasks/{task_id}"]["get"]["responses"]["200"]["content"]["application/json"];
+export type TaskState = NonNullable<TaskSummary["state"]>;
+export type TaskCreateBody =
+  paths["/v1/workspaces/{workspace_id}/projects/{project_id}/tasks"]["post"]["requestBody"]["content"]["application/json"];
+export type TaskUpdateBody =
+  paths["/v1/workspaces/{workspace_id}/tasks/{task_id}"]["patch"]["requestBody"]["content"]["application/json"];
+export type MyTasks =
+  paths["/v1/workspaces/{workspace_id}/me/tasks"]["get"]["responses"]["200"]["content"]["application/json"];
+
 export type Capacity = "open_to_work" | "at_capacity" | "not_stated";
 export type RelatedWork =
   paths["/v1/workspaces/{workspace_id}/related-work"]["get"]["responses"]["200"]["content"]["application/json"];
@@ -512,6 +525,48 @@ export interface CairnClient {
     personId: string,
     options?: RequestOptions,
   ): Promise<ProjectDetail>;
+  /** Create a task on a project's board. Title is the only requirement; an
+   * assignee must be an active member of the project. */
+  createTask(
+    workspaceId: string,
+    projectId: string,
+    body: TaskCreateBody,
+    options?: RequestOptions,
+  ): Promise<TaskDetail>;
+  /** One project's board, in creation order - never ordered by activity.
+   * Archived tasks are excluded unless asked for. */
+  listTasks(
+    workspaceId: string,
+    projectId: string,
+    query?: { state?: TaskState; includeArchived?: boolean },
+    options?: RequestOptions,
+  ): Promise<TaskList>;
+  /** One task with its audit trail rendered as neutral sentences. Symmetric -
+   * every role receives identical bytes. */
+  getTask(workspaceId: string, taskId: string, options?: RequestOptions): Promise<TaskDetail>;
+  /** Edit a task's descriptive fields. Each changed field leaves its own
+   * categorical audit event; state moves through setTaskState instead. */
+  updateTask(
+    workspaceId: string,
+    taskId: string,
+    body: TaskUpdateBody,
+    options?: RequestOptions,
+  ): Promise<TaskDetail>;
+  /** Move a task along the closed workflow. Illegal moves 409; approving a
+   * review requires a different user from the one who requested it. */
+  setTaskState(
+    workspaceId: string,
+    taskId: string,
+    state: TaskState,
+    options?: RequestOptions,
+  ): Promise<TaskDetail>;
+  /** Archive a task - close it, never delete it. Owner, admin, or the task's
+   * creator. */
+  archiveTask(workspaceId: string, taskId: string, options?: RequestOptions): Promise<TaskDetail>;
+  restoreTask(workspaceId: string, taskId: string, options?: RequestOptions): Promise<TaskDetail>;
+  /** The caller's own tasks, grouped by workflow column. Self-scoped by
+   * construction; empty groups when no Person is linked yet. */
+  listMyTasks(workspaceId: string, options?: RequestOptions): Promise<MyTasks>;
   /** Evidence of who has worked on related things. Deterministic retrieval
    * over facts - no score, no rank, no model call; groups order by most recent
    * related fact and every fact carries its citations. People appear only
@@ -1020,6 +1075,85 @@ export function createClient(options: ClientOptions): CairnClient {
         undefined,
         options,
       ),
+
+    createTask: (
+      workspaceId: string,
+      projectId: string,
+      body: TaskCreateBody,
+      options?: RequestOptions,
+    ) =>
+      request<TaskDetail>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/projects/${projectId}/tasks`,
+        body,
+        options,
+      ),
+
+    listTasks: (
+      workspaceId: string,
+      projectId: string,
+      query?: { state?: TaskState; includeArchived?: boolean },
+      options?: RequestOptions,
+    ) => {
+      const search = new URLSearchParams();
+      if (query?.state) search.set("state", query.state);
+      if (query?.includeArchived) search.set("include_archived", "true");
+      const suffix = search.toString() === "" ? "" : `?${search.toString()}`;
+      return request<TaskList>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/projects/${projectId}/tasks${suffix}`,
+        undefined,
+        options,
+      );
+    },
+
+    getTask: (workspaceId: string, taskId: string, options?: RequestOptions) =>
+      request<TaskDetail>(
+        "GET",
+        `/v1/workspaces/${workspaceId}/tasks/${taskId}`,
+        undefined,
+        options,
+      ),
+
+    updateTask: (
+      workspaceId: string,
+      taskId: string,
+      body: TaskUpdateBody,
+      options?: RequestOptions,
+    ) =>
+      request<TaskDetail>("PATCH", `/v1/workspaces/${workspaceId}/tasks/${taskId}`, body, options),
+
+    setTaskState: (
+      workspaceId: string,
+      taskId: string,
+      state: TaskState,
+      options?: RequestOptions,
+    ) =>
+      request<TaskDetail>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/tasks/${taskId}/state`,
+        { state },
+        options,
+      ),
+
+    archiveTask: (workspaceId: string, taskId: string, options?: RequestOptions) =>
+      request<TaskDetail>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/tasks/${taskId}/archive`,
+        undefined,
+        options,
+      ),
+
+    restoreTask: (workspaceId: string, taskId: string, options?: RequestOptions) =>
+      request<TaskDetail>(
+        "POST",
+        `/v1/workspaces/${workspaceId}/tasks/${taskId}/restore`,
+        undefined,
+        options,
+      ),
+
+    listMyTasks: (workspaceId: string, options?: RequestOptions) =>
+      request<MyTasks>("GET", `/v1/workspaces/${workspaceId}/me/tasks`, undefined, options),
 
     findRelatedWork: (workspaceId: string, topic: string, options?: RequestOptions) =>
       request<RelatedWork>(

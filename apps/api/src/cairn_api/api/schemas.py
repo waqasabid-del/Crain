@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -2258,3 +2258,115 @@ class ProjectSourceClaimRequest(ApiModel):
 class ProjectMemberAdd(ApiModel):
     person_id: uuid.UUID
     project_role: str | None = Field(default=None, max_length=100)
+
+
+# --- Tasks ------------------------------------------------------------------
+
+
+class TaskSummary(ApiModel):
+    """One task as a board lists it.
+
+    No counts, no per-person anything, no "time in column" — a board decorated
+    with activity is a leaderboard of the people working it. Boards order by
+    creation time, which measures nothing.
+    """
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    title: str
+    description: str
+    state: str
+    priority: str
+    assignee_person_id: uuid.UUID | None = None
+    #: Display name only, for rendering the card. Never a link into any
+    #: per-person aggregate — no such surface exists.
+    assignee_name: str | None = None
+    due_on: date | None = None
+    created_at: datetime
+    archived_at: datetime | None = None
+
+
+class TaskListResponse(ApiModel):
+    tasks: list[TaskSummary] = Field(default_factory=list)
+
+
+class TaskEventEntry(ApiModel):
+    """One audit entry, already rendered into a neutral sentence.
+
+    The sentence is chosen once, server-side, identically for every reader —
+    "Ali moved this task from In progress to In review." It names the change
+    and the actor, never a judgement, a duration, or a count. The raw
+    categorical row stays in the database; clients get words, so no client
+    can re-aggregate events per person.
+    """
+
+    sentence: str
+    at: datetime
+
+
+class TaskDetailResponse(ApiModel):
+    """Everything the workspace may know about one task. Symmetric: every
+    role receives identical bytes, enforced the finder's way — the payload
+    function takes no role."""
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    title: str
+    description: str
+    state: str
+    priority: str
+    assignee_person_id: uuid.UUID | None = None
+    assignee_name: str | None = None
+    due_on: date | None = None
+    created_by: str | None = None
+    created_at: datetime
+    archived_at: datetime | None = None
+    events: list[TaskEventEntry] = Field(default_factory=list)
+
+
+class TaskCreate(ApiModel):
+    """A new task. Title is the only requirement — everything else has an
+    honest default: todo, normal, unassigned, undated."""
+
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=10_000)
+    priority: str = Field(default="normal", pattern="^(low|normal|high|urgent)$")
+    assignee_person_id: uuid.UUID | None = None
+    due_on: date | None = None
+
+
+class TaskUpdate(ApiModel):
+    """Edits to a task's descriptive fields. State moves through its own
+    endpoint, where the transition table lives.
+
+    Absent and null are different here: an omitted `assigneePersonId` leaves
+    the assignee alone, an explicit null unassigns. The router reads
+    `model_fields_set` to tell them apart.
+    """
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=10_000)
+    priority: str | None = Field(default=None, pattern="^(low|normal|high|urgent)$")
+    assignee_person_id: uuid.UUID | None = None
+    due_on: date | None = None
+
+
+class TaskStateChange(ApiModel):
+    state: str = Field(pattern="^(todo|in_progress|in_review|blocked|done)$")
+
+
+class MyTasksResponse(ApiModel):
+    """The caller's own tasks, grouped by workflow column.
+
+    This is the one assignee-filtered surface, and it is *self-scoped by
+    construction*: the query keys on the caller's own Person, so it can only
+    ever show someone their own work — the My Week idiom (md/05 §B.2.3).
+    `done` carries the latest ten, a memory aid rather than a tally; there is
+    deliberately no figure saying how many.
+    """
+
+    todo: list[TaskSummary] = Field(default_factory=list)
+    in_progress: list[TaskSummary] = Field(default_factory=list)
+    in_review: list[TaskSummary] = Field(default_factory=list)
+    blocked: list[TaskSummary] = Field(default_factory=list)
+    done: list[TaskSummary] = Field(default_factory=list)
