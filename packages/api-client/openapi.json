@@ -4347,6 +4347,12 @@
             "title": "Priority",
             "type": "string"
           },
+          "state": {
+            "default": "todo",
+            "pattern": "^(todo|in_progress|in_review|done)$",
+            "title": "State",
+            "type": "string"
+          },
           "title": {
             "maxLength": 200,
             "minLength": 1,
@@ -11418,7 +11424,7 @@
             "description": "No such workspace or project."
           },
           "422": {
-            "description": "The assignee is not an active member of the project."
+            "description": "The assignee is not an active member of the project, or the requested initial state is not one a task may open in."
           }
         },
         "summary": "Create a task on this project's board",

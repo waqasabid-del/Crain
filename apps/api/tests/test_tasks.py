@@ -948,3 +948,164 @@ class TestBoardOrderIsCreationOrder:
                 session, tenant_id=tenant.id, project_id=project_id
             )
         assert [task.title for task in board.tasks] == titles
+
+
+async def _create(tenant, user, project_id, body: TaskCreate, *, role=TenantRole.OWNER):
+    async with tenant_session(tenant.id) as session:
+        return await tasks_router.create_task(
+            _context(user, tenant, role), session, project_id, body
+        )
+
+
+async def _events(tenant, task_id) -> list[TaskEvent]:
+    async with tenant_session(tenant.id) as session:
+        rows = await session.scalars(
+            select(TaskEvent).where(TaskEvent.task_id == task_id).order_by(TaskEvent.at)
+        )
+        return list(rows)
+
+
+class TestCreatingIntoAColumnIsSchemaGated:
+    """Every column on the board has an "Add task"; `blocked` has none, and
+    the schema is where that is decided."""
+
+    def test_each_creatable_column_is_accepted(self) -> None:
+        for state in ("todo", "in_progress", "in_review", "done"):
+            assert TaskCreate(title="Ship it", state=state).state == state
+
+    def test_todo_is_still_the_default(self) -> None:
+        assert TaskCreate(title="Ship it").state == "todo"
+
+    def test_blocked_is_not_creatable(self) -> None:
+        """A task is blocked by something that happened to it — there is no
+        honest history in which it begins blocked."""
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            TaskCreate(title="Ship it", state="blocked")
+
+    def test_a_nonsense_state_is_refused(self) -> None:
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            TaskCreate(title="Ship it", state="shipped")
+
+    def test_viewers_still_cannot_create_in_any_column(self) -> None:
+        import inspect
+
+        from cairn_api.auth.permissions import Permission, has_permission
+
+        assert not has_permission(TenantRole.VIEWER, Permission.TASKS_WRITE)
+        assert "requires(Permission.TASKS_WRITE)" in inspect.getsource(tasks_router.create_task)
+
+
+@integration
+class TestCreatingIntoAColumn:
+    async def test_a_task_lands_in_the_column_it_was_created_in(self, platform) -> None:
+        tenant, user, project_id = await _board(platform, "landing")
+        for state in ("todo", "in_progress", "in_review", "done"):
+            payload = await _create(
+                tenant, user, project_id, TaskCreate(title=f"Opened in {state}", state=state)
+            )
+            assert payload.state == state
+            async with tenant_session(tenant.id) as session:
+                task = await session.get(Task, payload.id)
+                assert task.state.value == state
+
+    @pytest.mark.parametrize(
+        ("state", "sentence"),
+        [
+            ("todo", "owner person created this task."),
+            ("in_progress", "owner person created this task, already in progress."),
+            ("in_review", "owner person created this task, already in review."),
+            ("done", "owner person recorded this task as already done."),
+        ],
+    )
+    async def test_the_event_says_how_the_task_got_there(
+        self, platform, state: str, sentence: str
+    ) -> None:
+        tenant, user, project_id = await _board(platform, f"say{state}")
+        payload = await _create(
+            tenant, user, project_id, TaskCreate(title="Restore the nightly backup", state=state)
+        )
+        assert [entry.sentence for entry in payload.events] == [sentence]
+
+    async def test_creation_never_synthesises_a_walk(self, platform) -> None:
+        """One creation, one event — not a chain of invented moves through
+        columns the task never sat in."""
+        tenant, user, project_id = await _board(platform, "nowalk")
+        payload = await _create(
+            tenant, user, project_id, TaskCreate(title="Ship the importer", state="in_review")
+        )
+        events = await _events(tenant, payload.id)
+        assert [event.kind for event in events] == [TaskEventKind.CREATED]
+        assert events[0].from_state is None
+        assert events[0].to_state is TaskState.IN_REVIEW
+
+    async def test_done_on_create_is_recorded_not_reviewed(self, platform) -> None:
+        """Recording already-finished work is a different act from approving
+        a review, and the trail must say which one happened — forever."""
+        tenant, user, project_id = await _board(platform, "recorded")
+        payload = await _create(
+            tenant, user, project_id, TaskCreate(title="Renew the TLS certificate", state="done")
+        )
+        events = await _events(tenant, payload.id)
+        assert [event.kind for event in events] == [TaskEventKind.RECORDED_DONE]
+        assert not any(event.kind is TaskEventKind.STATE_CHANGED for event in events)
+        sentences = [entry.sentence for entry in payload.events]
+        assert sentences == ["owner person recorded this task as already done."]
+        # Never the transition's wording: no move to Done happened.
+        assert "moved this task" not in sentences[0]
+
+    async def test_the_assignee_rule_still_applies_with_a_state(self, platform) -> None:
+        tenant, user, project_id = await _board(platform, "createassign")
+        async with tenant_session(tenant.id) as session:
+            outsider = await _person(session, tenant, "Not On This Project")
+            await session.commit()
+            outsider_id = outsider.id
+
+        with pytest.raises(ProblemDetailError) as excinfo:
+            await _create(
+                tenant,
+                user,
+                project_id,
+                TaskCreate(title="Ship it", state="in_progress", assignee_person_id=outsider_id),
+            )
+        assert excinfo.value.status_code == 422
+
+
+@integration
+class TestCreatingInReviewDoesNotDodgeTheHandoff:
+    """The create endpoint must not become a way around the one rule that
+    insists two humans took part."""
+
+    async def test_the_creator_cannot_approve_the_review_they_opened(self, platform) -> None:
+        tenant, alice, project_id = await _board(platform, "dodge")
+        payload = await _create(
+            tenant, alice, project_id, TaskCreate(title="Audit the RLS grants", state="in_review")
+        )
+        with pytest.raises(ProblemDetailError) as excinfo:
+            await _move(tenant, alice, payload.id, "done")
+        assert excinfo.value.status_code == 409
+        assert "somebody else" in excinfo.value.detail
+
+    async def test_a_second_user_may(self, platform) -> None:
+        tenant, alice, project_id = await _board(platform, "dodge2")
+        payload = await _create(
+            tenant, alice, project_id, TaskCreate(title="Audit the RLS grants", state="in_review")
+        )
+        bob = await _user(platform, tenant, TenantRole.MEMBER)
+        await platform.commit()
+        moved = await _move(tenant, bob, payload.id, "done", role=TenantRole.MEMBER)
+        assert moved.state == "done"
+
+    async def test_the_state_endpoint_still_refuses_the_illegal_moves(self, platform) -> None:
+        """Creating into a column places a task; it never widens the
+        transition table. Done stays terminal."""
+        tenant, user, project_id = await _board(platform, "terminal")
+        payload = await _create(
+            tenant, user, project_id, TaskCreate(title="Renew the TLS certificate", state="done")
+        )
+        with pytest.raises(ProblemDetailError) as excinfo:
+            await _move(tenant, user, payload.id, "todo")
+        assert excinfo.value.status_code == 409

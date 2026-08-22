@@ -16,8 +16,8 @@ it up must not be forced onto a person to exist.
 **The audit is categorical, never narrative.** ``TaskEvent`` records *that*
 a title changed, never the old title; *that* a task was reassigned, never from
 whom to whom. The only structured payload is ``from_state``/``to_state`` on a
-state change, because the transition table and the review-handoff rule are
-enforced by reading it back. There is no free-text payload column, so an
+state change or an out-of-todo creation, because the transition table and the
+review-handoff rule are enforced by reading it back. There is no free-text payload column, so an
 identifier or a judgement has nowhere to land — the projects/audit.py
 signature-is-the-guarantee idea, applied to rows.
 
@@ -88,6 +88,10 @@ class TaskEventKind(enum.StrEnum):
     how a payload eventually grows one (projects/audit.py)."""
 
     CREATED = "created"
+    #: Work that was already finished before CAIRN was told about it —
+    #: created straight into done. A kind of its own, never `state_changed`,
+    #: because no review took place and the trail must say so forever.
+    RECORDED_DONE = "recorded_done"
     RETITLED = "retitled"
     DESCRIBED = "described"
     REASSIGNED = "reassigned"
@@ -209,9 +213,11 @@ class TaskEvent(UUIDPrimaryKeyMixin, Base):
         nullable=True,
     )
 
-    #: Populated for ``state_changed`` only. These two columns are the whole
-    #: reason the audit is structured at all: the review-handoff rule reads
-    #: back who moved a task *to* in_review.
+    #: Populated for ``state_changed``, and — as ``to_state`` alone, with no
+    #: ``from_state`` because nothing was left — for a creation that opens a
+    #: task past the first column. These columns are the whole reason the
+    #: audit is structured at all: the review-handoff rule reads back who put
+    #: a task *into* in_review, whether by moving it or by creating it there.
     from_state: Mapped[TaskState | None] = mapped_column(
         Enum(TaskState, native_enum=False, length=16, values_callable=_enum_values),
         nullable=True,

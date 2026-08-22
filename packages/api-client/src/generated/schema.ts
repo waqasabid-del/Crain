@@ -5177,6 +5177,11 @@ export interface components {
        * @default normal
        */
       priority: string;
+      /**
+       * State
+       * @default todo
+       */
+      state: string;
       /** Title */
       title: string;
     };
@@ -9617,7 +9622,7 @@ export interface operations {
         };
         content?: never;
       };
-      /** @description The assignee is not an active member of the project. */
+      /** @description The assignee is not an active member of the project, or the requested initial state is not one a task may open in. */
       422: {
         headers: {
           [name: string]: unknown;

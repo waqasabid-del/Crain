@@ -2330,6 +2330,13 @@ class TaskCreate(ApiModel):
 
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=10_000)
+    #: Which column the task opens in, so the board's per-column "Add task"
+    #: places work in one atomic write rather than a create-then-move chain
+    #: that can strand a half-placed task. **`blocked` is not creatable**: a
+    #: task is blocked by something that happened to it, and there is no
+    #: honest history in which a task begins blocked. The router records how
+    #: the task got where it is; it never fakes the walk it skipped.
+    state: str = Field(default="todo", pattern="^(todo|in_progress|in_review|done)$")
     priority: str = Field(default="normal", pattern="^(low|normal|high|urgent)$")
     assignee_person_id: uuid.UUID | None = None
     due_on: date | None = None

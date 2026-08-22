@@ -266,7 +266,26 @@ const ROUTES: [string, (client: CairnClient) => Promise<unknown>, string, string
   ],
   [
     "createTask",
-    (c) => c.createTask(W, "p-1", { title: "t", description: "", priority: "normal" }),
+    (c) =>
+      c.createTask(W, "p-1", {
+        title: "t",
+        description: "",
+        priority: "normal",
+        state: "todo",
+      }),
+    "POST",
+    `/v1/workspaces/${W}/projects/p-1/tasks`,
+  ],
+  [
+    // Every column on the board has an "Add task"; the body carries which one.
+    "createTask (into a column)",
+    (c) =>
+      c.createTask(W, "p-1", {
+        title: "t",
+        description: "",
+        priority: "normal",
+        state: "in_review",
+      }),
     "POST",
     `/v1/workspaces/${W}/projects/p-1/tasks`,
   ],

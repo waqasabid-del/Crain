@@ -93,6 +93,16 @@ _STATE_LABELS: dict[TaskState, str] = {
 }
 
 
+#: How a task that opened past the first column reads. Deliberately *not*
+#: the transition wording: no move happened, so no sentence may imply one.
+#: ``done`` is absent — recording already-finished work gets its own kind and
+#: its own sentence, so it can never be mistaken for an approved review.
+_CREATED_IN_LABELS: dict[TaskState, str] = {
+    TaskState.IN_PROGRESS: "in progress",
+    TaskState.IN_REVIEW: "in review",
+}
+
+
 def _actor_name(user: User | None) -> str:
     """The workspace-visible name of an acting user — both fields already
     appear on the members screen. A deleted account reads as what it is."""
@@ -109,8 +119,13 @@ def _sentence(event: TaskEvent, actor: str) -> str:
         from_label = _STATE_LABELS.get(event.from_state, "?") if event.from_state else "?"
         to_label = _STATE_LABELS.get(event.to_state, "?") if event.to_state else "?"
         return f"{actor} moved this task from {from_label} to {to_label}."
+    if event.kind is TaskEventKind.CREATED and event.to_state is not None:
+        opened_in = _CREATED_IN_LABELS.get(event.to_state)
+        if opened_in is not None:
+            return f"{actor} created this task, already {opened_in}."
     template = {
         TaskEventKind.CREATED: "{actor} created this task.",
+        TaskEventKind.RECORDED_DONE: "{actor} recorded this task as already done.",
         TaskEventKind.RETITLED: "{actor} retitled this task.",
         TaskEventKind.DESCRIBED: "{actor} updated the description.",
         TaskEventKind.REASSIGNED: "{actor} reassigned this task.",
@@ -434,7 +449,12 @@ async def _reload(
     summary="Create a task on this project's board",
     responses={
         404: {"description": "No such workspace or project."},
-        422: {"description": "The assignee is not an active member of the project."},
+        422: {
+            "description": (
+                "The assignee is not an active member of the project, or the "
+                "requested initial state is not one a task may open in."
+            )
+        },
     },
 )
 async def create_task(
@@ -444,6 +464,7 @@ async def create_task(
     body: TaskCreate,
 ) -> TaskDetailResponse:
     await _get_project(db, tenant_id=context.tenant_id, project_id=project_id)
+    initial_state = TaskState(body.state)
     if body.assignee_person_id is not None:
         await _ensure_assignable(
             db,
@@ -461,10 +482,20 @@ async def create_task(
         assignee_person_id=body.assignee_person_id,
         due_on=body.due_on,
         created_by_user_id=context.user.id,
+        state=initial_state,
     )
     db.add(task)
     await db.flush()
-    _record(db, task, TaskEventKind.CREATED, context.user.id)
+    # The task is created *in* the requested column; no chain of invented
+    # state_changed rows pretends it walked there. Creating straight into
+    # done is its own kind — recording finished work, never approving a
+    # review that never happened.
+    if initial_state is TaskState.DONE:
+        _record(db, task, TaskEventKind.RECORDED_DONE, context.user.id, to_state=TaskState.DONE)
+    elif initial_state is TaskState.TODO:
+        _record(db, task, TaskEventKind.CREATED, context.user.id)
+    else:
+        _record(db, task, TaskEventKind.CREATED, context.user.id, to_state=initial_state)
     await db.commit()
 
     await audit.record(audit.TaskOpEvent.CREATED)
@@ -651,8 +682,10 @@ async def _enforce_review_handoff(
 ) -> None:
     """Review means a second pair of eyes, structurally.
 
-    The latest audit row that moved this task *to* in_review names the user
+    The latest audit row that put this task *into* in_review names the user
     who asked for review; the user closing the review must be somebody else.
+    Creating a task directly in in_review counts as asking — otherwise the
+    create endpoint would be a way around this rule, which it must never be.
     This is the product's "test it" step — the one place the workflow insists
     two humans took part — and it reads the append-only trail rather than a
     mutable column, so it cannot be gamed by an edit.
@@ -662,7 +695,7 @@ async def _enforce_review_handoff(
         .where(
             TaskEvent.tenant_id == task.tenant_id,
             TaskEvent.task_id == task.id,
-            TaskEvent.kind == TaskEventKind.STATE_CHANGED,
+            TaskEvent.kind.in_((TaskEventKind.STATE_CHANGED, TaskEventKind.CREATED)),
             TaskEvent.to_state == TaskState.IN_REVIEW,
         )
         .order_by(TaskEvent.at.desc(), TaskEvent.id.desc())
