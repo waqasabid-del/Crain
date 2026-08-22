@@ -8,7 +8,7 @@ import AppLayout from "./app/(app)/layout.js";
 import { BriefPage } from "./routes/BriefPage.js";
 import { FeedPage } from "./routes/FeedPage.js";
 import { LoginPage } from "./routes/LoginPage.js";
-import { MyTasksPage } from "./routes/MyTasksPage.js";
+import { TasksPage } from "./routes/TasksPage.js";
 import { PeoplePage } from "./routes/PeoplePage.js";
 import { createStubClient, renderRoute, SESSION } from "./test/harness.js";
 
@@ -100,8 +100,8 @@ describe("axe audit", () => {
     await auditShell(<PeoplePage />, "/people");
   });
 
-  it("passes on my tasks", async () => {
-    await auditShell(<MyTasksPage />, "/tasks");
+  it("passes on tasks", async () => {
+    await auditShell(<TasksPage />, "/tasks");
   });
 
   it("passes on the login screen", async () => {

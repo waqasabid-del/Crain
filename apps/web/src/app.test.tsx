@@ -8,7 +8,7 @@ import AppLayout from "./app/(app)/layout.js";
 import { BriefPage } from "./routes/BriefPage.js";
 import { FeedPage } from "./routes/FeedPage.js";
 import NotFound from "./app/not-found.js";
-import { MyTasksPage } from "./routes/MyTasksPage.js";
+import { TasksPage } from "./routes/TasksPage.js";
 import { PeoplePage } from "./routes/PeoplePage.js";
 import { createStubClient, renderRoute, SESSION } from "./test/harness.js";
 
@@ -60,7 +60,7 @@ describe("routing", () => {
   it.each([
     ["/feed", <FeedPage key="feed" />],
     ["/people", <PeoplePage key="people" />],
-    ["/tasks", <MyTasksPage key="tasks" />],
+    ["/tasks", <TasksPage key="tasks" />],
   ])("renders %s inside the shell", async (route, page) => {
     renderRoute(shell(page), { client: signedIn(), route });
 

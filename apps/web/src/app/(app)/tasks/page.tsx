@@ -2,8 +2,8 @@
 
 import type { ReactNode } from "react";
 
-import { MyTasksPage } from "../../../routes/MyTasksPage.js";
+import { TasksPage } from "../../../routes/TasksPage.js";
 
 export default function Page(): ReactNode {
-  return <MyTasksPage />;
+  return <TasksPage />;
 }

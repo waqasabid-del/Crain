@@ -340,7 +340,7 @@ class TaskSeed:
     due_in_days: int | None = None
 
 
-#: Eighteen tasks across the boards, covering every workflow column, every
+#: Twenty-six tasks across the boards, covering every workflow column, every
 #: priority, and the unassigned state. Each seeded task also gets its audit
 #: trail — a `created` event and the state changes that walked it to its
 #: column — because a task with a state and no history would be data the
@@ -486,6 +486,64 @@ TASKS: tuple[TaskSeed, ...] = (
         TaskPriority.HIGH,
         "Jonas Weber",
         due_in_days=18,
+    ),
+    TaskSeed(
+        DATA_PLATFORM_NAME,
+        "Backfill the warehouse with pre-2025 audit events",
+        TaskState.TODO,
+        TaskPriority.NORMAL,
+        due_in_days=25,
+    ),
+    # A second wave, most of it deliberately unassigned: the workspace
+    # tasks view exists so an owner can hand work out, and a demo where
+    # everything already has a name on it would leave that view nothing
+    # to demonstrate.
+    TaskSeed(
+        GATEWAY,
+        "Set up canary deploys for the ingress fleet",
+        TaskState.TODO,
+        TaskPriority.HIGH,
+        due_in_days=15,
+    ),
+    TaskSeed(
+        PAYMENTS,
+        "Add idempotency keys to the refund endpoint",
+        TaskState.TODO,
+        TaskPriority.URGENT,
+        due_in_days=6,
+    ),
+    TaskSeed(
+        ONBOARDING_NAME,
+        "Instrument the signup funnel's drop-off points",
+        TaskState.TODO,
+        TaskPriority.NORMAL,
+    ),
+    TaskSeed(
+        MOBILE_NAME,
+        "Reduce the Android cold-start below two seconds",
+        TaskState.TODO,
+        TaskPriority.HIGH,
+        due_in_days=21,
+    ),
+    TaskSeed(
+        BILLING_NAME,
+        "Reconcile the migrated ledgers against three months of statements",
+        TaskState.TODO,
+        TaskPriority.HIGH,
+    ),
+    TaskSeed(
+        DESIGN_SYSTEM_NAME,
+        "Ship the data-table component with sticky headers",
+        TaskState.IN_PROGRESS,
+        TaskPriority.NORMAL,
+        "Sofia Rossi",
+        due_in_days=11,
+    ),
+    TaskSeed(
+        DESIGN_SYSTEM_NAME,
+        "Audit every screen for the 4.5:1 contrast floor",
+        TaskState.TODO,
+        TaskPriority.NORMAL,
     ),
 )
 
