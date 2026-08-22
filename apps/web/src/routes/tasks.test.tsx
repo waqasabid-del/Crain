@@ -325,6 +325,8 @@ describe("tasks", () => {
       title: "Write the brief",
       description: "",
       priority: "normal",
+      // The header's panel creates ordinary work: the first column.
+      state: "todo",
     });
   });
 
@@ -359,7 +361,11 @@ describe("tasks", () => {
     expect(within(inProgress).getByText("Blocked")).toBeVisible();
     expect(within(inProgress).getByText("Mara Voss")).toBeVisible();
     // Blocked cards are read-only: unblocking belongs on the task's own page.
-    expect(within(inProgress).queryByRole("button")).toBeNull();
+    // Scoped to the card, because the column's foot now carries the quick
+    // "Add task" control — which is not a control on anybody's card.
+    const blockedCard = within(inProgress).getByText("Map the sources").closest("article");
+    expect(blockedCard).not.toBeNull();
+    expect(within(blockedCard!).queryByRole("button")).toBeNull();
     // The moving task carries no such pill.
     expect(within(main).getAllByText("Blocked")).toHaveLength(1);
   });
@@ -623,6 +629,7 @@ describe("tasks", () => {
       title: "Write the brief",
       description: "",
       priority: "normal",
+      state: "todo",
       assigneePersonId: PRIYA,
     });
     await waitFor(() => {
@@ -684,11 +691,314 @@ describe("tasks", () => {
     expect(await within(main).findByText("Wire the export")).toBeVisible();
   });
 
+  /*
+   * The quick composer at the foot of every column — the Jira idiom: you add
+   * where you are looking, and the column you added at is the column the work
+   * lands in.
+   */
+  describe("the quick Add task composer", () => {
+    /** The board, once its data is on screen. Never awaited on a region that
+     * exists during loading — that race has bitten this suite before. */
+    async function findMain(stub = client()): Promise<HTMLElement> {
+      renderPage(stub);
+      const main = await screen.findByRole("main");
+      await within(main).findByText("Wire the export");
+      return main;
+    }
+
+    function column(main: HTMLElement, name: string): HTMLElement {
+      return within(main).getByRole("region", { name });
+    }
+
+    const COLUMN_NAMES = ["Assign", "To do", "In progress", "Test", "Completed"];
+
+    it("offers an Add task control at the foot of each of the five columns", async () => {
+      const main = await findMain();
+
+      for (const name of COLUMN_NAMES) {
+        expect(
+          within(column(main, name)).getByRole("button", { name: `Add task to ${name}` }),
+        ).toBeVisible();
+      }
+    });
+
+    it("opens the composer inside the column that was clicked, and nowhere else", async () => {
+      const main = await findMain();
+
+      await userEvent.click(
+        within(column(main, "To do")).getByRole("button", { name: "Add task to To do" }),
+      );
+
+      const todo = column(main, "To do");
+      expect(within(todo).getByRole("form", { name: "Add task to To do" })).toBeVisible();
+      expect(within(todo).getByRole("textbox", { name: "Title" })).toHaveFocus();
+      // Every other column still shows its quiet control, not a composer.
+      for (const name of COLUMN_NAMES.filter((candidate) => candidate !== "To do")) {
+        expect(within(column(main, name)).queryByRole("form")).toBeNull();
+        expect(
+          within(column(main, name)).getByRole("button", { name: `Add task to ${name}` }),
+        ).toBeVisible();
+      }
+    });
+
+    it("closes the first composer when a second is opened", async () => {
+      const main = await findMain();
+
+      await userEvent.click(
+        within(column(main, "To do")).getByRole("button", { name: "Add task to To do" }),
+      );
+      await userEvent.type(
+        within(column(main, "To do")).getByRole("textbox", { name: "Title" }),
+        "Half a thought",
+      );
+      await userEvent.click(
+        within(column(main, "Test")).getByRole("button", { name: "Add task to Test" }),
+      );
+
+      expect(
+        within(column(main, "Test")).getByRole("form", { name: "Add task to Test" }),
+      ).toBeVisible();
+      expect(within(column(main, "To do")).queryByRole("form")).toBeNull();
+      expect(
+        within(column(main, "To do")).getByRole("button", { name: "Add task to To do" }),
+      ).toBeVisible();
+    });
+
+    /** Open the named column's composer, fill it in and submit. */
+    async function addFrom(main: HTMLElement, name: string, title: string): Promise<void> {
+      const region = column(main, name);
+      await userEvent.click(within(region).getByRole("button", { name: `Add task to ${name}` }));
+      const composer = within(main).getByRole("form", { name: `Add task to ${name}` });
+      await userEvent.selectOptions(within(composer).getByRole("combobox", { name: "Project" }), [
+        ATLAS,
+      ]);
+      await userEvent.type(within(composer).getByRole("textbox", { name: "Title" }), title);
+      await userEvent.click(within(composer).getByRole("button", { name: "Add" }));
+    }
+
+    it("creates into its own column's state, and Assign creates unassigned", async () => {
+      const createTask = vi.fn(() => Promise.resolve(ATLAS_TASKS[0] as TaskDetail));
+      const main = await findMain(client({ createTask }));
+
+      // Assign: the column *is* the unassigned column, so it sends no
+      // assignee at all — and offers no way to choose one.
+      const assign = column(main, "Assign");
+      await userEvent.click(within(assign).getByRole("button", { name: "Add task to Assign" }));
+      const composer = within(main).getByRole("form", { name: "Add task to Assign" });
+      expect(within(composer).queryByRole("combobox", { name: "Assignee" })).toBeNull();
+      await userEvent.selectOptions(within(composer).getByRole("combobox", { name: "Project" }), [
+        ATLAS,
+      ]);
+      await userEvent.type(
+        within(composer).getByRole("textbox", { name: "Title" }),
+        "Hand this out",
+      );
+      await userEvent.click(within(composer).getByRole("button", { name: "Add" }));
+
+      expect(createTask).toHaveBeenLastCalledWith(WORKSPACE, ATLAS, {
+        title: "Hand this out",
+        description: "",
+        priority: "normal",
+        state: "todo",
+      });
+
+      // And the other four, each into the state its column stands for.
+      const expected: [string, string][] = [
+        ["To do", "todo"],
+        ["In progress", "in_progress"],
+        ["Test", "in_review"],
+        ["Completed", "done"],
+      ];
+      for (const [name, state] of expected) {
+        // The board re-reads after each create: wait for its content back
+        // before reaching for the next column.
+        const board = await screen.findByRole("main");
+        await within(board).findByText("Wire the export");
+        await addFrom(board, name, `Work for ${name}`);
+        expect(createTask).toHaveBeenLastCalledWith(WORKSPACE, ATLAS, {
+          title: `Work for ${name}`,
+          description: "",
+          priority: "normal",
+          state,
+        });
+      }
+    });
+
+    it("asks which project only in the All projects view", async () => {
+      const main = await findMain();
+
+      await userEvent.click(
+        within(column(main, "To do")).getByRole("button", { name: "Add task to To do" }),
+      );
+      expect(
+        within(within(main).getByRole("form", { name: "Add task to To do" })).getByRole(
+          "combobox",
+          {
+            name: "Project",
+          },
+        ),
+      ).toBeVisible();
+
+      // A project tab decides it, so the composer stops asking — and offers
+      // that project's members.
+      await userEvent.click(within(main).getByRole("button", { name: "Borealis" }));
+      await userEvent.click(
+        within(column(main, "To do")).getByRole("button", { name: "Add task to To do" }),
+      );
+      const composer = within(main).getByRole("form", { name: "Add task to To do" });
+      expect(within(composer).queryByRole("combobox", { name: "Project" })).toBeNull();
+      const assignee = within(composer).getByRole("combobox", { name: "Assignee" });
+      expect(within(assignee).getByRole("option", { name: "Mara Voss" })).toBeVisible();
+      expect(within(assignee).queryByRole("option", { name: "Priya Shah" })).toBeNull();
+    });
+
+    it("creates into the selected project without being asked which", async () => {
+      const createTask = vi.fn(() => Promise.resolve(ATLAS_TASKS[0] as TaskDetail));
+      const main = await findMain(client({ createTask }));
+
+      await userEvent.click(within(main).getByRole("button", { name: "Borealis" }));
+      await userEvent.click(
+        within(column(main, "Test")).getByRole("button", { name: "Add task to Test" }),
+      );
+      const composer = within(main).getByRole("form", { name: "Add task to Test" });
+      await userEvent.type(within(composer).getByRole("textbox", { name: "Title" }), "Check it");
+      await userEvent.click(within(composer).getByRole("button", { name: "Add" }));
+
+      expect(createTask).toHaveBeenCalledWith(WORKSPACE, BOREALIS, {
+        title: "Check it",
+        description: "",
+        priority: "normal",
+        state: "in_review",
+      });
+    });
+
+    it("keeps Add disabled until a title is typed", async () => {
+      const main = await findMain();
+
+      await userEvent.click(within(main).getByRole("button", { name: "Add task to To do" }));
+      const composer = within(main).getByRole("form", { name: "Add task to To do" });
+      const add = within(composer).getByRole("button", { name: "Add" });
+      expect(add).toBeDisabled();
+
+      // Whitespace is not a title. No alert and no red — nothing has gone
+      // wrong yet.
+      await userEvent.type(within(composer).getByRole("textbox", { name: "Title" }), "   ");
+      expect(add).toBeDisabled();
+      expect(within(composer).queryByRole("alert")).toBeNull();
+
+      await userEvent.selectOptions(within(composer).getByRole("combobox", { name: "Project" }), [
+        ATLAS,
+      ]);
+      await userEvent.type(within(composer).getByRole("textbox", { name: "Title" }), "Real work");
+      expect(add).toBeEnabled();
+    });
+
+    it("submits on Enter in the title", async () => {
+      const createTask = vi.fn(() => Promise.resolve(ATLAS_TASKS[0] as TaskDetail));
+      const main = await findMain(client({ createTask }));
+
+      await userEvent.click(within(main).getByRole("button", { name: "Add task to To do" }));
+      const composer = within(main).getByRole("form", { name: "Add task to To do" });
+      await userEvent.selectOptions(within(composer).getByRole("combobox", { name: "Project" }), [
+        ATLAS,
+      ]);
+      await userEvent.type(
+        within(composer).getByRole("textbox", { name: "Title" }),
+        "Typed and entered{Enter}",
+      );
+
+      expect(createTask).toHaveBeenCalledWith(WORKSPACE, ATLAS, {
+        title: "Typed and entered",
+        description: "",
+        priority: "normal",
+        state: "todo",
+      });
+    });
+
+    it("cancels on Escape and returns focus to the Add task control", async () => {
+      const main = await findMain();
+
+      const opener = within(main).getByRole("button", { name: "Add task to To do" });
+      await userEvent.click(opener);
+      const composer = within(main).getByRole("form", { name: "Add task to To do" });
+      await userEvent.type(within(composer).getByRole("textbox", { name: "Title" }), "Never mind");
+      await userEvent.keyboard("{Escape}");
+
+      expect(within(main).queryByRole("form", { name: "Add task to To do" })).toBeNull();
+      const reopened = within(main).getByRole("button", { name: "Add task to To do" });
+      expect(reopened).toHaveFocus();
+    });
+
+    it("keeps the typed title and says why when the create is refused", async () => {
+      const main = await findMain(
+        client({ createTask: vi.fn(() => Promise.reject(apiError(403))) }),
+      );
+
+      await userEvent.click(within(main).getByRole("button", { name: "Add task to To do" }));
+      const composer = within(main).getByRole("form", { name: "Add task to To do" });
+      await userEvent.selectOptions(within(composer).getByRole("combobox", { name: "Project" }), [
+        ATLAS,
+      ]);
+      await userEvent.type(
+        within(composer).getByRole("textbox", { name: "Title" }),
+        "A task the API refuses",
+      );
+      await userEvent.click(within(composer).getByRole("button", { name: "Add" }));
+
+      const alert = await within(column(main, "To do")).findByRole("alert");
+      expect(alert).toHaveTextContent(/does not have access/i);
+      // The typed title survives: a refusal is something to adjust.
+      expect(within(composer).getByRole("textbox", { name: "Title" })).toHaveValue(
+        "A task the API refuses",
+      );
+    });
+
+    it("clears the title and stays open after a create, and re-reads the board", async () => {
+      const createTask = vi.fn(() => Promise.resolve(ATLAS_TASKS[0] as TaskDetail));
+      const listProjects = vi.fn(() => Promise.resolve(PROJECTS));
+      const main = await findMain(client({ createTask, listProjects }));
+
+      await addFrom(main, "To do", "One of several");
+
+      await waitFor(() => {
+        expect(listProjects).toHaveBeenCalledTimes(2);
+      });
+      // Still open, empty, and focused: an owner filling a column adds several
+      // in a row.
+      // Queried afresh each time: the board is remounted by the re-read, so a
+      // node captured before it is a detached node that can never hold focus.
+      const titleNow = (): HTMLElement =>
+        within(within(main).getByRole("form", { name: "Add task to To do" })).getByRole("textbox", {
+          name: "Title",
+        });
+      await within(main).findByRole("form", { name: "Add task to To do" });
+      await waitFor(() => {
+        expect(titleNow()).toHaveValue("");
+      });
+      await waitFor(() => {
+        expect(titleNow()).toHaveFocus();
+      });
+    });
+
+    it("offers a viewer no Add task control in any column", async () => {
+      renderPage(client({ getSession: vi.fn(() => Promise.resolve(sessionAs("viewer"))) }));
+
+      const main = await screen.findByRole("main");
+      await within(main).findByText("Draft the notice");
+
+      expect(within(main).queryByRole("button", { name: /add task/i })).toBeNull();
+    });
+  });
+
   it("never counts, scores or measures anyone", async () => {
     renderPage();
 
     const main = await screen.findByRole("main");
     await within(main).findByText("Wire the export");
+    // The quick composer's own words are inside the guard too: a control at
+    // the foot of every column is a tempting place for "3 to do".
+    await userEvent.click(within(main).getByRole("button", { name: "Add task to To do" }));
+    expect(within(main).getByRole("form", { name: "Add task to To do" })).toBeVisible();
     // `main` includes the tab row, so the guard below covers it too — but the
     // row is asserted separately, because a count is likeliest to appear
     // exactly there, beside a project's name.

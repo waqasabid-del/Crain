@@ -20,6 +20,7 @@ import { formatDay } from "../components/dates.js";
 import { Field } from "../components/Field.js";
 import { InlineProblem } from "../components/InlineProblem.js";
 import { PageHeader } from "../components/PageHeader.js";
+import { QuickAddTask, type QuickAddTarget } from "../components/QuickAddTask.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/States.js";
 import { describeError, type DescribedError } from "../errors.js";
 import { useAsync } from "../hooks/useAsync.js";
@@ -145,6 +146,14 @@ function WorkspaceTasks({ workspaceId }: { workspaceId: string }): ReactNode {
    * sends to a colleague, so it costs nothing to keep it here.
    */
   const [selected, setSelected] = useState("");
+  /*
+   * Which column's quick composer stands open — one across the whole board, or
+   * null. Held here rather than in the board below because a create re-reads
+   * the workspace, and the board is unmounted while that read is in flight: a
+   * composer that owned its own open flag would close itself every time it
+   * succeeded, which is the opposite of what adding several in a row needs.
+   */
+  const [openColumn, setOpenColumn] = useState<string | null>(null);
 
   const load = useCallback(
     async (signal: AbortSignal): Promise<WorkspaceTasksData> => {
@@ -248,8 +257,15 @@ function WorkspaceTasks({ workspaceId }: { workspaceId: string }): ReactNode {
           workspaceId={workspaceId}
           data={state.data}
           selected={selected}
-          onSelect={setSelected}
+          onSelect={(projectId) => {
+            // A composer belongs to the view it was opened in: the project it
+            // would create into has just changed under it.
+            setOpenColumn(null);
+            setSelected(projectId);
+          }}
           canAct={canAct}
+          openColumn={openColumn}
+          onOpenColumn={setOpenColumn}
           onChanged={reload}
         />
       )}
@@ -265,12 +281,58 @@ type ColumnAction = "assign" | "review" | "none";
  * empty still stands — a board with missing columns reads as a broken board —
  * and the two the owner checks for good news say it in their own words.
  */
-const COLUMNS: readonly { key: string; title: string; action: ColumnAction; empty: string }[] = [
-  { key: "assign", title: "Assign", action: "assign", empty: "Everything is assigned." },
-  { key: "todo", title: "To do", action: "none", empty: "Nothing here." },
-  { key: "inProgress", title: "In progress", action: "none", empty: "Nothing here." },
-  { key: "test", title: "Test", action: "review", empty: "Nothing is waiting for review." },
-  { key: "completed", title: "Completed", action: "none", empty: "Nothing here." },
+const COLUMNS: readonly {
+  key: string;
+  title: string;
+  action: ColumnAction;
+  empty: string;
+  /** The state the column's quick composer creates into — the column a reader
+   * adds work at the foot of is the column that work lands in. */
+  createState: string;
+  /** False for Assign, which *is* the column for work nobody holds yet: its
+   * composer hides the assignee select and creates with no assignee. */
+  canAssign: boolean;
+}[] = [
+  {
+    key: "assign",
+    title: "Assign",
+    action: "assign",
+    empty: "Everything is assigned.",
+    createState: "todo",
+    canAssign: false,
+  },
+  {
+    key: "todo",
+    title: "To do",
+    action: "none",
+    empty: "Nothing here.",
+    createState: "todo",
+    canAssign: true,
+  },
+  {
+    key: "inProgress",
+    title: "In progress",
+    action: "none",
+    empty: "Nothing here.",
+    createState: "in_progress",
+    canAssign: true,
+  },
+  {
+    key: "test",
+    title: "Test",
+    action: "review",
+    empty: "Nothing is waiting for review.",
+    createState: "in_review",
+    canAssign: true,
+  },
+  {
+    key: "completed",
+    title: "Completed",
+    action: "none",
+    empty: "Nothing here.",
+    createState: "done",
+    canAssign: true,
+  },
 ];
 
 function Board({
@@ -279,6 +341,8 @@ function Board({
   selected,
   onSelect,
   canAct,
+  openColumn,
+  onOpenColumn,
   onChanged,
 }: {
   workspaceId: string;
@@ -287,6 +351,9 @@ function Board({
   selected: string;
   onSelect: (projectId: string) => void;
   canAct: boolean;
+  /** The one column whose quick composer stands open, or null. */
+  openColumn: string | null;
+  onOpenColumn: (columnKey: string | null) => void;
   onChanged: () => void;
 }): ReactNode {
   if (data.sections.length === 0 && data.unreadable.length === 0) {
@@ -348,6 +415,21 @@ function Board({
   const missing = scope === "" ? data.unreadable : data.unreadable.filter((p) => p.id === scope);
   const scopeUnreadable = chosen !== null && !chosen.readable;
 
+  /*
+   * Where each column's quick composer creates.
+   *
+   * On a single project tab the composer already knows the project and its
+   * members, so it shows no project control. Pooled, it has to ask: a column
+   * spanning every project cannot guess which one a new task belongs to.
+   */
+  const scopeSection = data.sections.find((section) => section.id === scope) ?? null;
+  const target: QuickAddTarget =
+    scopeSection === null
+      ? { kind: "choose", projects: data.sections }
+      : { kind: "fixed", projectId: scopeSection.id, members: scopeSection.members };
+  // Nothing to create into is not a control worth offering.
+  const canAdd = canAct && data.sections.length > 0;
+
   return (
     <div className={styles.boardArea}>
       <ProjectTabs projects={data.projects} selected={scope} onSelect={onSelect} />
@@ -387,6 +469,17 @@ function Board({
               showProject={showProject}
               workspaceId={workspaceId}
               canAct={canAct}
+              canAdd={canAdd}
+              createState={column.createState}
+              canAssign={column.canAssign}
+              target={target}
+              composerOpen={openColumn === column.key}
+              onOpenComposer={() => {
+                onOpenColumn(column.key);
+              }}
+              onCloseComposer={() => {
+                onOpenColumn(null);
+              }}
               onChanged={onChanged}
             />
           ))}
@@ -487,6 +580,13 @@ function Column({
   showProject,
   workspaceId,
   canAct,
+  canAdd,
+  createState,
+  canAssign,
+  target,
+  composerOpen,
+  onOpenComposer,
+  onCloseComposer,
   onChanged,
 }: {
   title: string;
@@ -498,6 +598,14 @@ function Column({
   showProject: boolean;
   workspaceId: string;
   canAct: boolean;
+  /** Whether this reader is offered the quick composer at all. */
+  canAdd: boolean;
+  createState: string;
+  canAssign: boolean;
+  target: QuickAddTarget;
+  composerOpen: boolean;
+  onOpenComposer: () => void;
+  onCloseComposer: () => void;
   onChanged: () => void;
 }): ReactNode {
   const headingId = useId();
@@ -529,6 +637,22 @@ function Column({
             </li>
           ))}
         </ul>
+      )}
+
+      {/* At the foot, under the work: you add where you are looking. Viewers
+        are offered nothing here — the same gating as the card controls. */}
+      {canAdd && (
+        <QuickAddTask
+          workspaceId={workspaceId}
+          columnLabel={title}
+          state={createState}
+          target={target}
+          canAssign={canAssign}
+          open={composerOpen}
+          onOpen={onOpenComposer}
+          onClose={onCloseComposer}
+          onCreated={onChanged}
+        />
       )}
     </section>
   );
@@ -837,6 +961,11 @@ function NewTask({
       title,
       description: description.trim(),
       priority,
+      // This form creates ordinary work, so it opens in the first column. The
+      // columns' own "+ Add task" composers are what create straight into a
+      // later state; this panel exists for the fields they deliberately omit —
+      // description and due date.
+      state: "todo",
       // Spread rather than sending an empty string: an unassigned task has no
       // assignee, not an assignee called "".
       ...(assignee === "" ? {} : { assigneePersonId: assignee }),

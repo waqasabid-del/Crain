@@ -11,6 +11,7 @@ import { useAsync } from "../hooks/useAsync.js";
 import { Card } from "./Card.js";
 import { Field } from "./Field.js";
 import { InlineProblem } from "./InlineProblem.js";
+import { QuickAddTask, type QuickAddTarget } from "./QuickAddTask.js";
 import { ErrorState, LoadingState } from "./States.js";
 import { StatusNote } from "./StatusNote.js";
 import { TaskCard } from "./TaskCard.js";
@@ -29,12 +30,15 @@ export interface AssignableMember {
  * backlog figure, and the moment a column carries a number the board reads as
  * a progress meter over the people working it.
  */
-const COLUMNS: readonly { state: string; label: string }[] = [
-  { state: "todo", label: "To do" },
-  { state: "in_progress", label: "In progress" },
-  { state: "in_review", label: "In review" },
-  { state: "blocked", label: "Blocked" },
-  { state: "done", label: "Done" },
+const COLUMNS: readonly { state: string; label: string; creatable: boolean }[] = [
+  { state: "todo", label: "To do", creatable: true },
+  { state: "in_progress", label: "In progress", creatable: true },
+  { state: "in_review", label: "In review", creatable: true },
+  // No quick composer: a task is blocked by something that happened to it, so
+  // the API refuses a task opened straight into blocked. Offering the control
+  // here would be offering a request that comes back 422 every time.
+  { state: "blocked", label: "Blocked", creatable: false },
+  { state: "done", label: "Done", creatable: true },
 ];
 
 /** The four priorities the form offers, led by the default. */
@@ -72,6 +76,13 @@ export function TaskBoard({
     [client, workspaceId, projectId],
   );
   const { state, reload } = useAsync(load, "load the tasks on this project");
+  /*
+   * Which column's quick composer stands open — one across the board, or null.
+   * Held here rather than in the board below because a create re-reads the
+   * tasks, and the board is unmounted while that read is in flight: a composer
+   * that owned its own open flag would close itself every time it succeeded.
+   */
+  const [openColumn, setOpenColumn] = useState<string | null>(null);
 
   // Decides what to *offer*, never what to allow: the API holds the permission
   // and refuses a request this screen was wrong to show. Viewers read the
@@ -102,17 +113,50 @@ export function TaskBoard({
         />
       )}
 
-      {state.status === "ready" && <Board tasks={state.data.tasks ?? []} />}
+      {state.status === "ready" && (
+        <Board
+          tasks={state.data.tasks ?? []}
+          workspaceId={workspaceId}
+          projectId={projectId}
+          members={members}
+          canCreate={canCreate}
+          openColumn={openColumn}
+          onOpenColumn={setOpenColumn}
+          onCreated={reload}
+        />
+      )}
     </Card>
   );
 }
 
-function Board({ tasks }: { tasks: TaskSummary[] }): ReactNode {
+function Board({
+  tasks,
+  workspaceId,
+  projectId,
+  members,
+  canCreate,
+  openColumn,
+  onOpenColumn,
+  onCreated,
+}: {
+  tasks: TaskSummary[];
+  workspaceId: string;
+  projectId: string;
+  members: AssignableMember[];
+  canCreate: boolean;
+  openColumn: string | null;
+  onOpenColumn: (state: string | null) => void;
+  onCreated: () => void;
+}): ReactNode {
   if (tasks.length === 0) {
     // One line, not a panel: an empty board is a legitimate answer, and the
     // create control above stays for those who can use it.
     return <p className={styles.empty}>No tasks yet.</p>;
   }
+
+  // The board is one project's, so its composers already know where they
+  // create: no project control, and this project's members throughout.
+  const target: QuickAddTarget = { kind: "fixed", projectId, members };
 
   return (
     <div className={styles.board}>
@@ -121,13 +165,48 @@ function Board({ tasks }: { tasks: TaskSummary[] }): ReactNode {
           key={column.state}
           label={column.label}
           tasks={tasks.filter((task) => task.state === column.state)}
+          workspaceId={workspaceId}
+          target={target}
+          canAdd={canCreate && column.creatable}
+          createState={column.state}
+          composerOpen={openColumn === column.state}
+          onOpenComposer={() => {
+            onOpenColumn(column.state);
+          }}
+          onCloseComposer={() => {
+            onOpenColumn(null);
+          }}
+          onCreated={onCreated}
         />
       ))}
     </div>
   );
 }
 
-function Column({ label, tasks }: { label: string; tasks: TaskSummary[] }): ReactNode {
+function Column({
+  label,
+  tasks,
+  workspaceId,
+  target,
+  canAdd,
+  createState,
+  composerOpen,
+  onOpenComposer,
+  onCloseComposer,
+  onCreated,
+}: {
+  label: string;
+  tasks: TaskSummary[];
+  workspaceId: string;
+  target: QuickAddTarget;
+  /** Whether this reader is offered the quick composer in this column. */
+  canAdd: boolean;
+  createState: string;
+  composerOpen: boolean;
+  onOpenComposer: () => void;
+  onCloseComposer: () => void;
+  onCreated: () => void;
+}): ReactNode {
   const headingId = useId();
 
   return (
@@ -147,6 +226,22 @@ function Column({ label, tasks }: { label: string; tasks: TaskSummary[] }): Reac
             </li>
           ))}
         </ul>
+      )}
+
+      {/* At the foot, under the work: you add where you are looking. Viewers
+        are offered nothing here — the same gating as the panel above. */}
+      {canAdd && (
+        <QuickAddTask
+          workspaceId={workspaceId}
+          columnLabel={label}
+          state={createState}
+          target={target}
+          canAssign
+          open={composerOpen}
+          onOpen={onOpenComposer}
+          onClose={onCloseComposer}
+          onCreated={onCreated}
+        />
       )}
     </section>
   );
@@ -203,6 +298,11 @@ function NewTask({
       title,
       description: description.trim(),
       priority,
+      // This form creates ordinary work, so it opens in the first column. The
+      // columns' own "+ Add task" composers are what create straight into a
+      // later state; this panel exists for the fields they deliberately omit —
+      // description and due date.
+      state: "todo",
       // Spread rather than sending an empty string: an unassigned task has no
       // assignee, not an assignee called "".
       ...(assignee === "" ? {} : { assigneePersonId: assignee }),

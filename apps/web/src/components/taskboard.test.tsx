@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -189,6 +189,8 @@ describe("a project's task board", () => {
       title: "Ship rate limits",
       description: "Cap the burst rate.",
       priority: "high",
+      // The panel creates ordinary work: the first column.
+      state: "todo",
       assigneePersonId: "person-1",
       dueOn: "2026-08-30",
     });
@@ -215,6 +217,239 @@ describe("a project's task board", () => {
 
     expect(await within(tasks).findByRole("alert")).toBeVisible();
     expect(within(tasks).getByLabelText("Title")).toHaveValue("A task the API refuses");
+  });
+
+  describe("the quick Add task composer", () => {
+    /** The board as a member sees it, once its cards are on screen. */
+    async function memberBoard(overrides = {}): Promise<HTMLElement> {
+      renderDetail(
+        boardClient({
+          getSession: vi.fn(() => Promise.resolve(sessionAs("member"))),
+          ...overrides,
+        }),
+      );
+      const tasks = await findBoard();
+      // Await content the data produced, never a region that exists while
+      // loading.
+      await within(tasks).findByRole("link", { name: "Ship rate limits" });
+      return tasks;
+    }
+
+    function column(board: HTMLElement, name: string): HTMLElement {
+      return within(board).getByRole("region", { name });
+    }
+
+    it("offers Add task at the foot of the four creatable columns, never Blocked", async () => {
+      const board = await memberBoard();
+
+      for (const name of ["To do", "In progress", "In review", "Done"]) {
+        expect(
+          within(column(board, name)).getByRole("button", { name: `Add task to ${name}` }),
+        ).toBeVisible();
+      }
+      // Blocked is not creatable: a task is blocked by something that
+      // happened to it, and the API refuses it 422.
+      expect(
+        within(column(board, "Blocked")).queryByRole("button", { name: /add task/i }),
+      ).toBeNull();
+    });
+
+    it("opens the composer in the clicked column alone, with no project select", async () => {
+      const board = await memberBoard();
+
+      await userEvent.click(
+        within(column(board, "In progress")).getByRole("button", {
+          name: "Add task to In progress",
+        }),
+      );
+
+      const composer = within(board).getByRole("form", { name: "Add task to In progress" });
+      // The board belongs to one project, so nothing asks which.
+      expect(within(composer).queryByRole("combobox", { name: "Project" })).toBeNull();
+      expect(within(composer).getByRole("textbox", { name: "Title" })).toHaveFocus();
+      expect(within(column(board, "To do")).queryByRole("form")).toBeNull();
+
+      // Its assignee choice is this project's members.
+      const assignee = within(composer).getByRole("combobox", { name: "Assignee" });
+      expect(within(assignee).getByRole("option", { name: "Priya Nair" })).toBeVisible();
+    });
+
+    it("closes the first composer when a second is opened", async () => {
+      const board = await memberBoard();
+
+      await userEvent.click(
+        within(column(board, "To do")).getByRole("button", { name: "Add task to To do" }),
+      );
+      await userEvent.click(
+        within(column(board, "Done")).getByRole("button", { name: "Add task to Done" }),
+      );
+
+      expect(within(board).getByRole("form", { name: "Add task to Done" })).toBeVisible();
+      expect(within(board).queryByRole("form", { name: "Add task to To do" })).toBeNull();
+    });
+
+    it("creates into each column's own state, with no project argument to choose", async () => {
+      const createTask = vi.fn(() =>
+        Promise.resolve({
+          id: "t3",
+          projectId: "p1",
+          title: "Quick work",
+          description: "",
+          state: "todo",
+          priority: "normal",
+          createdAt: "2026-08-22T09:00:00Z",
+        }),
+      );
+      const expected: [string, string][] = [
+        ["To do", "todo"],
+        ["In progress", "in_progress"],
+        ["In review", "in_review"],
+        ["Done", "done"],
+      ];
+
+      renderDetail(
+        boardClient({
+          getSession: vi.fn(() => Promise.resolve(sessionAs("member"))),
+          createTask,
+        }),
+      );
+      let board = await findBoard();
+      await within(board).findByRole("link", { name: "Ship rate limits" });
+
+      for (const [name, state] of expected) {
+        board = await findBoard();
+        // The board re-reads after each create: wait for its cards back.
+        await within(board).findByRole("link", { name: "Ship rate limits" });
+        await userEvent.click(
+          within(column(board, name)).getByRole("button", { name: `Add task to ${name}` }),
+        );
+        const composer = within(board).getByRole("form", { name: `Add task to ${name}` });
+        await userEvent.type(
+          within(composer).getByRole("textbox", { name: "Title" }),
+          `Work for ${name}`,
+        );
+        await userEvent.click(within(composer).getByRole("button", { name: "Add" }));
+
+        expect(createTask).toHaveBeenLastCalledWith(WORKSPACE, "p1", {
+          title: `Work for ${name}`,
+          description: "",
+          priority: "normal",
+          state,
+        });
+      }
+    });
+
+    it("keeps Add disabled until a title is typed", async () => {
+      const board = await memberBoard();
+
+      await userEvent.click(within(board).getByRole("button", { name: "Add task to To do" }));
+      const composer = within(board).getByRole("form", { name: "Add task to To do" });
+      const add = within(composer).getByRole("button", { name: "Add" });
+      expect(add).toBeDisabled();
+
+      await userEvent.type(within(composer).getByRole("textbox", { name: "Title" }), "   ");
+      expect(add).toBeDisabled();
+      expect(within(composer).queryByRole("alert")).toBeNull();
+
+      await userEvent.type(within(composer).getByRole("textbox", { name: "Title" }), "Real work");
+      expect(add).toBeEnabled();
+    });
+
+    it("cancels on Escape and returns focus to the Add task control", async () => {
+      const board = await memberBoard();
+
+      await userEvent.click(within(board).getByRole("button", { name: "Add task to To do" }));
+      const composer = within(board).getByRole("form", { name: "Add task to To do" });
+      await userEvent.type(within(composer).getByRole("textbox", { name: "Title" }), "Never mind");
+      await userEvent.keyboard("{Escape}");
+
+      expect(within(board).queryByRole("form", { name: "Add task to To do" })).toBeNull();
+      expect(within(board).getByRole("button", { name: "Add task to To do" })).toHaveFocus();
+    });
+
+    it("keeps the typed title and says why when the create is refused", async () => {
+      const board = await memberBoard({ createTask: vi.fn(() => Promise.reject(apiError(422))) });
+
+      await userEvent.click(within(board).getByRole("button", { name: "Add task to To do" }));
+      const composer = within(board).getByRole("form", { name: "Add task to To do" });
+      await userEvent.type(
+        within(composer).getByRole("textbox", { name: "Title" }),
+        "A task the API refuses",
+      );
+      await userEvent.click(within(composer).getByRole("button", { name: "Add" }));
+
+      expect(await within(column(board, "To do")).findByRole("alert")).toBeVisible();
+      expect(within(composer).getByRole("textbox", { name: "Title" })).toHaveValue(
+        "A task the API refuses",
+      );
+    });
+
+    it("clears the title and stays open after a create, and re-reads the board", async () => {
+      const listTasks = vi.fn(() => Promise.resolve({ tasks: TASKS }));
+      const board = await memberBoard({
+        listTasks,
+        createTask: vi.fn(() =>
+          Promise.resolve({
+            id: "t3",
+            projectId: "p1",
+            title: "One of several",
+            description: "",
+            state: "todo",
+            priority: "normal",
+            createdAt: "2026-08-22T09:00:00Z",
+          }),
+        ),
+      });
+
+      await userEvent.click(within(board).getByRole("button", { name: "Add task to To do" }));
+      await userEvent.type(
+        within(within(board).getByRole("form", { name: "Add task to To do" })).getByRole(
+          "textbox",
+          { name: "Title" },
+        ),
+        "One of several{Enter}",
+      );
+
+      await waitFor(() => {
+        expect(listTasks).toHaveBeenCalledTimes(2);
+      });
+      // Queried afresh each time: the board is remounted by the re-read, so a
+      // node captured before it is a detached node that can never hold focus.
+      const titleNow = (): HTMLElement =>
+        within(within(board).getByRole("form", { name: "Add task to To do" })).getByRole(
+          "textbox",
+          {
+            name: "Title",
+          },
+        );
+      await within(board).findByRole("form", { name: "Add task to To do" });
+      await waitFor(() => {
+        expect(titleNow()).toHaveValue("");
+      });
+      await waitFor(() => {
+        expect(titleNow()).toHaveFocus();
+      });
+    });
+
+    it("says nothing that counts, scores or ranks, composer included", async () => {
+      const board = await memberBoard();
+
+      await userEvent.click(within(board).getByRole("button", { name: "Add task to To do" }));
+      expect(within(board).getByRole("form", { name: "Add task to To do" })).toBeVisible();
+
+      expect(board.textContent).not.toMatch(
+        /\bscore|\brank|\bmost\b|\btop\b|productivity|velocity/i,
+      );
+      expect(board.textContent).not.toMatch(/\d+ (tasks?|completed)/i);
+    });
+
+    it("offers a viewer no Add task control in any column", async () => {
+      renderDetail(boardClient({ getSession: vi.fn(() => Promise.resolve(sessionAs("viewer"))) }));
+
+      const board = await findBoard();
+      await within(board).findByRole("link", { name: "Ship rate limits" });
+      expect(within(board).queryByRole("button", { name: /add task/i })).toBeNull();
+    });
   });
 
   it("keeps the hero and Team standing when only the task read fails", async () => {
